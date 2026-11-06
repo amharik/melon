@@ -310,6 +310,9 @@ The remote runner uses Node 24 and Playwright's Chromium. Override
 `MELON_REMOTE`, `MELON_REMOTE_DIR`, or `MELON_REMOTE_AI=1` as needed. Local AI
 verification stays opt-in because it needs WebGPU and Hugging Face access.
 
+GitHub Actions runs `npm test` and `npm run e2e` for every push and pull request
+targeting `dev` (`.github/workflows/ci.yml`).
+
 The core ABI is a raw C-style boundary, deliberately avoiding wasm-bindgen:
 `melon_alloc`, `melon_call`, `melon_out_len`, `melon_version`, with JSON in and
 JSON out. See `docs/ARCHITECTURE.md`.
