@@ -4,7 +4,7 @@ set -euo pipefail
 REMOTE="${MELON_REMOTE:-ubuntu@sillyoci}"
 NODE_VERSION="${NODE_VERSION:-24.20.0}"
 
-ssh "$REMOTE" "NODE_VERSION=$NODE_VERSION bash -s" <<'EOF'
+ssh "$REMOTE" "NODE_VERSION=$NODE_VERSION PLAYWRIGHT_WITH_DEPS=${PLAYWRIGHT_WITH_DEPS:-0} bash -s" <<'EOF'
 set -euo pipefail
 
 NODE_VERSION="${NODE_VERSION:-24.20.0}"
@@ -28,5 +28,8 @@ export PATH="$HOME/.local/node/bin:$PATH"
 node --version
 npm --version
 npm install -g playwright@1.65.0
-playwright install --with-deps chromium
+playwright install chromium
+if [ "${PLAYWRIGHT_WITH_DEPS:-0}" = "1" ]; then
+  playwright install --with-deps chromium
+fi
 EOF

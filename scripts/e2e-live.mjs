@@ -93,6 +93,7 @@ async function findChrome() {
       .sort((a, b) => Number(b.split("-")[1]) - Number(a.split("-")[1]));
     for (const version of versions) {
       candidates.push(path.join(cache, version, "chrome-linux64", "chrome"));
+      candidates.push(path.join(cache, version, "chrome-linux-arm64", "chrome"));
       candidates.push(path.join(cache, version, "chrome-linux", "chrome"));
     }
   } catch {}
