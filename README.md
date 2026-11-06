@@ -247,7 +247,9 @@ extension/           MV3 bridge (background, content adapters, options)
 test/                Node tests for the hub, WASM ABI, extension, AI catalog and simulator
 scripts/build.sh     test + build + copy the WASM artifact
 scripts/vendor-ai.sh download and vendor Transformers.js + ONNX runtime
-docs/                feasibility and architecture notes
+scripts/e2e-remote.sh sync and test the working tree on sillyoci
+scripts/setup-remote.sh provision Node + Playwright Chromium on sillyoci
+docs/                feasibility, architecture, and milestone notes
 ```
 
 ## Build and test
@@ -293,6 +295,20 @@ MELON_LIVE_SITES=chatgpt,gemini MELON_LIVE_STRICT=1 npm run e2e:live
 # Local AI runtime (required only if you enable Local AI)
 npm run vendor:ai
 ```
+
+### Remote Linux/arm64 test lane
+
+`ubuntu@sillyoci` is the pinned remote runner. Provision it once, then sync the
+working tree and run `npm test` plus `npm run e2e` there:
+
+```bash
+./scripts/setup-remote.sh
+npm run test:remote
+```
+
+The remote runner uses Node 24 and Playwright's Chromium. Override
+`MELON_REMOTE`, `MELON_REMOTE_DIR`, or `MELON_REMOTE_AI=1` as needed. Local AI
+verification stays opt-in because it needs WebGPU and Hugging Face access.
 
 The core ABI is a raw C-style boundary, deliberately avoiding wasm-bindgen:
 `melon_alloc`, `melon_call`, `melon_out_len`, `melon_version`, with JSON in and

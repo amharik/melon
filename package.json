@@ -10,6 +10,7 @@
     "e2e": "node scripts/e2e-extension.mjs",
     "e2e:ai": "node scripts/e2e-ai.mjs",
     "e2e:live": "node scripts/e2e-live.mjs",
+    "test:remote": "scripts/e2e-remote.sh",
     "build": "scripts/build.sh",
     "vendor:ai": "scripts/vendor-ai.sh"
   },
