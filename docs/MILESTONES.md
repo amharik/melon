@@ -19,6 +19,7 @@ Acceptance criteria:
 - [x] Synthetic real-Chromium E2E for all four adapters.
 - [x] Local AI model catalog, WebGPU offscreen host, model load/unload smoke test.
 - [x] Live-site health/login/challenge probe with report and optional cookie import.
+- [x] Pinned Linux/arm64 test lane on sillyoci and CI on every `dev` push.
 - [ ] Real planner inference on hardware WebGPU with a production model.
 - [ ] Authenticated live-tab run in CI or on a persistent login profile.
 - [ ] Remote adapter-pack signing, hosting, and update verification.
