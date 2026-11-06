@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Melon agent tab</title>
+    <link rel="stylesheet" href="agent.css" />
+  </head>
+  <body class="agent-page">
+    <header class="agent-head">
+      <div>
+        <p class="eyebrow">Melon / agent tab</p>
+        <h1 id="role-name">Agent</h1>
+      </div>
+      <div class="agent-badges">
+        <span class="badge" id="bus-badge">bus: connecting</span>
+        <span class="badge" id="hub-badge">hub: unknown</span>
+      </div>
+    </header>
+
+    <main class="agent-main">
+      <section class="agent-meta">
+        <div><span>agent</span><code id="agent-id">…</code></div>
+        <div><span>room</span><code id="room">demo</code></div>
+        <div><span>mode</span>
+          <select id="mode">
+            <option value="simulate">Simulated (offline)</option>
+            <option value="llm">Hub LLM endpoint</option>
+          </select>
+        </div>
+        <button id="announce" class="ghost">Announce</button>
+      </section>
+
+      <section class="agent-transcript" id="transcript">
+        <article class="msg system">
+          <p>This tab is a same-origin agent endpoint. Open the canvas, bind a node to this tab, and it will receive streamed runs over a BroadcastChannel.</p>
+        </article>
+      </section>
+
+      <form class="agent-compose" id="compose">
+        <label for="manual">Test this agent directly</label>
+        <div class="compose-row">
+          <textarea id="manual" rows="2" placeholder="Ask this agent a question…"></textarea>
+          <button class="primary" type="submit">Run</button>
+        </div>
+        <p class="hint">Manual runs never leave this tab. Wiring, routing and cancellation live in the canvas.</p>
+      </form>
+    </main>
+
+    <script type="module" src="agent.js"></script>
+  </body>
+</html>

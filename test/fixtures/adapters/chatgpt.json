@@ -1,0 +1,90 @@
+{
+  "adapter": "chatgpt",
+  "hostname": "chatgpt.com",
+  "elements": [
+    {
+      "key": "search",
+      "tag": "TEXTAREA",
+      "attrs": { "placeholder": "Search chats" },
+      "visible": true,
+      "order": 1
+    },
+    {
+      "key": "composer",
+      "tag": "TEXTAREA",
+      "attrs": { "id": "prompt-textarea", "aria-label": "Message ChatGPT" },
+      "visible": true,
+      "order": 2
+    },
+    {
+      "key": "hidden-send",
+      "tag": "BUTTON",
+      "attrs": { "aria-label": "Send message" },
+      "visible": false,
+      "order": 3
+    },
+    {
+      "key": "send",
+      "tag": "BUTTON",
+      "attrs": { "aria-label": "Send message" },
+      "visible": true,
+      "order": 4
+    },
+    {
+      "key": "stop",
+      "tag": "BUTTON",
+      "attrs": { "aria-label": "Stop generating" },
+      "visible": true,
+      "order": 5
+    },
+    {
+      "key": "response1",
+      "tag": "DIV",
+      "attrs": { "data-message-author-role": "assistant" },
+      "text": "First answer",
+      "visible": true,
+      "order": 6
+    },
+    {
+      "key": "response1-markdown",
+      "tag": "DIV",
+      "attrs": { "class": "markdown" },
+      "text": "First answer",
+      "visible": true,
+      "order": 7,
+      "parent": "response1"
+    },
+    {
+      "key": "response2",
+      "tag": "DIV",
+      "attrs": { "data-message-author-role": "assistant" },
+      "text": "Second answer",
+      "visible": true,
+      "order": 8
+    },
+    {
+      "key": "response2-markdown",
+      "tag": "DIV",
+      "attrs": { "class": "markdown" },
+      "text": "Second answer",
+      "visible": true,
+      "order": 9,
+      "parent": "response2"
+    }
+  ],
+  "selectors": {
+    "#prompt-textarea": ["composer"],
+    "div.ProseMirror[contenteditable=\"true\"]": [],
+    "textarea": ["search", "composer"],
+    "[data-testid=\"send-button\"]": [],
+    "button[aria-label*=\"Send\"]": ["hidden-send", "send"],
+    "button[type=\"submit\"]": [],
+    "[data-testid=\"stop-button\"]": [],
+    "button[aria-label*=\"Stop\"]": ["stop"],
+    "[data-message-author-role=\"assistant\"] .markdown": [
+      "response1-markdown",
+      "response2-markdown"
+    ],
+    "[data-message-author-role=\"assistant\"]": ["response1", "response2"]
+  }
+}

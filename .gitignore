@@ -1,0 +1,7 @@
+.melon-token
+.melon/
+core-runtime/target/
+node_modules/
+*.log
+.DS_Store
+extension/vendor/

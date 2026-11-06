@@ -1,0 +1,182 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d0c;
+  --bg-2: #101312;
+  --panel: #141816;
+  --line: #262c28;
+  --line-2: #343c37;
+  --text: #e8ece8;
+  --muted: #8b958f;
+  --accent: #d8a657;
+  --accent-2: #7cc4a0;
+  --danger: #e07a6a;
+  --mono: "SFMono-Regular", "JetBrains Mono", "Cascadia Code", monospace;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1000px 500px at 20% -20%, rgba(124, 196, 160, 0.08), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.agent-page {
+  display: flex;
+  flex-direction: column;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 28px 28px 0;
+}
+
+.agent-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.agent-head h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+
+.agent-badges { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+.badge {
+  padding: 5px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.badge.ok { border-color: rgba(124, 196, 160, 0.3); color: var(--accent-2); }
+.badge.bad { border-color: rgba(224, 122, 106, 0.3); color: var(--danger); }
+
+.agent-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding-top: 16px;
+}
+
+.agent-meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-meta > div { display: flex; flex-direction: column; gap: 3px; }
+.agent-meta span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.agent-meta code { color: var(--text); font-family: var(--mono); font-size: 11px; }
+
+select, textarea, input, button {
+  font: inherit;
+  color: inherit;
+}
+
+select, textarea, input {
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--bg-2);
+  padding: 7px 9px;
+  outline: none;
+}
+select:focus, textarea:focus, input:focus { border-color: var(--accent-2); }
+
+button {
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 8px 13px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent-2); }
+button.primary { background: var(--accent-2); border-color: var(--accent-2); color: #08110c; font-weight: 600; }
+button.ghost { background: transparent; color: var(--muted); }
+
+.agent-transcript {
+  flex: 1;
+  min-height: 240px;
+  overflow: auto;
+  padding: 18px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.msg {
+  max-width: 92%;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.msg p { margin: 0; }
+.msg.system { color: var(--muted); font-size: 12px; max-width: 100%; background: transparent; border-style: dashed; }
+.msg.user { align-self: flex-end; border-color: var(--line-2); background: #181d1a; }
+.msg.agent { border-left: 2px solid var(--accent-2); }
+.msg.error { border-color: rgba(224, 122, 106, 0.45); color: var(--danger); }
+.msg .meta {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.agent-compose {
+  padding: 14px 0 22px;
+  border-top: 1px solid var(--line);
+}
+.agent-compose label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.compose-row { display: flex; gap: 9px; align-items: stretch; }
+.compose-row textarea { flex: 1; resize: vertical; min-height: 54px; }
+.compose-row button { align-self: stretch; min-width: 84px; }
+.hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+
+@media (max-width: 620px) {
+  .agent-page { padding: 18px 14px 0; }
+  .agent-head { flex-direction: column; align-items: flex-start; }
+}

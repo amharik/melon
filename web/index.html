@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Melon — agentic office</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>Melon</h1>
+          <p>agentic office runtime</p>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button id="btn-play" class="primary" title="Start the workflow from its source">Play</button>
+        <button id="btn-pause" title="Pause scheduling; active jobs finish">Pause</button>
+        <button id="btn-resume" title="Resume queued work">Resume</button>
+        <button id="btn-stop" class="danger" title="Cancel every active run">Stop all</button>
+        <span class="sep"></span>
+        <button id="btn-example">Example</button>
+        <button id="btn-export">Export</button>
+        <button id="btn-import">Import</button>
+        <button id="btn-clear" class="ghost">Clear</button>
+      </div>
+
+      <div class="statuses">
+        <span class="chip" id="chip-core">core: loading</span>
+        <span class="chip" id="chip-hub">hub: offline</span>
+        <span class="chip" id="chip-tabs">tabs: 0</span>
+        <span class="chip" id="chip-wf">wf: v1</span>
+        <span class="chip" id="chip-run">run: idle</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel panel-left">
+        <section class="block">
+          <div class="block-head">
+            <h2>Brief</h2>
+            <span class="block-meta">source input</span>
+          </div>
+          <textarea id="brief" rows="7" spellcheck="false">Subject: browser tab runtime for multi-agent design review
+
+We are exploring a lightweight runtime that lets AI agents living in separate browser tabs collaborate on a design review. Each tab keeps its own session and credentials. A canvas wires tabs into a dataflow graph. Constraints: no backend that sees the conversation, must work with ChatGPT, Claude, Gemini, Mistral and local opencode, and a human must be able to stop any run.</textarea>
+          <div class="row">
+            <button id="btn-plan">Plan graph</button>
+            <button id="btn-send" class="primary">Send into graph</button>
+          </div>
+          <p class="hint">The brief is emitted from the source node. Agents stream into the sink; nothing is persisted by the hub. Plan graph uses the loaded local AI model; nothing is applied until you approve it.</p>
+        </section>
+
+        <section class="block" id="plan-block" hidden>
+          <div class="block-head">
+            <h2>Plan proposal</h2>
+            <span class="block-meta" id="plan-status">idle</span>
+          </div>
+          <p class="hint" id="plan-summary"></p>
+          <pre id="plan-json" class="result-preview"></pre>
+          <div class="row">
+            <button id="btn-plan-apply" class="primary">Apply plan</button>
+            <button id="btn-plan-discard">Discard</button>
+          </div>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Palette</h2>
+            <span class="block-meta">click to add</span>
+          </div>
+          <div class="palette">
+            <button data-add="source"><span class="dot source"></span>Source</button>
+            <button data-add="agent"><span class="dot agent"></span>Agent</button>
+            <button data-add="join"><span class="dot join"></span>Join</button>
+            <button data-add="sink"><span class="dot sink"></span>Sink</button>
+          </div>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Same-origin tabs</h2>
+            <span class="count" id="presence-count">0</span>
+          </div>
+          <div class="list" id="presence-list">
+            <p class="empty">No agent tabs. Open one below, then bind it in the inspector.</p>
+          </div>
+          <div class="row">
+            <button id="btn-open-claude">Open Claude tab</button>
+            <button id="btn-open-gemini">Open Gemini tab</button>
+          </div>
+          <p class="hint">Demo tabs join a BroadcastChannel. They prove tab-to-tab routing without an extension.</p>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Bridged tabs</h2>
+            <span class="count" id="ext-count">0</span>
+          </div>
+          <div class="list" id="ext-list">
+            <p class="empty">No extension tabs. See README to load the bridge.</p>
+          </div>
+          <p class="hint">Real ChatGPT / Claude / Gemini / Mistral tabs, driven by the MV3 extension through the local hub.</p>
+        </section>
+      </aside>
+
+      <section class="stage-wrap">
+        <div class="stage" id="stage">
+          <svg id="edges" aria-hidden="true">
+            <defs>
+              <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 8 4 L 0 8 z" fill="#4b5650"></path>
+              </marker>
+              <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+                <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#171c19" stroke-width="1"></path>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)"></rect>
+            <g id="edge-layer"></g>
+          </svg>
+          <div id="nodes"></div>
+          <div class="stage-hint" id="stage-hint">Click an output port, then an input port, to connect. Double-click an edge to remove it.</div>
+        </div>
+      </section>
+
+      <aside class="panel panel-right">
+        <section class="block inspector-block">
+          <div class="block-head">
+            <h2>Inspector</h2>
+            <span class="block-meta" id="inspect-meta">nothing selected</span>
+          </div>
+          <p class="empty" id="inspect-empty">Select a node on the canvas.</p>
+          <div id="inspect-fields" hidden></div>
+        </section>
+
+        <section class="block log-block">
+          <div class="block-head">
+            <h2>Activity</h2>
+            <button id="btn-clear-log" class="tiny ghost">clear</button>
+          </div>
+          <div class="log" id="log"></div>
+        </section>
+      </aside>
+    </main>
+
+    <div class="toast" id="toast" hidden></div>
+    <input type="file" id="file-import" accept="application/json,.json" hidden />
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

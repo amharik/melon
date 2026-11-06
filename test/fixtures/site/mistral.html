@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mistral fixture</title>
+    <style>
+      body { margin: 0; font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; background: #f7f7f5; color: #202123; }
+      main { max-width: 760px; min-height: 100vh; margin: 0 auto; padding: 40px 24px 120px; box-sizing: border-box; }
+      h1 { font-size: 20px; }
+      #responses { display: grid; gap: 18px; margin: 28px 0; }
+      [data-message-author-role="assistant"] { border: 1px solid #ddd; border-radius: 10px; background: white; padding: 14px 16px; }
+      .composer { position: fixed; right: 24px; bottom: 24px; left: 24px; display: flex; gap: 10px; max-width: 712px; margin: 0 auto; padding: 10px; border: 1px solid #ccc; border-radius: 14px; background: white; }
+      textarea { flex: 1; min-height: 52px; resize: none; border: 0; outline: 0; font: inherit; }
+      button { align-self: end; border: 1px solid #ccc; border-radius: 8px; background: #202123; color: white; padding: 8px 14px; font: inherit; cursor: pointer; }
+      button[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Mistral fixture</h1>
+      <p>Recorded selector fixture. Not a real Mistral session.</p>
+      <div id="responses"></div>
+    </main>
+    <div class="composer">
+      <textarea placeholder="Type your message"></textarea>
+      <button type="submit">Send</button>
+      <button type="button" aria-label="Stop generating" hidden>Stop</button>
+    </div>
+    <script>
+      const composer = document.querySelector("textarea");
+      const send = document.querySelector('button[type="submit"]');
+      const stop = document.querySelector('button[aria-label="Stop generating"]');
+      const responses = document.querySelector("#responses");
+
+      send.addEventListener("click", () => {
+        const prompt = composer.value.trim();
+        if (!prompt) return;
+        send.hidden = true;
+        stop.hidden = false;
+
+        const reply = document.createElement("div");
+        reply.setAttribute("data-message-author-role", "assistant");
+        const message = document.createElement("div");
+        message.className = "prose";
+        reply.append(message);
+
+        let index = 0;
+        const chunks = [`Fixture reply to: ${prompt}`, " The bridge filled the composer,", " clicked send,", " and read this response."];
+        const stream = setInterval(() => {
+          message.textContent += chunks[index] || "";
+          index += 1;
+          if (index >= chunks.length) clearInterval(stream);
+        }, 180);
+        responses.append(reply);
+
+        setTimeout(() => {
+          stop.hidden = true;
+          send.hidden = false;
+        }, 1200);
+      });
+    </script>
+  </body>
+</html>

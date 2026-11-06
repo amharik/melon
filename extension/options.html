@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Melon Agent Bridge</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #121110;
+        --panel: #1b1917;
+        --line: #302c28;
+        --text: #ece5d8;
+        --muted: #a99f8f;
+        --accent: #e0a458;
+        --bad: #e07a6a;
+        --good: #8fbf7f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+      }
+      main { max-width: 640px; margin: 0 auto; }
+      h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: 0.02em; }
+      p.lede { color: var(--muted); margin: 0 0 24px; }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 16px;
+      }
+      label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; }
+      input, select {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #121110;
+        color: var(--text);
+        font: inherit;
+      }
+      select { cursor: pointer; }
+      .row { display: flex; gap: 10px; margin-top: 12px; }
+      button {
+        padding: 9px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #23201c;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); color: #211a10; border-color: transparent; font-weight: 600; }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+      #status, #ai-status { margin-top: 12px; min-height: 20px; color: var(--muted); white-space: pre-wrap; }
+      #status.good, #ai-status.good { color: var(--good); }
+      #status.bad, #ai-status.bad { color: var(--bad); }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin: 4px 0 0;
+        color: var(--text);
+        font-size: 14px;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .check input { width: auto; margin: 0; accent-color: var(--accent); }
+      .model-meta {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #121110;
+      }
+      .model-meta strong { color: var(--text); }
+      .model-meta span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+      progress {
+        width: 100%;
+        height: 10px;
+        margin-top: 12px;
+        accent-color: var(--accent);
+      }
+      pre.result {
+        margin: 10px 0 0;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #121110;
+        color: var(--text);
+        white-space: pre-wrap;
+        max-height: 160px;
+        overflow: auto;
+      }
+      ol { margin: 0; padding-left: 20px; color: var(--muted); }
+      code { color: var(--text); background: #121110; padding: 1px 5px; border-radius: 4px; }
+      a { color: var(--accent); }
+      .fine { font-size: 12px; color: var(--muted); margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Melon Agent Bridge</h1>
+      <p class="lede">
+        Connects ChatGPT, Claude, Gemini and Mistral tabs to the local Melon hub. Nothing is sent
+        anywhere except the hub you configure below, unless you enable local AI. Enabling local AI
+        only downloads model files from Hugging Face; prompts stay in this browser.
+      </p>
+
+      <section>
+        <label>Bridge consent</label>
+        <p class="fine">
+          This is a one-time acknowledgement. Melon can read and type into the chat tabs you bind,
+          and a run can expose prompt text to those tabs until you stop it.
+        </p>
+        <label class="check">
+          <input id="consent" type="checkbox" />
+          I understand and allow the bridge to control the tabs I bind.
+        </label>
+        <p class="fine">
+          Each controlled tab shows a Melon badge with its own control id. The same id appears in
+          the Melon canvas. Use the badge or <strong>Stop all</strong> to cancel a run.
+        </p>
+      </section>
+
+      <section>
+        <label for="hub">Hub URL</label>
+        <input id="hub" type="url" placeholder="http://127.0.0.1:8787" spellcheck="false" />
+        <div style="margin-top: 14px">
+          <label for="token">Extension token</label>
+          <input id="token" type="password" placeholder="paste the token printed by the hub" spellcheck="false" />
+        </div>
+        <div class="row">
+          <button class="primary" id="save">Save</button>
+          <button id="test">Test connection</button>
+          <button id="open">Open Melon</button>
+        </div>
+        <div id="status"></div>
+        <p class="fine">
+          The token is generated at <code>.melon-token</code> when you run
+          <code>node server/hub.mjs</code>. Keep the hub bound to localhost.
+        </p>
+      </section>
+
+      <section>
+        <label>Local AI (optional)</label>
+        <p class="fine">
+          Runs a small planner model locally with WebGPU. The picker includes Qwen and comparable
+          models. Downloading a model requires access to Hugging Face; no prompt or page text is sent
+          there.
+        </p>
+        <label class="check"><input id="ai-enabled" type="checkbox" /> Enable local AI assist</label>
+        <div style="margin-top: 14px">
+          <label for="ai-model">Model</label>
+          <select id="ai-model"></select>
+          <div id="ai-model-details" class="model-meta"></div>
+        </div>
+        <div class="row">
+          <button class="primary" id="ai-download">Download &amp; load</button>
+          <button id="ai-test" disabled>Test model</button>
+          <button id="ai-unload" disabled>Unload</button>
+        </div>
+        <progress id="ai-progress" max="100" value="0" hidden></progress>
+        <div id="ai-status"></div>
+        <pre id="ai-result" class="result" hidden></pre>
+        <p class="fine">
+          The loaded model can plan a graph from the canvas Brief panel; the hub validates it
+          before anything is applied. AI is optional. If WebGPU, the model download, or the model host fails, Melon continues
+          with deterministic adapters. Models are pinned to a Hugging Face revision and cached by the
+          browser. Unload frees memory; it does not delete the cache.
+        </p>
+      </section>
+
+      <section>
+        <label>Setup</label>
+        <ol>
+          <li>Start the hub: <code>node server/hub.mjs</code></li>
+          <li>Copy the token it prints into the field above.</li>
+          <li>Open Melon, choose an extension tab for an agent, then run the graph.</li>
+          <li>Keep the target chat tab open. The extension fills the composer and reads the reply.</li>
+        </ol>
+        <p class="fine">
+          The bridge has no cloud component. It can read and type into the chat tabs you select.
+          This is the browser trust boundary: a normal web page cannot drive other origins, so an
+          extension is required for real third-party tabs.
+        </p>
+      </section>
+    </main>
+    <script src="ai/models.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,65 @@
+{
+  "adapter": "claude",
+  "hostname": "claude.ai",
+  "elements": [
+    {
+      "key": "search",
+      "tag": "DIV",
+      "contentEditable": true,
+      "attrs": { "role": "searchbox", "aria-label": "Search" },
+      "visible": true,
+      "order": 1
+    },
+    {
+      "key": "composer",
+      "tag": "DIV",
+      "contentEditable": true,
+      "attrs": { "class": "ProseMirror", "contenteditable": "true" },
+      "visible": true,
+      "order": 2
+    },
+    {
+      "key": "send",
+      "tag": "BUTTON",
+      "attrs": { "aria-label": "Send message" },
+      "visible": true,
+      "order": 3
+    },
+    {
+      "key": "stopping",
+      "tag": "BUTTON",
+      "attrs": { "aria-label": "Stop response", "aria-disabled": "true" },
+      "visible": true,
+      "order": 4
+    },
+    {
+      "key": "response1",
+      "tag": "DIV",
+      "attrs": { "data-testid": "assistant-message" },
+      "text": "Claude answer",
+      "visible": true,
+      "order": 5
+    },
+    {
+      "key": "response1-inner",
+      "tag": "DIV",
+      "attrs": { "class": "font-claude-message" },
+      "text": "Claude answer",
+      "visible": true,
+      "order": 6,
+      "parent": "response1"
+    }
+  ],
+  "selectors": {
+    "div[contenteditable=\"true\"].ProseMirror": ["composer"],
+    "div[contenteditable=\"true\"]": ["search", "composer"],
+    "button[aria-label=\"Send message\"]": ["send"],
+    "button[aria-label*=\"Send\"]": ["send"],
+    "button[type=\"submit\"]": [],
+    "button[aria-label*=\"Stop\"]": ["stopping"],
+    "button[aria-label*=\"stop\"]": [],
+    "div[data-is-streaming] .font-claude-message": [],
+    "[data-testid=\"assistant-message\"]": ["response1"],
+    ".font-claude-message": ["response1-inner"]
+  }
+}

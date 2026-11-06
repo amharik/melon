@@ -1,0 +1,86 @@
+{
+  "adapter": "mistral",
+  "hostname": "chat.mistral.ai",
+  "elements": [
+    {
+      "key": "search",
+      "tag": "TEXTAREA",
+      "attrs": { "placeholder": "Search chats" },
+      "visible": true,
+      "order": 1
+    },
+    {
+      "key": "composer",
+      "tag": "TEXTAREA",
+      "attrs": { "placeholder": "Type your message" },
+      "visible": true,
+      "order": 2
+    },
+    {
+      "key": "disabled-send",
+      "tag": "BUTTON",
+      "attrs": { "type": "submit", "aria-disabled": "true" },
+      "visible": true,
+      "disabled": true,
+      "order": 3
+    },
+    {
+      "key": "send",
+      "tag": "BUTTON",
+      "attrs": { "type": "submit" },
+      "visible": true,
+      "order": 4
+    },
+    {
+      "key": "stop",
+      "tag": "BUTTON",
+      "attrs": { "aria-label": "Stop generating" },
+      "visible": true,
+      "order": 5
+    },
+    {
+      "key": "response1",
+      "tag": "DIV",
+      "attrs": { "data-message-author-role": "assistant" },
+      "text": "First Mistral answer",
+      "visible": true,
+      "order": 6
+    },
+    {
+      "key": "response1-inner",
+      "tag": "DIV",
+      "attrs": { "class": "prose" },
+      "text": "First Mistral answer",
+      "visible": true,
+      "order": 7,
+      "parent": "response1"
+    },
+    {
+      "key": "response2",
+      "tag": "DIV",
+      "attrs": { "data-message-author-role": "assistant" },
+      "text": "Second Mistral answer",
+      "visible": true,
+      "order": 8
+    },
+    {
+      "key": "response2-inner",
+      "tag": "DIV",
+      "attrs": { "class": "prose" },
+      "text": "Second Mistral answer",
+      "visible": true,
+      "order": 9,
+      "parent": "response2"
+    }
+  ],
+  "selectors": {
+    "textarea": ["search", "composer"],
+    "div[contenteditable=\"true\"]": [],
+    "button[type=\"submit\"]": ["disabled-send", "send"],
+    "button[aria-label*=\"Send\"]": [],
+    "button[aria-label*=\"Stop\"]": ["stop"],
+    "button[aria-label*=\"stop\"]": ["stop"],
+    "[data-message-author-role=\"assistant\"]": ["response1", "response2"],
+    ".prose": ["response1-inner", "response2-inner"]
+  }
+}
