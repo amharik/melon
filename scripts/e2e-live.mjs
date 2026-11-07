@@ -53,6 +53,9 @@ const PROMPT =
 const SETTLE_MS = Math.max(500, Number(process.env.MELON_LIVE_SETTLE_MS) || 3000);
 const PAGE_TIMEOUT = Math.max(5000, Number(process.env.MELON_LIVE_PAGE_TIMEOUT) || 20000);
 const RUN_TIMEOUT = Math.max(30000, Number(process.env.MELON_LIVE_RUN_TIMEOUT) || 180000);
+const TOTAL_TIMEOUT =
+  Math.max(30000, Number(process.env.MELON_LIVE_TOTAL_TIMEOUT) || 0) ||
+  (SEND || LOGIN ? 900000 : 240000);
 const PROFILE =
   process.env.MELON_LIVE_PROFILE || path.join(os.homedir(), ".cache", "melon-live", "profile");
 const COOKIES_FILE = process.env.MELON_LIVE_COOKIES || null;
@@ -211,6 +214,8 @@ class CDP {
   }
 
   close() {
+    for (const entry of this.pending.values()) clearTimeout(entry.timer);
+    this.pending.clear();
     try {
       this.ws.close();
     } catch {}
@@ -397,6 +402,17 @@ async function writeReport(report) {
   await fs.writeFile(REPORT, `${JSON.stringify(report, null, 2)}\n`);
 }
 
+function signalChild(child, signal) {
+  if (!child?.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {}
+  }
+}
+
 async function bridgeState(optionsCdp, tabId) {
   return optionsCdp.evaluate(`(async () => {
     const frames = await chrome.scripting.executeScript({
@@ -537,6 +553,50 @@ async function main() {
   let optionsCdp = null;
   let sse = null;
   let pageCdp = null;
+  let watchdog = null;
+  let shuttingDown = false;
+
+  async function cleanup(code, reason) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    if (watchdog) clearTimeout(watchdog);
+    if (reason) {
+      report.error = report.error || reason;
+      process.exitCode = 1;
+      code = 1;
+    }
+    report.finishedAt = new Date().toISOString();
+    await writeReport(report).catch(() => {});
+    if (sse) {
+      await Promise.race([sse.close().catch(() => {}), sleep(1000)]);
+    }
+    optionsCdp?.close();
+    browserCdp?.close();
+    pageCdp?.close();
+    signalChild(chrome, "SIGTERM");
+    hub.kill("SIGTERM");
+    await sleep(500);
+    signalChild(chrome, "SIGKILL");
+    hub.kill("SIGKILL");
+    if (report.error || process.exitCode) {
+      if (hubLogs.trim()) console.error(`\n[hub]\n${hubLogs.trim().slice(-2000)}`);
+      if (chromeLogs.trim()) console.error(`\n[chromium]\n${chromeLogs.trim().slice(-2000)}`);
+    }
+    log(`report ${path.relative(ROOT, REPORT)}`);
+    await sleep(100);
+    process.exit(code ?? process.exitCode ?? 0);
+  }
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, () => {
+      cleanup(1, `received ${signal}`).catch(() => process.exit(1));
+    });
+  }
+  watchdog = setTimeout(() => {
+    cleanup(1, `total timeout after ${TOTAL_TIMEOUT}ms`).catch(() => process.exit(1));
+  }, TOTAL_TIMEOUT);
+  watchdog.unref?.();
+
   try {
     await waitFor(async () => (await fetch(`${base}/api/health`)).ok, "hub health");
     log(`hub ${base}`);
@@ -775,30 +835,7 @@ async function main() {
     console.error(`[e2e:live] FAIL: ${err.stack || err}`);
     process.exitCode = 1;
   } finally {
-    report.finishedAt = new Date().toISOString();
-    await writeReport(report).catch(() => {});
-    sse?.close();
-    optionsCdp?.close();
-    browserCdp?.close();
-    pageCdp?.close();
-    try {
-      process.kill(-chrome.pid, "SIGTERM");
-    } catch {
-      chrome.kill("SIGTERM");
-    }
-    hub.kill("SIGTERM");
-    await sleep(500);
-    try {
-      process.kill(-chrome.pid, "SIGKILL");
-    } catch {}
-    hub.kill("SIGKILL");
-    if (report.error || process.exitCode) {
-      if (hubLogs.trim()) console.error(`\n[hub]\n${hubLogs.trim().slice(-2000)}`);
-      if (chromeLogs.trim()) console.error(`\n[chromium]\n${chromeLogs.trim().slice(-2000)}`);
-    }
-    log(`report ${path.relative(ROOT, REPORT)}`);
-    await sleep(100);
-    process.exit(process.exitCode || 0);
+    await cleanup(process.exitCode || 0);
   }
 }
 
