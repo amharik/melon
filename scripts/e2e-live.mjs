@@ -589,10 +589,12 @@ async function main() {
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.once(signal, () => {
+      log(`received ${signal}; cleaning up`);
       cleanup(1, `received ${signal}`).catch(() => process.exit(1));
     });
   }
   watchdog = setTimeout(() => {
+    log(`total timeout after ${TOTAL_TIMEOUT}ms; cleaning up`);
     cleanup(1, `total timeout after ${TOTAL_TIMEOUT}ms`).catch(() => process.exit(1));
   }, TOTAL_TIMEOUT);
   watchdog.unref?.();

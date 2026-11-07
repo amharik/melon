@@ -292,6 +292,9 @@ MELON_LIVE_SEND=1 MELON_LIVE_PROMPT='Reply with exactly: MELON_LIVE_OK' npm run 
 # Optional filters and strict mode.
 MELON_LIVE_SITES=chatgpt,gemini MELON_LIVE_STRICT=1 npm run e2e:live
 
+# Bound the whole run and guarantee Chrome/hub cleanup on timeout.
+MELON_LIVE_TOTAL_TIMEOUT=240000 npm run e2e:live
+
 # Local AI runtime (required only if you enable Local AI)
 npm run vendor:ai
 ```
