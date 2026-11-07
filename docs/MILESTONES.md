@@ -18,6 +18,7 @@ Acceptance criteria:
 - [x] Optional Kev reranking for adapter candidates and page context.
 - [x] Synthetic real-Chromium E2E for all four adapters.
 - [x] Local AI model catalog, WebGPU offscreen host, model load/unload smoke test.
+- [x] Local AI smoke test on the remote Linux/arm64 Playwright Chromium.
 - [x] Live-site health/login/challenge probe with report and optional cookie import.
 - [x] Pinned Linux/arm64 test lane on sillyoci and CI on every `dev` push.
 - [ ] Real planner inference on hardware WebGPU with a production model.
