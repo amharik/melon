@@ -129,6 +129,8 @@
     },
   };
 
+  let activeCatalog = BUILT_INS;
+
   function attr(el, name) {
     try {
       return String(el?.getAttribute?.(name) ?? "");
@@ -201,7 +203,7 @@
     });
   }
 
-  function resolveAdapter(name, hostname, catalog = BUILT_INS) {
+  function resolveAdapter(name, hostname, catalog = activeCatalog) {
     const entries = Object.values(catalog || {});
     if (name && name !== "auto") {
       const named = entries.find((adapter) => adapter.id === name);
@@ -485,10 +487,22 @@
     return errors;
   }
 
+  function setCatalog(next) {
+    if (!next) {
+      activeCatalog = BUILT_INS;
+      return;
+    }
+    const errors = validateCatalog(next);
+    if (errors.length) throw new Error(errors.join("; "));
+    activeCatalog = next;
+  }
+
   const api = {
     SCHEMA_VERSION,
     FIELD_NAMES,
     catalog: BUILT_INS,
+    getCatalog: () => activeCatalog,
+    setCatalog,
     validateAdapter,
     validateCatalog,
     resolveAdapter,

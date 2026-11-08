@@ -24,7 +24,7 @@ Acceptance criteria:
 - [x] Real planner inference with a production model and validated graph on the pinned remote Chromium lane (Qwen2.5-0.5B-Instruct q4, WASM).
 - [ ] Hardware WebGPU planner run with a production model. Local Intel gen-7 adapter and SmolLM2 load were verified, but Haswell Vulkan stalls during full graph generation; the remote runner has no hardware GPU.
 - [ ] Authenticated live-tab run in CI or on a persistent login profile.
-- [ ] Remote adapter-pack signing, hosting, and update verification.
+- [x] Remote adapter-pack signing, hosting, and update verification.
 
 Tracking rules:
 

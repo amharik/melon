@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 import { createKevClient } from "./kev.mjs";
 import { createAuditLog } from "./audit.mjs";
+import { packEtag, packSummary, readPackFile } from "./adapter-pack.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -37,6 +38,12 @@ const AUDIT_LOG = process.env.MELON_AUDIT_LOG
     ? path.join(ROOT, ".melon", "audit.jsonl")
     : "";
 const MAX_BODY = 2 * 1024 * 1024;
+const ADAPTER_PACK_FILE = process.env.MELON_ADAPTER_PACK_FILE
+  ? path.resolve(process.env.MELON_ADAPTER_PACK_FILE)
+  : path.join(ROOT, "adapters", "adapter-pack.json");
+const ADAPTER_PACK_PUB_FILE = process.env.MELON_ADAPTER_PACK_PUB_FILE
+  ? path.resolve(process.env.MELON_ADAPTER_PACK_PUB_FILE)
+  : path.join(ROOT, "adapters", "adapter-pack.pub.json");
 const kev = createKevClient({ url: KEV_URL, model: KEV_MODEL });
 const audit = createAuditLog({ file: AUDIT_LOG });
 
@@ -56,6 +63,7 @@ const extClients = new Set();
 const runs = new Map();
 const opencodeStreams = new Map();
 const plans = new Map();
+let adapterPackCache = { mtimeMs: 0, envelope: null, etag: null, error: null };
 
 // ---------------------------------------------------------------------------
 // SSE
@@ -688,6 +696,33 @@ async function startLlmRun(run) {
 }
 
 // ---------------------------------------------------------------------------
+// Adapter pack
+// ---------------------------------------------------------------------------
+
+function adapterPackRecord() {
+  let stat;
+  try {
+    stat = fs.statSync(ADAPTER_PACK_FILE);
+  } catch (err) {
+    adapterPackCache = { mtimeMs: 0, envelope: null, etag: null, error: err.code || err.message };
+    return adapterPackCache;
+  }
+  if (adapterPackCache.mtimeMs === stat.mtimeMs) return adapterPackCache;
+  try {
+    const envelope = readPackFile(ADAPTER_PACK_FILE);
+    adapterPackCache = {
+      mtimeMs: stat.mtimeMs,
+      envelope,
+      etag: packEtag(envelope),
+      error: null,
+    };
+  } catch (err) {
+    adapterPackCache = { mtimeMs: stat.mtimeMs, envelope: null, etag: null, error: err.message };
+  }
+  return adapterPackCache;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
 
@@ -784,6 +819,7 @@ async function handleApi(req, res, url) {
       kev: kev.enabled,
       kevModel: kev.enabled ? kev.model : null,
       audit: audit.enabled,
+      adapterPack: packSummary(adapterPackRecord().envelope),
       extensionClients: extClients.size,
       tabs: aggregateTabs().length,
       runs: runs.size,
@@ -797,8 +833,50 @@ async function handleApi(req, res, url) {
       opencodeUrl: OPENCODE_URL,
       llmConfigured: !!(LLM_URL && LLM_MODEL),
       kevConfigured: kev.enabled,
+      adapterPackConfigured: !!adapterPackRecord().envelope,
+      adapterPackVersion: adapterPackRecord().envelope?.payload?.version || null,
       extensionTokenHint: TOKEN.slice(0, 4) + "…",
     });
+  }
+
+  if ((pathname === "/api/adapter-pack" || pathname === "/api/adapter-pack/update") && req.method === "GET") {
+    const record = adapterPackRecord();
+    if (!record.envelope) {
+      return json(res, 404, { ok: false, error: "adapter pack unavailable", detail: record.error });
+    }
+    const currentVersion = Math.max(0, Number(url.searchParams.get("version")) || 0);
+    const version = record.envelope.payload?.version || 0;
+    const headers = {
+      etag: record.etag,
+      "cache-control": "no-cache",
+      "x-melon-adapter-pack-version": String(version),
+      "x-melon-adapter-pack-sha256": record.envelope.sha256 || "",
+    };
+    if (
+      req.headers["if-none-match"] === record.etag ||
+      (pathname.endsWith("/update") && currentVersion > 0 && currentVersion >= version)
+    ) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    const text = JSON.stringify(record.envelope);
+    res.writeHead(200, {
+      ...headers,
+      "content-type": "application/json; charset=utf-8",
+      "content-length": Buffer.byteLength(text),
+    });
+    res.end(text);
+    return;
+  }
+
+  if (pathname === "/api/adapter-pack/pubkey" && req.method === "GET") {
+    try {
+      const record = readPackFile(ADAPTER_PACK_PUB_FILE);
+      return json(res, 200, record);
+    } catch (err) {
+      return json(res, 404, { ok: false, error: "adapter pack public key unavailable", detail: err.code || err.message });
+    }
   }
 
   if (pathname === "/api/tabs" && req.method === "GET") {

@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "keyId": "melon-dev",
+  "algorithm": "Ed25519",
+  "payload": {
+    "schema": 1,
+    "packId": "melon-adapters",
+    "version": 2,
+    "generatedAt": "2026-11-08T07:31:35.760Z",
+    "expiresAt": "2027-11-08T07:31:35.760Z",
+    "minExtensionVersion": "0.1.0",
+    "adapters": {
+      "chatgpt": {
+        "id": "chatgpt",
+        "version": 1,
+        "label": "ChatGPT",
+        "hosts": [
+          "(^|\\.)chatgpt\\.com$",
+          "(^|\\.)chat\\.openai\\.com$"
+        ],
+        "fields": {
+          "composer": {
+            "required": true,
+            "candidates": [
+              "#prompt-textarea",
+              "div.ProseMirror[contenteditable=\"true\"]",
+              "textarea"
+            ]
+          },
+          "send": {
+            "required": false,
+            "candidates": [
+              "[data-testid=\"send-button\"]",
+              "button[aria-label*=\"Send\"]",
+              "button[type=\"submit\"]"
+            ]
+          },
+          "stop": {
+            "required": false,
+            "candidates": [
+              "[data-testid=\"stop-button\"]",
+              "button[aria-label*=\"Stop\"]"
+            ]
+          },
+          "response": {
+            "required": false,
+            "candidates": [
+              "[data-message-author-role=\"assistant\"] .markdown",
+              "[data-message-author-role=\"assistant\"]"
+            ]
+          }
+        }
+      },
+      "claude": {
+        "id": "claude",
+        "version": 1,
+        "label": "Claude",
+        "hosts": [
+          "(^|\\.)claude\\.ai$"
+        ],
+        "fields": {
+          "composer": {
+            "required": true,
+            "candidates": [
+              "div[contenteditable=\"true\"].ProseMirror",
+              "div[contenteditable=\"true\"]"
+            ]
+          },
+          "send": {
+            "required": false,
+            "candidates": [
+              "button[aria-label=\"Send message\"]",
+              "button[aria-label*=\"Send\"]",
+              "button[type=\"submit\"]"
+            ]
+          },
+          "stop": {
+            "required": false,
+            "candidates": [
+              "button[aria-label*=\"Stop\"]",
+              "button[aria-label*=\"stop\"]"
+            ]
+          },
+          "response": {
+            "required": false,
+            "candidates": [
+              "div[data-is-streaming] .font-claude-message",
+              "[data-testid=\"assistant-message\"]",
+              ".font-claude-message"
+            ]
+          }
+        }
+      },
+      "gemini": {
+        "id": "gemini",
+        "version": 1,
+        "label": "Gemini",
+        "hosts": [
+          "(^|\\.)gemini\\.google\\.com$"
+        ],
+        "fields": {
+          "composer": {
+            "required": true,
+            "candidates": [
+              "rich-textarea div[contenteditable=\"true\"]",
+              "div[contenteditable=\"true\"]",
+              "textarea"
+            ]
+          },
+          "send": {
+            "required": false,
+            "candidates": [
+              "button[aria-label*=\"Send\"]",
+              "button.send-button",
+              "button[type=\"submit\"]"
+            ]
+          },
+          "stop": {
+            "required": false,
+            "candidates": [
+              "button[aria-label*=\"Stop\"]",
+              "button[aria-label*=\"stop\"]"
+            ]
+          },
+          "response": {
+            "required": false,
+            "candidates": [
+              "model-response",
+              "message-content",
+              ".model-response-text"
+            ]
+          }
+        }
+      },
+      "mistral": {
+        "id": "mistral",
+        "version": 1,
+        "label": "Mistral",
+        "hosts": [
+          "(^|\\.)chat\\.mistral\\.ai$"
+        ],
+        "fields": {
+          "composer": {
+            "required": true,
+            "candidates": [
+              "textarea",
+              "div[contenteditable=\"true\"]"
+            ]
+          },
+          "send": {
+            "required": false,
+            "candidates": [
+              "button[type=\"submit\"]",
+              "button[aria-label*=\"Send\"]"
+            ]
+          },
+          "stop": {
+            "required": false,
+            "candidates": [
+              "button[aria-label*=\"Stop\"]",
+              "button[aria-label*=\"stop\"]"
+            ]
+          },
+          "response": {
+            "required": false,
+            "candidates": [
+              "[data-message-author-role=\"assistant\"]",
+              ".prose"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "sha256": "91d2143bd4c844370eb6dfdb1192ab3802e6adaa176b1fc6fd08541ebd40a81c",
+  "signature": "h3YX5U0IS9nThi3T/kRQj4laZX5E4o8VzUr8oIhNMFAo3VhyTxQZdQo4DzJKMa18PZMQ4Vf4FIsKUEWyGJKZAA=="
+}

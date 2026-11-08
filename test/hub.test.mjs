@@ -144,6 +144,27 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
   assert.equal(health.kev, true);
   assert.equal(health.kevModel, "kev");
   assert.equal(health.audit, true);
+  assert.equal(health.adapterPack.version, 2);
+  assert.equal(health.adapterPack.keyId, "melon-dev");
+
+  const packResponse = await fetch(`${base}/api/adapter-pack/update?version=1`);
+  assert.equal(packResponse.status, 200);
+  assert.equal(packResponse.headers.get("x-melon-adapter-pack-version"), "2");
+  assert.match(packResponse.headers.get("etag"), /^"sha256-[a-f0-9]{64}"$/);
+  const pack = await packResponse.json();
+  assert.equal(pack.payload.version, 2);
+  assert.equal(pack.keyId, "melon-dev");
+
+  const currentResponse = await fetch(`${base}/api/adapter-pack/update?version=2`);
+  assert.equal(currentResponse.status, 304);
+  const cachedResponse = await fetch(`${base}/api/adapter-pack`, {
+    headers: { "if-none-match": packResponse.headers.get("etag") },
+  });
+  assert.equal(cachedResponse.status, 304);
+
+  const pubkey = await (await fetch(`${base}/api/adapter-pack/pubkey`)).json();
+  assert.equal(pubkey.keyId, "melon-dev");
+  assert.ok(pubkey.publicKey.length > 20);
 
   const index = await fetch(`${base}/`);
   assert.equal(index.status, 200);

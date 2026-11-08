@@ -9,6 +9,14 @@
   window.__melonAgentBridge = true;
 
   let current = null;
+  hydrateAdapterPack();
+
+  async function hydrateAdapterPack() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "melon.adapters.pack" });
+      if (response?.ok && response.adapters) adapters.setCatalog(response.adapters);
+    } catch {}
+  }
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -334,6 +342,15 @@
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "melon.adapters.set") {
+      try {
+        adapters.setCatalog(message.adapters);
+        sendResponse({ ok: true, version: message.version || null });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err?.message || err) });
+      }
+      return false;
+    }
     if (message?.type === "melon.ping") {
       const adapter = pickAdapter("auto");
       sendResponse({

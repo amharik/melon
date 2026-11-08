@@ -1,7 +1,10 @@
 importScripts("adapters.js");
+importScripts("adapter-pack.js", "adapter-pack-key.js");
 importScripts("ai/models.js", "ai/planner.js");
 
 const ADAPTERS = globalThis.MELON_ADAPTERS;
+const ADAPTER_PACK = globalThis.MELON_ADAPTER_PACK;
+const ADAPTER_PACK_KEY = globalThis.MELON_ADAPTER_PACK_KEY;
 const AI = globalThis.MELON_AI;
 const PLANNER = globalThis.MELON_PLANNER;
 const CONSENT_VERSION = 1;
@@ -12,11 +15,22 @@ const DEFAULTS = {
   consentAt: null,
   aiEnabled: false,
   aiModelId: AI.DEFAULT_MODEL_ID,
+  adapterPack: null,
 };
 const OFFSCREEN_PATH = "ai/offscreen.html";
 const OFFSCREEN_TARGET = "melon-ai";
 
 let settings = { ...DEFAULTS };
+let activeAdapterPack = null;
+let adapterPackState = {
+  status: "idle",
+  version: 0,
+  keyId: null,
+  sha256: null,
+  checkedAt: null,
+  error: null,
+};
+let adapterPackTimer = null;
 let aiState = {
   modelId: AI.DEFAULT_MODEL_ID,
   model: null,
@@ -47,6 +61,145 @@ async function loadSettings() {
   settings = await chrome.storage.local.get(DEFAULTS);
   if (!settings.token) badged("?");
   else if (Number(settings.consentVersion || 0) < CONSENT_VERSION) badged("!");
+}
+
+function adapterPackSnapshot() {
+  return {
+    ...adapterPackState,
+    active: !!activeAdapterPack,
+    pack: activeAdapterPack
+      ? {
+          packId: activeAdapterPack.packId,
+          version: activeAdapterPack.version,
+          generatedAt: activeAdapterPack.generatedAt,
+          expiresAt: activeAdapterPack.expiresAt || null,
+          adapters: Object.keys(activeAdapterPack.adapters || {}),
+        }
+      : null,
+  };
+}
+
+async function broadcastAdapterPack() {
+  if (!activeAdapterPack) return;
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs
+      .filter((tab) => /^https?:/.test(tab.url || ""))
+      .map((tab) =>
+        chrome.tabs
+          .sendMessage(tab.id, {
+            type: "melon.adapters.set",
+            adapters: activeAdapterPack.adapters,
+            version: activeAdapterPack.version,
+          })
+          .catch(() => {})
+      )
+  );
+}
+
+async function applyAdapterPack(envelope, { persist = true } = {}) {
+  if (!ADAPTER_PACK || !ADAPTER_PACK_KEY?.publicKey) {
+    adapterPackState = { ...adapterPackState, status: "error", error: "adapter pack verifier unavailable" };
+    return { ok: false, error: adapterPackState.error };
+  }
+  const result = await ADAPTER_PACK.verify(envelope, {
+    publicKey: ADAPTER_PACK_KEY.publicKey,
+    keyId: ADAPTER_PACK_KEY.keyId,
+    currentVersion: adapterPackState.version,
+    extensionVersion: chrome.runtime.getManifest().version,
+  });
+  if (!result.ok) {
+    adapterPackState = {
+      ...adapterPackState,
+      status: "error",
+      checkedAt: Date.now(),
+      error: result.errors.join("; "),
+    };
+    return { ok: false, error: adapterPackState.error };
+  }
+  const catalogErrors = ADAPTERS.validateCatalog(result.pack.adapters);
+  if (catalogErrors.length) {
+    adapterPackState = {
+      ...adapterPackState,
+      status: "error",
+      checkedAt: Date.now(),
+      error: catalogErrors.join("; "),
+    };
+    return { ok: false, error: adapterPackState.error };
+  }
+  if (!result.update && activeAdapterPack) {
+    adapterPackState = { ...adapterPackState, status: "current", checkedAt: Date.now() };
+    return { ok: true, update: false, pack: activeAdapterPack };
+  }
+  activeAdapterPack = result.pack;
+  ADAPTERS.setCatalog(result.pack.adapters);
+  adapterPackState = {
+    status: "ready",
+    version: result.pack.version,
+    keyId: envelope.keyId,
+    sha256: result.sha256,
+    checkedAt: Date.now(),
+    error: null,
+  };
+  if (persist) await chrome.storage.local.set({ adapterPack: envelope });
+  broadcastAdapterPack().catch(() => {});
+  return { ok: true, update: true, pack: result.pack };
+}
+
+async function loadStoredAdapterPack() {
+  if (!settings.adapterPack) return;
+  await applyAdapterPack(settings.adapterPack, { persist: false });
+}
+
+async function fetchAdapterPack() {
+  if (!settings.hubUrl) return { ok: false, error: "hub URL is not configured" };
+  const current = adapterPackState.version || 0;
+  let response;
+  try {
+    response = await fetch(
+      `${String(settings.hubUrl).replace(/\/+$/, "")}/api/adapter-pack/update?version=${current}`,
+      { cache: "no-store" }
+    );
+  } catch (err) {
+    adapterPackState = {
+      ...adapterPackState,
+      status: "error",
+      checkedAt: Date.now(),
+      error: String(err?.message || err),
+    };
+    return { ok: false, error: adapterPackState.error };
+  }
+  if (response.status === 304) {
+    adapterPackState = { ...adapterPackState, status: "current", checkedAt: Date.now(), error: null };
+    return { ok: true, update: false };
+  }
+  if (!response.ok) {
+    adapterPackState = {
+      ...adapterPackState,
+      status: "error",
+      checkedAt: Date.now(),
+      error: `hub returned ${response.status}`,
+    };
+    return { ok: false, error: adapterPackState.error };
+  }
+  let envelope;
+  try {
+    envelope = await response.json();
+  } catch (err) {
+    adapterPackState = {
+      ...adapterPackState,
+      status: "error",
+      checkedAt: Date.now(),
+      error: `invalid adapter pack JSON: ${String(err?.message || err)}`,
+    };
+    return { ok: false, error: adapterPackState.error };
+  }
+  return applyAdapterPack(envelope);
+}
+
+function scheduleAdapterPackRefresh() {
+  clearInterval(adapterPackTimer);
+  adapterPackTimer = setInterval(() => fetchAdapterPack().catch(() => {}), 6 * 60 * 60 * 1000);
 }
 
 function aiSnapshot() {
@@ -564,8 +717,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
+  if (message?.type === "melon.adapters.pack") {
+    sendResponse({
+      ok: true,
+      ...adapterPackSnapshot(),
+      adapters: activeAdapterPack?.adapters || null,
+    });
+    return false;
+  }
+  if (message?.type === "melon.adapters.refresh") {
+    fetchAdapterPack()
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
+    return true;
+  }
   if (message?.type === "content.ready") {
     scheduleTabs();
+    if (sender.tab?.id && activeAdapterPack) {
+      chrome.tabs
+        .sendMessage(sender.tab.id, {
+          type: "melon.adapters.set",
+          adapters: activeAdapterPack.adapters,
+          version: activeAdapterPack.version,
+        })
+        .catch(() => {});
+    }
     sendResponse({ ok: true });
     return false;
   }
@@ -640,6 +816,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       }
       ws = null;
       connect();
+      fetchAdapterPack().catch(() => {});
     });
   }
 });
@@ -664,9 +841,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-loadSettings().then(() => {
+loadSettings().then(async () => {
+  await loadStoredAdapterPack();
   connect();
   if (settings.aiEnabled) aiStatus().catch(() => {});
+  fetchAdapterPack().catch(() => {});
+  scheduleAdapterPackRefresh();
 });
 setInterval(() => {
   if (!ws || ws.readyState !== WebSocket.OPEN) connect();

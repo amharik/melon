@@ -454,6 +454,17 @@ async function main() {
       });
       return true;
     })()`);
+    const packState = await waitFor(async () => {
+      const result = await optionsCdp.evaluate(
+        `chrome.runtime.sendMessage({ type: "melon.adapters.pack" })`
+      );
+      return result?.ok && result.version === 2 ? result : null;
+    }, "signed adapter pack verification", 10000);
+    const packedAdapters = packState.pack?.adapters || [];
+    if (!["chatgpt", "claude", "gemini", "mistral"].every((id) => packedAdapters.includes(id))) {
+      throw new Error(`adapter pack missing built-ins: ${JSON.stringify(packedAdapters)}`);
+    }
+    log(`adapter pack v${packState.version} verified (${packState.sha256.slice(0, 12)}…)`);
     await browserCdp.send("Target.closeTarget", { targetId: optionsTarget.targetId });
 
     sse = await sseQueue(await fetch(`${hubBase}/api/events`));

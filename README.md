@@ -68,6 +68,30 @@ bridge needs a reload. Health is cached briefly, and tabs without a built-in
 adapter are disabled. Fixture tests under `test/fixtures/adapters/` exercise current
 ChatGPT and Claude markup, fallback selectors, and bad-selector rejection.
 
+### Signed adapter packs
+
+The hub can host a signed adapter catalog so selector fixes ship without a full
+extension release. The extension pins an Ed25519 public key, verifies the
+signature and payload digest, rejects downgrades/expired packs, then applies the
+catalog to content scripts.
+
+```bash
+# Generate a development key. The private key stays in .melon/ (gitignored).
+node scripts/adapter-pack.mjs keygen --key-id melon-dev
+
+# Sign the current built-in catalog as pack version 2.
+node scripts/adapter-pack.mjs sign --version 2
+
+# Verify adapters/adapter-pack.json against the pinned public key.
+node scripts/adapter-pack.mjs verify
+```
+
+The signed pack lives in `adapters/adapter-pack.json`; the public key is written
+to `adapters/adapter-pack.pub.json` and `extension/adapter-pack-key.js`. The hub
+serves `GET /api/adapter-pack`, `GET /api/adapter-pack/update?version=N`, and
+`GET /api/adapter-pack/pubkey`; updates use ETag and `304` responses. The
+extension checks for a newer pack at startup and every six hours.
+
 ### Local AI (optional)
 
 The extension can host a small planner model locally with WebGPU. It is off by
