@@ -43,7 +43,33 @@ Rules:
 - Use stable lower-case ids. Keep labels short.
 - The source topic must contain the user's goal.
 - Do not include extTabId, credentials, or any secret.
-- Maximum 12 nodes and 24 edges.`;
+- Maximum 12 nodes and 24 edges.
+
+Critical:
+- Only the brief is a "source" node. Reviewers are "agent" nodes, never "source" nodes.
+- Every agent config.adapter must be copied from the allowed list. Never invent an adapter such as "demo:reviewer1". If unsure, use "demo:claude".
+- When using two parallel reviewers, use ids "reviewer-a" and "reviewer-b", set the moderator inputs to ["rev1", "rev2"], and connect:
+  brief:out -> reviewer-a:in, brief:out -> reviewer-b:in,
+  reviewer-a:result -> moderator:rev1, reviewer-b:result -> moderator:rev2,
+  moderator:result -> decision:in.
+
+Valid two-reviewer example:
+{
+  "nodes": [
+    {"id": "brief", "kind": "source", "label": "Brief", "config": {"topic": "compare two options"}},
+    {"id": "reviewer-a", "kind": "agent", "label": "Reviewer A", "config": {"adapter": "demo:claude"}},
+    {"id": "reviewer-b", "kind": "agent", "label": "Reviewer B", "config": {"adapter": "demo:gemini"}},
+    {"id": "moderator", "kind": "agent", "label": "Moderator", "config": {"adapter": "demo:moderator", "inputs": ["rev1", "rev2"]}},
+    {"id": "decision", "kind": "sink", "label": "Decision"}
+  ],
+  "edges": [
+    {"id": "e1", "from": {"node": "brief", "port": "out"}, "to": {"node": "reviewer-a", "port": "in"}},
+    {"id": "e2", "from": {"node": "brief", "port": "out"}, "to": {"node": "reviewer-b", "port": "in"}},
+    {"id": "e3", "from": {"node": "reviewer-a", "port": "result"}, "to": {"node": "moderator", "port": "rev1"}},
+    {"id": "e4", "from": {"node": "reviewer-b", "port": "result"}, "to": {"node": "moderator", "port": "rev2"}},
+    {"id": "e5", "from": {"node": "moderator", "port": "result"}, "to": {"node": "decision", "port": "in"}}
+  ]
+}`;
 
   const VARIANTS = [
     "",

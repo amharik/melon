@@ -273,6 +273,18 @@ npm run e2e
 # Set MELON_E2E_AI_MODEL (JSON) and MELON_E2E_AI_GENERATE=1 to test generation.
 npm run e2e:ai
 
+# Real planner graph validation on CPU/WASM (remote Chromium lane).
+MELON_E2E_AI_DEVICE=wasm MELON_E2E_AI_PLANNER=1 \
+  MELON_E2E_AI_MODEL="{...}" npm run e2e:ai
+
+# Hardware WebGPU. Needs a display/GPU; on Haswell Vulkan this can stall.
+sg render -c 'xvfb-run -a env MELON_E2E_AI_HARDWARE=1 MELON_E2E_AI_PLANNER=1 \
+  MELON_E2E_AI_MODEL="{...}" npm run e2e:ai'
+
+# Planner-only knobs: MELON_E2E_AI_GOAL, MELON_E2E_AI_PLANNER_ATTEMPTS,
+# MELON_E2E_AI_PLANNER_MAX_NEW_TOKENS, MELON_E2E_AI_GENERATE_TIMEOUT.
+npm run e2e:ai
+
 # Live-site smoke test: opens real tabs and records health, login/challenge
 # state, screenshots, and metadata in .melon/live/report.json.
 npm run e2e:live

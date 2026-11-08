@@ -5,11 +5,14 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXT = path.join(ROOT, "extension");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const DEVICE = process.env.MELON_E2E_AI_DEVICE || "";
 const MODEL = process.env.MELON_E2E_AI_MODEL
   ? JSON.parse(process.env.MELON_E2E_AI_MODEL)
   : {
@@ -19,7 +22,23 @@ const MODEL = process.env.MELON_E2E_AI_MODEL
       dtype: "q4f16",
       dtypeFallback: "q4",
     };
+if (DEVICE) MODEL.device = DEVICE;
 const GENERATE = process.env.MELON_E2E_AI_GENERATE === "1";
+const HARDWARE = process.env.MELON_E2E_AI_HARDWARE === "1";
+const HEADLESS =
+  process.env.MELON_E2E_AI_HEADLESS === "1"
+    ? true
+    : process.env.MELON_E2E_AI_HEADLESS === "0"
+      ? false
+      : !HARDWARE;
+const PLANNER = process.env.MELON_E2E_AI_PLANNER === "1";
+const GOAL =
+  process.env.MELON_E2E_AI_GOAL ||
+  "Review a product launch plan with two independent reviewers and synthesize a decision.";
+const PLANNER_ATTEMPTS = Math.max(
+  1,
+  Math.min(4, Number(process.env.MELON_E2E_AI_PLANNER_ATTEMPTS) || 2)
+);
 const PROMPT =
   process.env.MELON_E2E_AI_PROMPT ||
   'Reply with exactly this JSON and nothing else: {"ok":true}';
@@ -27,6 +46,19 @@ const MAX_NEW_TOKENS = Math.max(
   1,
   Math.min(256, Number(process.env.MELON_E2E_AI_MAX_NEW_TOKENS) || 24)
 );
+const PLANNER_MAX_NEW_TOKENS = Math.max(
+  1,
+  Math.min(1200, Number(process.env.MELON_E2E_AI_PLANNER_MAX_NEW_TOKENS) || 900)
+);
+const LOAD_TIMEOUT = Math.max(
+  60000,
+  Number(process.env.MELON_E2E_AI_LOAD_TIMEOUT) || (HARDWARE || PLANNER ? 600000 : 180000)
+);
+const GENERATE_TIMEOUT = Math.max(
+  20000,
+  Number(process.env.MELON_E2E_AI_GENERATE_TIMEOUT) || (HARDWARE || PLANNER ? 600000 : 120000)
+);
+const PROFILE = process.env.MELON_E2E_AI_PROFILE || null;
 
 function log(message) {
   console.log(`[e2e:ai] ${message}`);
@@ -120,25 +152,29 @@ class CDP {
     });
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 20000) {
     const id = ++this.id;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${method} timed out`));
-      }, 20000);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const result = await this.send("Runtime.evaluate", {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-      userGesture: true,
-    });
+  async evaluate(expression, timeoutMs = 20000) {
+    const result = await this.send(
+      "Runtime.evaluate",
+      {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+        userGesture: true,
+      },
+      timeoutMs
+    );
     if (result.exceptionDetails) {
       const text =
         result.exceptionDetails.exception?.description ||
@@ -181,16 +217,27 @@ async function prepareExtension(tmp) {
 }
 
 async function main() {
+  if (HARDWARE && !HEADLESS && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    throw new Error("MELON_E2E_AI_HARDWARE=1 needs a display; run under xvfb-run.");
+  }
   const chromePath = await findChrome();
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "melon-e2e-ai-"));
   const extension = await prepareExtension(tmp);
   const extensionId = extensionIdForPath(await fs.realpath(extension));
-  const profile = path.join(tmp, "profile");
+  const profile = PROFILE ? path.resolve(PROFILE) : path.join(tmp, "profile");
+  await fs.mkdir(path.dirname(profile), { recursive: true });
+  if (PROFILE) {
+    for (const name of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) {
+      await fs.rm(path.join(profile, name), { force: true }).catch(() => {});
+    }
+  }
   const debugPort = await freePort();
   const chrome = spawn(
     chromePath,
     [
-      "--headless=new",
+      HEADLESS ? "--headless=new" : null,
+      HARDWARE ? "--enable-features=Vulkan" : null,
+      HARDWARE ? "--disable-gpu-watchdog" : null,
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--disable-quic",
@@ -205,7 +252,7 @@ async function main() {
       "--no-default-browser-check",
       "--window-size=1280,900",
       "about:blank",
-    ],
+    ].filter(Boolean),
     {
       cwd: ROOT,
       detached: true,
@@ -228,7 +275,7 @@ async function main() {
       const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`).catch(() => null);
       return response?.ok;
     }, "Chromium DevTools", 30000);
-    log(`Chromium ${chromePath}`);
+    log(`Chromium ${chromePath} headless=${HEADLESS} hardware=${HARDWARE} device=${DEVICE || "webgpu"}`);
 
     const worker = await waitFor(async () => {
       const list = await targets(debugPort);
@@ -261,6 +308,26 @@ async function main() {
       throw new Error(`options context is missing capabilities: ${JSON.stringify(options)}`);
     }
     log("options context is secure with WebGPU and offscreen support");
+    const renderer = await optionsCdp.evaluate(`(() => {
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+      const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+      return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null;
+    })()`);
+    if (renderer) log(`WebGL renderer ${renderer}`);
+    const adapterInfo = await optionsCdp.evaluate(`(async () => {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) return null;
+      const info = adapter.info || (await adapter.requestAdapterInfo?.());
+      return {
+        vendor: info?.vendor || "",
+        architecture: info?.architecture || "",
+        device: info?.device || "",
+        description: info?.description || "",
+        features: [...(adapter.features || [])],
+      };
+    })()`);
+    if (adapterInfo) log(`WebGPU adapter ${JSON.stringify(adapterInfo)}`);
 
     await optionsCdp.evaluate(
       `chrome.offscreen.createDocument({
@@ -291,6 +358,7 @@ async function main() {
       })`
     );
 
+    let lastProgress = "";
     const state = await waitFor(
       async () => {
         const current = await optionsCdp.evaluate(
@@ -299,45 +367,117 @@ async function main() {
         if (current?.state?.status === "error") {
           throw new Error(current.state.error || "model load failed");
         }
+        const progress = current?.state?.progress;
+        if (progress) {
+          const key = `${progress.status}:${progress.file || ""}:${progress.progress ?? ""}`;
+          if (key !== lastProgress) {
+            lastProgress = key;
+            log(
+              `model ${progress.status}${progress.file ? ` ${progress.file}` : ""}${
+                progress.progress != null ? ` ${progress.progress}%` : ""
+              }`
+            );
+          }
+        }
         return current?.state?.status === "ready" ? current.state : null;
       },
       "local model load",
-      180000,
-      500
+      LOAD_TIMEOUT,
+      1000
     );
-    if (!state.device?.startsWith("webgpu")) {
-      throw new Error(`model did not use WebGPU: ${state.device}`);
+    const expectedDevice = DEVICE || "webgpu";
+    if (!state.device?.startsWith(expectedDevice)) {
+      throw new Error(`model did not use ${expectedDevice}: ${state.device}`);
     }
     log(`local model ready on ${state.device}`);
 
     if (GENERATE) {
       log(`generating up to ${MAX_NEW_TOKENS} tokens`);
+      const started = Date.now();
       const reply = await optionsCdp.evaluate(
         `chrome.runtime.sendMessage({
           target: "melon-ai",
           type: "ai.generate",
           messages: [{ role: "user", content: ${JSON.stringify(PROMPT)} }],
           maxNewTokens: ${MAX_NEW_TOKENS},
-        })`
+        })`,
+        GENERATE_TIMEOUT
       );
-      if (!reply?.ok) throw new Error(reply?.error || "local generation failed");
-      log(`generated ${String(reply.text || "").length} chars: ${String(reply.text || "").slice(0, 120)}`);
+      if (!reply?.ok) {
+        throw new Error(`${reply?.error || "local generation failed"}${reply?.stack ? `\n${reply.stack}` : ""}`);
+      }
+      log(
+        `generated ${String(reply.text || "").length} chars in ${Date.now() - started}ms: ${String(reply.text || "").slice(0, 120)}`
+      );
     }
 
-    await optionsCdp.evaluate(
-      `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.unload" })`
-    );
-    await waitFor(
-      async () => {
-        const current = await optionsCdp.evaluate(
-          `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.status" })`
+    if (PLANNER) {
+      vm.runInThisContext(await fs.readFile(path.join(EXT, "ai", "planner.js"), "utf8"), {
+        filename: "planner.js",
+      });
+      const planner = globalThis.MELON_PLANNER;
+      let plannerError = null;
+      for (let attempt = 0; attempt < PLANNER_ATTEMPTS; attempt++) {
+        const messages = planner.messagesForGoal(GOAL, attempt);
+        log(
+          `planner attempt ${attempt + 1}/${PLANNER_ATTEMPTS}, up to ${PLANNER_MAX_NEW_TOKENS} tokens`
         );
-        return current?.state?.status === "idle";
-      },
-      "model unload",
-      10000,
-      200
-    );
+        const started = Date.now();
+        const reply = await optionsCdp.evaluate(
+          `chrome.runtime.sendMessage({
+            target: "melon-ai",
+            type: "ai.generate",
+            messages: ${JSON.stringify(messages)},
+            maxNewTokens: ${PLANNER_MAX_NEW_TOKENS},
+          })`,
+          GENERATE_TIMEOUT
+        );
+        log(`planner attempt ${attempt + 1} took ${Date.now() - started}ms`);
+        if (!reply?.ok) {
+          plannerError = new Error(reply?.error || "local planner generation failed");
+          log(`${plannerError.message}${reply?.stack ? `\n${reply.stack}` : ""}`);
+          continue;
+        }
+        const text = String(reply.text || "");
+        log(
+          `planner output ${text.length} chars: ${text.slice(0, 240).replace(/\s+/g, " ")}`
+        );
+        try {
+          const parsed = extractJsonObject(text);
+          const plan = validatePlanGraph(parsed, { goal: GOAL });
+          if (!plan.ok) throw new Error(plan.errors.join("; "));
+          log(
+            `planner graph valid: ${plan.graph.nodes.length} nodes, ${plan.graph.edges.length} edges, ${text.length} chars`
+          );
+          plannerError = null;
+          break;
+        } catch (err) {
+          plannerError = new Error(`planner attempt ${attempt + 1}: ${err.message}`);
+          log(plannerError.message);
+        }
+      }
+      if (plannerError) throw plannerError;
+    }
+
+    try {
+      await optionsCdp.evaluate(
+        `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.unload" })`,
+        GENERATE_TIMEOUT
+      );
+      await waitFor(
+        async () => {
+          const current = await optionsCdp.evaluate(
+            `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.status" })`
+          );
+          return current?.state?.status === "idle";
+        },
+        "model unload",
+        120000,
+        1000
+      );
+    } catch (err) {
+      log(`unload warning: ${err.message}`);
+    }
     log("PASS");
   } catch (err) {
     console.error(`[e2e:ai] FAIL: ${err.stack || err}`);

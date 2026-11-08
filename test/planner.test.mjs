@@ -57,6 +57,29 @@ test("planner accepts a valid graph and normalizes ids, adapters, and layout", (
   );
 });
 
+test("planner infers moderator inputs from custom edge ports", () => {
+  const result = validatePlanGraph({
+    nodes: [
+      { id: "brief", kind: "source" },
+      { id: "reviewer-a", kind: "agent", config: { adapter: "claude" } },
+      { id: "reviewer-b", kind: "agent", config: { adapter: "gemini" } },
+      { id: "moderator", kind: "agent", config: { adapter: "moderator" } },
+      { id: "decision", kind: "sink" },
+    ],
+    edges: [
+      { from: { node: "brief", port: "out" }, to: { node: "reviewer-a", port: "in" } },
+      { from: { node: "brief", port: "out" }, to: { node: "reviewer-b", port: "in" } },
+      { from: { node: "reviewer-a", port: "result" }, to: { node: "moderator", port: "rev1" } },
+      { from: { node: "reviewer-b", port: "result" }, to: { node: "moderator", port: "rev2" } },
+      { from: { node: "moderator", port: "result" }, to: { node: "decision", port: "in" } },
+    ],
+  });
+  assert.equal(result.ok, true);
+  const moderator = result.graph.nodes.find((node) => node.id === "moderator");
+  assert.deepEqual(moderator.inputs, ["rev1", "rev2"]);
+  assert.equal(moderator.trigger, "all");
+});
+
 test("planner uses the goal as the source topic when absent", () => {
   const result = validatePlanGraph(
     {

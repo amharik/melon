@@ -95,6 +95,9 @@ async function disposeGenerator() {
 }
 
 async function wgpuSettings(model) {
+  if (model.device === "wasm") {
+    return { device: "wasm", dtype: model.dtype || "q4" };
+  }
   if (!navigator.gpu) {
     throw new Error("WebGPU is unavailable in this browser. Local AI requires a WebGPU-capable Chromium build.");
   }
@@ -250,7 +253,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "ai.generate") {
     generate(message)
       .then((text) => sendResponse({ ok: true, text }))
-      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
+      .catch((err) =>
+        sendResponse({
+          ok: false,
+          error: String(err?.message || err),
+          stack: String(err?.stack || ""),
+        })
+      );
     return true;
   }
 

@@ -21,7 +21,8 @@ Acceptance criteria:
 - [x] Local AI smoke test on the remote Linux/arm64 Playwright Chromium.
 - [x] Live-site health/login/challenge probe with report and optional cookie import.
 - [x] Pinned Linux/arm64 test lane on sillyoci and CI on every `dev` push.
-- [ ] Real planner inference on hardware WebGPU with a production model.
+- [x] Real planner inference with a production model and validated graph on the pinned remote Chromium lane (Qwen2.5-0.5B-Instruct q4, WASM).
+- [ ] Hardware WebGPU planner run with a production model. Local Intel gen-7 adapter and SmolLM2 load were verified, but Haswell Vulkan stalls during full graph generation; the remote runner has no hardware GPU.
 - [ ] Authenticated live-tab run in CI or on a persistent login profile.
 - [ ] Remote adapter-pack signing, hosting, and update verification.
 

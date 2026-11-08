@@ -141,6 +141,7 @@ export function validatePlanGraph(input, options = {}) {
   const idMap = new Map();
   const nodes = [];
   const nodeById = new Map();
+  const declaredInputs = new Set();
   rawNodes.forEach((rawNode, index) => {
     const source = asObject(rawNode);
     if (!source) {
@@ -164,12 +165,16 @@ export function validatePlanGraph(input, options = {}) {
     const spec = KIND_SPECS[kind];
     const config = asObject(source.config) || {};
     let inputs = [...spec.inputs];
+    let hasDeclaredInputs = false;
     if (kind === "agent" && Array.isArray(source.inputs)) {
       const custom = source.inputs
         .map((port) => cleanText(port, 24))
         .filter(Boolean)
         .slice(0, 4);
-      if (custom.length) inputs = [...new Set(custom)];
+      if (custom.length) {
+        inputs = [...new Set(custom)];
+        hasDeclaredInputs = true;
+      }
     }
     const node = {
       id,
@@ -211,9 +216,31 @@ export function validatePlanGraph(input, options = {}) {
     const originalId = cleanText(source.id, 80);
     if (originalId) idMap.set(originalId, id);
     idMap.set(id, id);
+    if (hasDeclaredInputs) declaredInputs.add(id);
     nodes.push(node);
     nodeById.set(id, node);
   });
+
+  const inferredInputs = new Map();
+  rawEdges.forEach((rawEdge) => {
+    const edge = asObject(rawEdge);
+    const to = asObject(edge?.to);
+    const toId = idMap.get(cleanText(to?.node, 80));
+    const node = nodeById.get(toId);
+    if (!node || node.kind !== "agent" || node.config.adapter !== "demo:moderator") return;
+    if (declaredInputs.has(node.id)) return;
+    const port = cleanText(to?.port, 24);
+    if (!port || port === "in" || node.inputs.includes(port)) return;
+    if (!inferredInputs.has(node.id)) inferredInputs.set(node.id, []);
+    inferredInputs.get(node.id).push(port);
+  });
+  for (const [id, ports] of inferredInputs) {
+    const node = nodeById.get(id);
+    if (node.inputs.length === 1 && node.inputs[0] === "in") {
+      node.inputs = [...new Set(ports)].slice(0, 4);
+      node.trigger = node.inputs.length > 1 ? "all" : KIND_SPECS.agent.trigger;
+    }
+  }
 
   const sources = nodes.filter((node) => node.kind === "source");
   const sinks = nodes.filter((node) => node.kind === "sink");

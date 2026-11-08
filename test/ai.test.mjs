@@ -91,6 +91,7 @@ test("offscreen model host downloads with WebGPU and reports progress", async ()
   assert.match(host, /requestAdapter/);
   assert.match(host, /wasmPaths/);
   assert.match(host, /revision:/);
+  assert.match(host, /model\.device === "wasm"/);
 });
 
 test("local planner prompt requires one validated JSON graph", async () => {
@@ -105,6 +106,9 @@ test("local planner prompt requires one validated JSON graph", async () => {
   assert.match(planner.SYSTEM_PROMPT, /ONLY one JSON object/);
   assert.match(planner.SYSTEM_PROMPT, /No cycles/);
   assert.match(planner.SYSTEM_PROMPT, /[Ee]xactly one source/);
+  assert.match(planner.SYSTEM_PROMPT, /Reviewers are "agent" nodes/);
+  assert.match(planner.SYSTEM_PROMPT, /Never invent an adapter/);
+  assert.match(planner.SYSTEM_PROMPT, /Valid two-reviewer example/);
   const messages = planner.messagesForGoal("review the launch");
   assert.equal(messages.length, 2);
   assert.equal(messages[0].role, "system");
