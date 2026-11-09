@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-09T06:23:47.673Z",
+  "browserVersion": "158.0.8127.18",
+  "secureContext": true,
+  "webgpuAvailable": true,
+  "adapterAvailable": true,
+  "vendor": "google",
+  "architecture": "swiftshader",
+  "device": "",
+  "description": "",
+  "webglRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
+}

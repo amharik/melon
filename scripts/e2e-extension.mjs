@@ -11,6 +11,9 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXT = path.join(ROOT, "extension");
+const SCREENSHOT_DIR = process.env.MELON_E2E_SCREENSHOT_DIR
+  ? path.resolve(process.env.MELON_E2E_SCREENSHOT_DIR)
+  : null;
 const SITES = [
   {
     host: "chatgpt.com",
@@ -50,6 +53,16 @@ function extensionIdForPath(dir) {
 
 function log(message) {
   console.log(`[e2e] ${message}`);
+}
+
+async function screenshot(cdp, name) {
+  if (!SCREENSHOT_DIR) return null;
+  await fs.mkdir(SCREENSHOT_DIR, { recursive: true });
+  const shot = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: false });
+  const file = path.join(SCREENSHOT_DIR, `${name}.png`);
+  await fs.writeFile(file, Buffer.from(shot.data, "base64"));
+  log(`screenshot ${path.relative(ROOT, file)}`);
+  return path.relative(ROOT, file);
 }
 
 async function freePort() {
@@ -500,6 +513,8 @@ async function main() {
       }, `${site.adapter} fixture page target`);
       pageCdp = await CDP.connect(pageTarget.webSocketDebuggerUrl);
       await pageCdp.send("Runtime.enable");
+      await pageCdp.send("Page.enable");
+      await screenshot(pageCdp, `${site.adapter}-01-loaded`);
 
       const runId = `e2e-${site.adapter}-${Date.now().toString(36)}`;
       await json(`${hubBase}/api/runs`, {
@@ -526,6 +541,7 @@ async function main() {
       );
       if (!sawBadge) throw new Error(`${site.adapter} control badge did not appear`);
       log(`run ${runId} started; control badge visible`);
+      await screenshot(pageCdp, `${site.adapter}-02-running`);
 
       const terminal = await sse.next(
         (event) =>
@@ -554,6 +570,7 @@ async function main() {
         response: ${site.response},
         badge: !!document.querySelector("melon-control"),
       }))()`);
+      await screenshot(pageCdp, `${site.adapter}-03-done`);
 
       if (!String(terminal.event.text || "").includes("Fixture reply to:")) {
         throw new Error(`${site.adapter} unexpected run text: ${terminal.event.text}`);

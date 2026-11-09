@@ -12,6 +12,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXT = path.join(ROOT, "extension");
 const OUT_DIR = path.join(ROOT, ".melon", "live");
 const REPORT = path.join(OUT_DIR, "report.json");
+const SCREENSHOT_DIR = process.env.MELON_LIVE_SCREENSHOT_DIR
+  ? path.resolve(process.env.MELON_LIVE_SCREENSHOT_DIR)
+  : OUT_DIR;
 
 const SITES = [
   {
@@ -350,15 +353,15 @@ async function readPage(cdp) {
   })()`);
 }
 
-async function screenshot(cdp, site) {
-  await fs.mkdir(OUT_DIR, { recursive: true });
+async function screenshot(cdp, site, step) {
+  await fs.mkdir(SCREENSHOT_DIR, { recursive: true });
   const shot = await Promise.race([
     cdp.send("Page.captureScreenshot", { format: "png", fromSurface: false }),
     sleep(8000).then(() => {
       throw new Error("screenshot timed out");
     }),
   ]);
-  const file = path.join(OUT_DIR, `${site.id}-${Date.now().toString(36)}.png`);
+  const file = path.join(SCREENSHOT_DIR, `${site.id}-${step}.png`);
   await fs.writeFile(file, Buffer.from(shot.data, "base64"));
   return path.relative(ROOT, file);
 }
@@ -711,6 +714,7 @@ async function main() {
         pageAfter: null,
         screenshot: null,
         screenshotAfter: null,
+        screenshots: [],
         run: null,
         error: null,
         timings: {},
@@ -732,10 +736,11 @@ async function main() {
         result.timings.pageMs = Date.now() - stepAt;
 
         stepAt = Date.now();
-        result.screenshot = await screenshot(pageCdp, site).catch((err) => {
+        result.screenshot = await screenshot(pageCdp, site, "01-landing").catch((err) => {
           result.screenshotError = err.message;
           return null;
         });
+        if (result.screenshot) result.screenshots.push(result.screenshot);
         result.timings.screenshotMs = Date.now() - stepAt;
 
         if (!result.page?.challenge) {
@@ -779,17 +784,23 @@ async function main() {
         }
 
         result.status = classify(result.tab, result.page);
+        if (result.status === "challenge") await sleep(2500);
+        const classifiedShot = await screenshot(pageCdp, site, `02-${result.status}`).catch(() => null);
+        if (classifiedShot) result.screenshots.push(classifiedShot);
         log(
           `${summarize(result)} timings=${JSON.stringify(result.timings)}`
         );
 
         if (SEND && result.status === "ready" && result.tab) {
           log(`${site.id}: sending live prompt`);
+          const beforeShot = await screenshot(pageCdp, site, "03-run-before").catch(() => null);
+          if (beforeShot) result.screenshots.push(beforeShot);
           stepAt = Date.now();
           result.run = await runPrompt(sse, base, site, result.tab);
           result.timings.runMs = Date.now() - stepAt;
           result.pageAfter = await readPage(pageCdp).catch(() => null);
-          result.screenshotAfter = await screenshot(pageCdp, site).catch(() => null);
+          result.screenshotAfter = await screenshot(pageCdp, site, "04-run-after").catch(() => null);
+          if (result.screenshotAfter) result.screenshots.push(result.screenshotAfter);
           log(
             `${site.id}: run ${result.run.status} in ${result.run.durationMs}ms, ${result.run.text.length} chars`
           );

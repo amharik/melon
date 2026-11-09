@@ -313,6 +313,9 @@ npm run e2e:ai
 # state, screenshots, and metadata in .melon/live/report.json.
 npm run e2e:live
 
+# WebGPU adapter probe: writes gpu.json and a screenshot of the result.
+npm run e2e:gpu
+
 # One-time login profile; later runs reuse the cookies.
 MELON_LIVE_HEADLESS=0 MELON_LIVE_PROFILE=~/.cache/melon-live/profile npm run e2e:live
 

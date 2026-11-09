@@ -26,6 +26,8 @@ Acceptance criteria:
 - [ ] Authenticated live-tab run in CI or on a persistent login profile. Remote probes hit Cloudflare challenges on ChatGPT/Claude/Mistral and Google login-required on Gemini.
 - [x] Remote adapter-pack signing, hosting, and update verification.
 
+Evidence from the 2026-11-09 remote Chromium run: [`docs/evidence/2026-11-09/README.md`](evidence/2026-11-09/README.md).
+
 Tracking rules:
 
 - Keep `dev` as the integration branch; push after each verified slice.
