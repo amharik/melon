@@ -20,6 +20,18 @@ test("parseAgyLine tolerates common stream shapes", () => {
     type: "error",
     message: "bad",
   });
+  assert.deepEqual(
+    parseAgyLine('{"event":"step_update","step_update":{"state":"ACTIVE","step_type":"agent_response","text_delta":"hello from agy"}}'),
+    { type: "chunk", text: "hello from agy" },
+  );
+  assert.deepEqual(
+    parseAgyLine('{"event":"result","result":{"status":"SUCCESS","response":"full response"}}'),
+    { type: "done", text: "full response" },
+  );
+  assert.deepEqual(
+    parseAgyLine('{"event":"result","result":{"status":"ERROR","error":"stream input message is missing the \\"event\\" field"}}'),
+    { type: "error", message: 'stream input message is missing the "event" field' },
+  );
   assert.equal(parseAgyLine(""), null);
   assert.deepEqual(splitArgs('--a "b c" --d'), ["--a", "b c", "--d"]);
 });

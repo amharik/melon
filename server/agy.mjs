@@ -22,6 +22,8 @@ function textFromEvent(data) {
   if (typeof data.content === "string") return data.content;
   if (typeof data.chunk === "string") return data.chunk;
   if (typeof data.part?.text === "string") return data.part.text;
+  if (typeof data.step_update?.text_delta === "string") return data.step_update.text_delta;
+  if (typeof data.result?.response === "string") return data.result.response;
   if (typeof data.message?.content === "string") return data.message.content;
   if (Array.isArray(data.message?.content)) {
     return data.message.content
@@ -43,26 +45,43 @@ export function parseAgyLine(line) {
   } catch {
     return { type: "chunk", text: trimmed + "\n" };
   }
-  if (data?.type === "error" || data?.error) {
+  const eventType = data?.event || data?.type;
+  if (
+    eventType === "error" ||
+    data?.error ||
+    (data?.event === "result" && data?.result?.status === "ERROR")
+  ) {
     return {
       type: "error",
       message:
         data.error?.message ||
+        data.result?.error ||
         (typeof data.error === "string" ? data.error : data.message) ||
         "CLI agent reported an error",
     };
   }
   const text = textFromEvent(data);
-  if (data?.type === "done" || data?.type === "complete" || data?.type === "result") {
-    return { type: "done", text };
+  if (
+    eventType === "done" ||
+    eventType === "complete" ||
+    eventType === "result" ||
+    (data?.step_update?.state === "DONE" && data?.step_update?.step_type === "agent_response")
+  ) {
+    if (eventType === "result" || eventType === "done" || eventType === "complete") {
+      return { type: "done", text: data.result?.response || text };
+    }
   }
   if (text) return { type: "chunk", text };
   return null;
 }
 
 function promptFrame(prompt, inputFormat) {
-  if (inputFormat === "prompt") return { type: "prompt", prompt };
-  return { type: "user", message: { role: "user", content: prompt } };
+  if (inputFormat === "prompt") return { event: "prompt", type: "prompt", prompt };
+  return {
+    event: "user",
+    type: "user",
+    message: { role: "user", content: prompt },
+  };
 }
 
 export function createAgyRunner({ cmd = process.env.AGY_CMD || "agy", args = [], spawn = defaultSpawn, inputFormat = process.env.AGY_INPUT_FORMAT || "stream-json" } = {}) {

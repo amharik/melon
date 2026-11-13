@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Melon — agentic office</title>
+    <title>Melon — Agentic Office</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -12,20 +12,54 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
           <h1>Melon</h1>
-          <p>agentic office runtime</p>
+          <p>Agentic Office Runtime</p>
         </div>
       </div>
 
       <div class="toolbar">
-        <button id="btn-play" class="primary" title="Start the workflow from its source">Play</button>
-        <button id="btn-pause" title="Pause scheduling; active jobs finish">Pause</button>
-        <button id="btn-resume" title="Resume queued work">Resume</button>
-        <button id="btn-stop" class="danger" title="Cancel every active run">Stop all</button>
+        <button id="btn-play" class="primary" title="Execute dataflow graph">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Play
+        </button>
+        <button id="btn-stop" class="danger" title="Cancel all active runs">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+          Stop
+        </button>
+
         <span class="sep"></span>
-        <button id="btn-example">Example</button>
-        <button id="btn-export">Export</button>
-        <button id="btn-import">Import</button>
-        <button id="btn-clear" class="ghost">Clear</button>
+
+        <!-- View Mode Segmented Control -->
+        <div class="view-switch" role="tablist" aria-label="View Mode">
+          <button id="btn-canvas-view" class="view-btn active" role="tab" aria-selected="true" title="Node Graph Canvas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6M9 6h6M18 9v6M9 18h6"/></svg>
+            Canvas
+          </button>
+          <button id="btn-sheet-view" class="view-btn" role="tab" aria-selected="false" title="Side-by-Side Agent Sheet">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/></svg>
+            Sheet View
+          </button>
+          <button id="btn-office-view" class="view-btn" role="tab" aria-selected="false" title="Spatial Agent Office Simulation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M3 7v14M21 7v14M6 11h3M15 11h3M6 16h3M15 16h3M9 3h6v4H9z"/></svg>
+            Office
+          </button>
+        </div>
+
+        <span class="sep"></span>
+
+        <!-- Secondary Controls Dropdown Menu -->
+        <div class="menu-wrap">
+          <button id="btn-more" class="ghost tiny" title="More options" aria-haspopup="true">
+            ••• Actions
+          </button>
+          <div id="more-menu" class="menu-dropdown" hidden>
+            <button id="btn-pause">⏸ Pause Queue</button>
+            <button id="btn-resume">▶ Resume Queue</button>
+            <button id="btn-example">★ Load Example</button>
+            <button id="btn-export">⤓ Export JSON</button>
+            <button id="btn-import">⤒ Import JSON</button>
+            <button id="btn-clear" class="danger">✕ Clear Workspace</button>
+          </div>
+        </div>
       </div>
 
       <div class="statuses">
@@ -34,29 +68,34 @@
         <span class="chip" id="chip-tabs">tabs: 0</span>
         <span class="chip" id="chip-wf">wf: v1</span>
         <span class="chip" id="chip-run">run: idle</span>
+        <button id="btn-theme" class="theme-toggle" title="Toggle Light / Dark mode" aria-label="Toggle Theme">
+          🌙
+        </button>
       </div>
     </header>
 
     <main class="workspace">
+      <!-- Left Sidebar / Brief & Drawers -->
       <aside class="panel panel-left">
         <section class="block">
           <div class="block-head">
             <h2>Brief</h2>
-            <span class="block-meta">source input</span>
+            <span class="block-meta">source topic</span>
           </div>
-          <textarea id="brief" rows="7" spellcheck="false">Subject: browser tab runtime for multi-agent design review
+          <textarea id="brief" rows="6" spellcheck="false" placeholder="Enter task or design brief for agents...">Subject: browser tab runtime for multi-agent design review
 
 We are exploring a lightweight runtime that lets AI agents living in separate browser tabs collaborate on a design review. Each tab keeps its own session and credentials. A canvas wires tabs into a dataflow graph. Constraints: no backend that sees the conversation, must work with ChatGPT, Claude, Gemini, Mistral and local opencode, and a human must be able to stop any run.</textarea>
           <div class="row">
-            <button id="btn-plan">Plan graph</button>
-            <button id="btn-send" class="primary">Send into graph</button>
+            <button id="btn-plan" title="Generate AI graph proposal">✦ Plan graph</button>
+            <button id="btn-send" class="primary" title="Emit brief into active workflow">Send into graph</button>
           </div>
-          <p class="hint">The brief is emitted from the source node. Agents stream into the sink; nothing is persisted by the hub. Plan graph uses the loaded local AI model; nothing is applied until you approve it.</p>
+          <p class="hint">Emits from the source node. Agents stream live; outputs can be inspected on the canvas or compared side-by-side in Sheet View.</p>
         </section>
 
+        <!-- AI Plan Proposal (Visible when active) -->
         <section class="block" id="plan-block" hidden>
           <div class="block-head">
-            <h2>Plan proposal</h2>
+            <h2>Plan Proposal</h2>
             <span class="block-meta" id="plan-status">idle</span>
           </div>
           <p class="hint" id="plan-summary"></p>
@@ -67,104 +106,291 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           </div>
         </section>
 
+        <!-- Bridged Browser Tabs (High priority) -->
         <section class="block">
           <div class="block-head">
-            <h2>Palette</h2>
-            <span class="block-meta">click to add</span>
-          </div>
-          <div class="palette">
-            <button data-add="source"><span class="dot source"></span>Source</button>
-            <button data-add="agent"><span class="dot agent"></span>Agent</button>
-            <button data-add="join"><span class="dot join"></span>Join</button>
-            <button data-add="sink"><span class="dot sink"></span>Sink</button>
-          </div>
-        </section>
-
-        <section class="block">
-          <div class="block-head">
-            <h2>Same-origin tabs</h2>
-            <span class="count" id="presence-count">0</span>
-          </div>
-          <div class="list" id="presence-list">
-            <p class="empty">No agent tabs. Open one below, then bind it in the inspector.</p>
-          </div>
-          <div class="row">
-            <button id="btn-open-claude">Open Claude tab</button>
-            <button id="btn-open-gemini">Open Gemini tab</button>
-          </div>
-          <p class="hint">Demo tabs join a BroadcastChannel. They prove tab-to-tab routing without an extension.</p>
-        </section>
-
-        <section class="block">
-          <div class="block-head">
-            <h2>Bridged tabs</h2>
+            <h2>Bridged Tabs</h2>
             <span class="count" id="ext-count">0</span>
           </div>
           <div class="list" id="ext-list">
-            <p class="empty">No extension tabs. See README to load the extension.</p>
+            <p class="empty">No extension tabs. See README to load extension.</p>
           </div>
-          <p class="hint">Real ChatGPT / Claude / Gemini / Mistral tabs, driven by the MV3 extension through the local hub. <strong>Shot</strong> inserts a confirmed screenshot into that tab's composer.</p>
+          <p class="hint">Real ChatGPT / Claude / Gemini / Mistral tabs bridged via MV3 extension. <strong>Shot</strong> pastes a confirmed screenshot.</p>
         </section>
 
+        <!-- Tool Approvals (Security gate) -->
         <section class="block">
           <div class="block-head">
             <h2>Approvals</h2>
             <span class="count" id="approval-count">0</span>
           </div>
           <div class="list" id="approval-list">
-            <p class="empty">No tool requests. Approved commands run only inside the worktree root.</p>
+            <p class="empty">No pending tool requests. Approved commands run only in worktrees.</p>
           </div>
-          <p class="hint">Web agents may propose commands. Nothing runs until you approve it; output returns as untrusted data.</p>
+          <p class="hint">Web agents propose commands. Nothing executes without your explicit click.</p>
         </section>
 
-        <section class="block">
-          <div class="block-head">
-            <h2>Blackboard</h2>
-            <span class="block-meta" id="blackboard-meta">read-only</span>
+        <!-- Collapsible Drawer: Node Palette -->
+        <details class="drawer" open>
+          <summary>
+            <span class="drawer-title">
+              <svg class="drawer-chevron" viewBox="0 0 24 24" fill="none" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+              Node Palette
+            </span>
+            <span class="block-meta">click to add</span>
+          </summary>
+          <div class="drawer-content">
+            <div class="palette">
+              <button data-add="source"><span class="dot source"></span>Source</button>
+              <button data-add="agent"><span class="dot agent"></span>Agent</button>
+              <button data-add="join"><span class="dot join"></span>Join</button>
+              <button data-add="sink"><span class="dot sink"></span>Sink</button>
+            </div>
           </div>
-          <pre id="blackboard-text" class="result-preview">No blackboard file yet.</pre>
-          <p class="hint">Edit <code>.melon/blackboard.md</code> yourself. The hub only reads it.</p>
-        </section>
+        </details>
+
+        <!-- Collapsible Drawer: Shared Blackboard -->
+        <details class="drawer">
+          <summary>
+            <span class="drawer-title">
+              <svg class="drawer-chevron" viewBox="0 0 24 24" fill="none" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+              Shared Blackboard
+            </span>
+            <span class="block-meta" id="blackboard-meta">read-only</span>
+          </summary>
+          <div class="drawer-content">
+            <pre id="blackboard-text" class="result-preview">No blackboard file yet.</pre>
+            <p class="hint">Shared guidelines in <code>.melon/blackboard.md</code>.</p>
+          </div>
+        </details>
+
+        <!-- Collapsible Drawer: Same-origin Demo Tabs -->
+        <details class="drawer">
+          <summary>
+            <span class="drawer-title">
+              <svg class="drawer-chevron" viewBox="0 0 24 24" fill="none" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+              Demo Tabs
+            </span>
+            <span class="count" id="presence-count">0</span>
+          </summary>
+          <div class="drawer-content">
+            <div class="list" id="presence-list">
+              <p class="empty">No demo tabs active.</p>
+            </div>
+            <div class="row">
+              <button id="btn-open-claude" class="tiny">Open Claude demo</button>
+              <button id="btn-open-gemini" class="tiny">Open Gemini demo</button>
+            </div>
+          </div>
+        </details>
       </aside>
 
-      <section class="stage-wrap">
+      <!-- Center Main: Canvas Graph Mode -->
+      <section class="stage-wrap" id="stage-wrap">
         <div class="stage" id="stage">
           <svg id="edges" aria-hidden="true">
             <defs>
               <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 0 0 L 8 4 L 0 8 z" fill="#4b5650"></path>
+                <path d="M 0 0 L 8 4 L 0 8 z" fill="rgba(148, 163, 184, 0.45)"></path>
               </marker>
               <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
-                <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#171c19" stroke-width="1"></path>
+                <path d="M 28 0 L 0 0 0 28" fill="none" stroke="currentColor" stroke-width="1" class="grid-line" style="color: var(--canvas-grid);"></path>
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#grid)"></rect>
             <g id="edge-layer"></g>
           </svg>
           <div id="nodes"></div>
-          <div class="stage-hint" id="stage-hint">Click an output port, then an input port, to connect. Double-click an edge to remove it.</div>
+          <div class="stage-hint" id="stage-hint">Click an output port, then an input port to link. Double-click edge to delete. Switch to Sheet View above for comparative outputs.</div>
         </div>
       </section>
 
+      <!-- Center Main: Side-by-Side Agent Sheet Mode -->
+      <section class="sheet-view" id="sheet-view" hidden>
+        <div class="sheet-head">
+          <div class="sheet-title-group">
+            <h2>Agent Output Sheet</h2>
+            <p>Comparative side-by-side live results with rich Markdown & A2UI schema rendering.</p>
+          </div>
+          <div class="sheet-actions">
+            <button id="btn-sheet-rerun-all" class="tiny primary">Rerun All Agents</button>
+            <button id="btn-sheet-copy-all" class="tiny ghost">Copy All Outputs</button>
+          </div>
+        </div>
+        <div class="sheet-grid" id="sheet-grid">
+          <!-- Dynamically populated with agent cards -->
+        </div>
+      </section>
+
+      <!-- Center Main: Spatial Agent Office Mode -->
+      <section class="office-view" id="office-view" hidden>
+        <div class="office-head">
+          <div class="office-title-group">
+            <div class="office-badge-row">
+              <h2>Spatial Agent Office</h2>
+              <span class="office-live-badge"><span class="live-dot"></span>Simulation Active</span>
+            </div>
+            <p>Spatial collaboration floor: autonomous desks, strategy war-table consensus, and @mention peer-to-peer delegation.</p>
+          </div>
+          <div class="office-actions">
+            <button id="btn-office-hire" class="tiny primary">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+              Hire Agent
+            </button>
+            <button id="btn-office-sync" class="tiny ghost" title="Trigger strategy war-table synthesis">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              War-Room Sync
+            </button>
+          </div>
+        </div>
+
+        <div class="office-floor">
+          <!-- Strategy War-Table (Decision & Synthesis Hub) -->
+          <div class="office-zone war-room-zone">
+            <div class="zone-head">
+              <div class="zone-info">
+                <span class="zone-icon">🏛</span>
+                <div>
+                  <h3 class="zone-title">Strategy War Table</h3>
+                  <span class="zone-sub">Consensus & Decision Synthesis</span>
+                </div>
+              </div>
+              <div class="war-seats" id="office-war-seats">
+                <!-- Seated agent avatar chips populated dynamically -->
+              </div>
+            </div>
+            <div class="war-table-body" id="office-decision-preview">
+              <div class="office-empty-state">
+                <p>Run workflow or tap <strong>War-Room Sync</strong> to synthesize consensus across active desks.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Open Floor Desks Grid -->
+          <div class="office-zone desks-zone">
+            <div class="zone-head">
+              <div class="zone-info">
+                <span class="zone-icon">💼</span>
+                <div>
+                  <h3 class="zone-title">Active Agent Desks</h3>
+                  <span class="zone-sub" id="office-desk-count">0 agents on the floor</span>
+                </div>
+              </div>
+              <div class="desks-filter">
+                <span class="desk-filter-hint">Tap on shoulder to delegate with @mention</span>
+              </div>
+            </div>
+            <div class="desks-grid" id="office-desks">
+              <!-- Dynamically populated desk pods -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Sidebar / Inspector & Live Activity -->
       <aside class="panel panel-right">
         <section class="block inspector-block">
           <div class="block-head">
             <h2>Inspector</h2>
             <span class="block-meta" id="inspect-meta">nothing selected</span>
           </div>
-          <p class="empty" id="inspect-empty">Select a node on the canvas.</p>
+          <p class="empty" id="inspect-empty">Select a node on the canvas to configure.</p>
           <div id="inspect-fields" hidden></div>
         </section>
 
         <section class="block log-block">
           <div class="block-head">
-            <h2>Activity</h2>
-            <button id="btn-clear-log" class="tiny ghost">clear</button>
+            <h2>Activity Log</h2>
+            <button id="btn-clear-log" class="tiny ghost">Clear</button>
           </div>
           <div class="log" id="log"></div>
         </section>
       </aside>
     </main>
+
+    <!-- Hire Agent Modal Dialog -->
+    <div class="modal-backdrop" id="modal-hire" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-hire-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="modal-hire-title">Hire New Agent</h3>
+            <p class="modal-sub">Deploy an autonomous collaborator to the office floor.</p>
+          </div>
+          <button type="button" class="tiny ghost btn-close-modal" id="btn-close-hire">✕</button>
+        </div>
+        <form id="form-hire-agent" class="modal-body">
+          <div class="form-row">
+            <label for="hire-label">Agent Role / Name</label>
+            <input type="text" id="hire-label" placeholder="e.g. Security Auditor" required />
+          </div>
+          <div class="form-row">
+            <label for="hire-id">Named Handle (@mention)</label>
+            <div class="input-prefix-wrap">
+              <span class="prefix">@</span>
+              <input type="text" id="hire-id" placeholder="auditor" pattern="[a-zA-Z0-9_-]{2,20}" required title="2-20 characters: letters, numbers, hyphens" />
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="hire-adapter">Model / Execution Adapter</label>
+            <select id="hire-adapter">
+              <option value="demo:claude">Claude (Interactive Browser / Demo)</option>
+              <option value="demo:gemini">Gemini (Interactive Browser / Demo)</option>
+              <option value="ext">Active Browser Tab (via Extension Bridge)</option>
+              <option value="agy">Antigravity CLI (Local agy stream-json)</option>
+              <option value="opencode">OpenCode / Local Terminal</option>
+              <option value="llm">Local WebGPU LLM</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="hire-worktree">Git Worktree Isolation (Optional)</label>
+            <input type="text" id="hire-worktree" placeholder="worktree/agent-name (leaves clean if empty)" />
+          </div>
+          <div class="form-row">
+            <label for="hire-prompt">Persona Directive / Responsibilities</label>
+            <textarea id="hire-prompt" rows="3" placeholder="Define this agent's focus, tone, and verification standards..."></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="ghost" id="btn-cancel-hire">Cancel</button>
+            <button type="submit" class="primary" id="btn-confirm-hire">Hire & Deploy</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Tap on Shoulder Modal Dialog (Direct / Peer Mention) -->
+    <div class="modal-backdrop" id="modal-tap" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-tap-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="modal-tap-title">Tap on Shoulder</h3>
+            <p class="modal-sub">Direct query or peer delegation to a specific agent.</p>
+          </div>
+          <button type="button" class="tiny ghost btn-close-modal" id="btn-close-tap">✕</button>
+        </div>
+        <form id="form-tap-agent" class="modal-body">
+          <input type="hidden" id="tap-target-node-id" />
+          <div class="form-row">
+            <label>Target Agent</label>
+            <div class="desk-target-pill" id="tap-target-badge">@agent</div>
+          </div>
+          <div class="form-row">
+            <label for="tap-sender">Calling As</label>
+            <select id="tap-sender">
+              <option value="human">👤 Human Director (Trusted)</option>
+              <!-- Dynamically populated with peer agents -->
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="tap-message">Direct Question / Request</label>
+            <textarea id="tap-message" rows="4" placeholder="Ask a targeted question, e.g. 'Can you check if this dataflow is deterministic?'" required></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="ghost" id="btn-cancel-tap">Cancel</button>
+            <button type="submit" class="primary" id="btn-confirm-tap">Tap & Ask</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <div class="toast" id="toast" hidden></div>
     <input type="file" id="file-import" accept="application/json,.json" hidden />

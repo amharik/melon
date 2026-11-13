@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server/hub.mjs",
-    "test": "node --test test/runtime.test.mjs test/audit.test.mjs test/hub.test.mjs test/kev.test.mjs test/extension.test.mjs test/adapters.test.mjs test/planner.test.mjs test/protocol.test.mjs test/simulator.test.mjs test/ai.test.mjs test/adapter-pack.test.mjs test/threads.test.mjs test/worktrees.test.mjs test/agy.test.mjs test/phase.test.mjs test/evals.test.mjs",
+    "test": "node --experimental-websocket --test test/runtime.test.mjs test/audit.test.mjs test/hub.test.mjs test/kev.test.mjs test/extension.test.mjs test/adapters.test.mjs test/planner.test.mjs test/protocol.test.mjs test/simulator.test.mjs test/ai.test.mjs test/adapter-pack.test.mjs test/threads.test.mjs test/worktrees.test.mjs test/agy.test.mjs test/phase.test.mjs test/evals.test.mjs test/office.test.mjs",
     "eval": "node scripts/eval.mjs",
     "e2e": "node scripts/e2e-extension.mjs",
     "e2e:ai": "node scripts/e2e-ai.mjs",
@@ -14,6 +14,7 @@
     "e2e:gpu": "node scripts/gpu-probe.mjs",
     "test:remote": "scripts/e2e-remote.sh",
     "build": "scripts/build.sh",
+    "build:extension": "mkdir -p dist && (cd extension && zip -qr ../dist/melon-extension.zip .)",
     "vendor:ai": "scripts/vendor-ai.sh"
   },
   "devDependencies": {

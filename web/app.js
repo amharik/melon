@@ -85,6 +85,9 @@ const toolRequests = new Map();
 const hub = { online: false, llm: false, kev: false, agy: false, opencodeUrl: "", worktreeRoot: "", es: null };
 let currentThreadId = localStorage.getItem(THREAD_KEY) || null;
 let blackboard = { ok: false, text: "", path: null, error: null };
+const THEME_KEY = "melon.theme.v1";
+let currentView = "canvas";
+const sheetModes = new Map();
 
 function abortError() {
   const err = new Error("aborted");
@@ -198,7 +201,7 @@ function exampleGraph() {
         trigger: "all",
         config: { adapter: "demo:moderator", outputFormat: "markdown" },
       }),
-      makeNode("sink", { id: "decision", label: "Decision", x: 520, y: 400 }),
+      makeNode("sink", { id: "decision", label: "Decision", x: 520, y: 400, config: { outputFormat: "a2ui" } }),
     ],
     edges: [
       makeEdge("brief", "out", "claude", "in", "e1"),
@@ -478,7 +481,7 @@ function formatForNode(node) {
 }
 
 function formatShort(format) {
-  return { markdown: "md", text: "txt", json: "json", image: "img" }[format] || format || "txt";
+  return { markdown: "md", text: "txt", json: "json", image: "img", a2ui: "a2ui" }[format] || format || "txt";
 }
 
 function startNodeRecord(node, meta = {}) {
@@ -532,6 +535,8 @@ function updateNodeRecordView(node) {
   if (status) status.textContent = rec?.status || "idle";
   const taint = el.querySelector(".node-taint");
   if (taint) taint.hidden = rec?.taint !== "untrusted";
+  if (currentView === "sheet") updateSheetCard(node);
+  if (currentView === "office") updateOfficeDesk(node);
 }
 
 function clearRuntimeView() {
@@ -539,6 +544,8 @@ function clearRuntimeView() {
     node.runtime = null;
     updateNodeRecordView(node);
   }
+  if (currentView === "sheet") renderSheetView();
+  if (currentView === "office") renderOfficeView();
 }
 
 function resetProjectOutputs() {
@@ -837,6 +844,885 @@ function renderAll() {
   renderNodes();
   renderInspector();
   updateStatus();
+  if (currentView === "sheet") renderSheetView();
+  if (currentView === "office") renderOfficeView();
+}
+
+/* ------------------------------------------------------------------ Theme */
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isLight = saved === "light" || (!saved && !prefersDark);
+  applyTheme(isLight ? "light" : "dark");
+}
+
+function applyTheme(theme) {
+  const isLight = theme === "light";
+  document.documentElement.classList.toggle("light", isLight);
+  const btn = $("#btn-theme");
+  if (btn) btn.textContent = isLight ? "☀️" : "🌙";
+  localStorage.setItem(THEME_KEY, theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.classList.contains("light") ? "light" : "dark";
+  applyTheme(current === "light" ? "dark" : "light");
+}
+
+/* ----------------------------------------------------------- View Switcher */
+
+function switchView(mode) {
+  currentView = mode;
+  const canvasBtn = $("#btn-canvas-view");
+  const sheetBtn = $("#btn-sheet-view");
+  const officeBtn = $("#btn-office-view");
+  const stageWrap = $("#stage-wrap");
+  const sheetView = $("#sheet-view");
+  const officeView = $("#office-view");
+
+  if (canvasBtn) {
+    canvasBtn.classList.toggle("active", mode === "canvas");
+    canvasBtn.setAttribute("aria-selected", mode === "canvas");
+  }
+  if (sheetBtn) {
+    sheetBtn.classList.toggle("active", mode === "sheet");
+    sheetBtn.setAttribute("aria-selected", mode === "sheet");
+  }
+  if (officeBtn) {
+    officeBtn.classList.toggle("active", mode === "office");
+    officeBtn.setAttribute("aria-selected", mode === "office");
+  }
+  if (stageWrap) stageWrap.hidden = mode !== "canvas";
+  if (sheetView) sheetView.hidden = mode !== "sheet";
+  if (officeView) officeView.hidden = mode !== "office";
+
+  if (mode === "sheet") {
+    renderSheetView();
+  } else if (mode === "office") {
+    renderOfficeView();
+  } else {
+    renderEdges();
+  }
+}
+
+/* ------------------------------------------------- Rich Markdown & A2UI */
+
+function renderMarkdown(raw) {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+
+  // Try parsing A2UI structured JSON schema
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (data.component || data.type === "a2ui" || data.a2ui) {
+        return renderA2UI(data.a2ui || data);
+      }
+    } catch {}
+  }
+
+  // Preserve code blocks before processing markdown
+  const codeBlocks = [];
+  let text = raw.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const id = `__CB_${codeBlocks.length}__`;
+    codeBlocks.push({ lang: lang || "text", code });
+    return id;
+  });
+
+  // Basic HTML sanitization
+  text = esc(text);
+
+  // Restore code blocks with rich header and copy button
+  text = text.replace(/__CB_(\d+)__/g, (_, idx) => {
+    const cb = codeBlocks[Number(idx)];
+    if (!cb) return "";
+    const cleanCode = esc(cb.code.trim());
+    return `<div class="md-code-block" style="margin:8px 0; border:1px solid var(--glass-border); border-radius:8px; overflow:hidden;">
+      <div class="md-code-header">
+        <span style="font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase;">${esc(cb.lang)}</span>
+        <button type="button" class="tiny ghost btn-copy-code" data-copy="${cleanCode}">Copy</button>
+      </div>
+      <pre style="margin:0; border:0; border-radius:0; max-height:260px; overflow:auto;"><code>${cleanCode}</code></pre>
+    </div>`;
+  });
+
+  // Headings
+  text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
+  text = text.replace(/^## (.*$)/gim, "<h2>$1</h2>");
+  text = text.replace(/^# (.*$)/gim, "<h1>$1</h1>");
+
+  // Callouts & Alerts (> [!NOTE], > [!WARNING], > [!IMPORTANT])
+  text = text.replace(/^\&gt; \[!(NOTE|TIP|INFO)\]\s*(.*$)/gim, '<blockquote class="callout-info"><strong>ℹ $1:</strong> $2</blockquote>');
+  text = text.replace(/^\&gt; \[!(WARNING|CAUTION)\]\s*(.*$)/gim, '<blockquote class="callout-warn"><strong>⚠ $1:</strong> $2</blockquote>');
+  text = text.replace(/^\&gt; \[!(DANGER|CRITICAL)\]\s*(.*$)/gim, '<blockquote class="callout-danger"><strong>⛔ $1:</strong> $2</blockquote>');
+  text = text.replace(/^\&gt; (.*$)/gim, "<blockquote>$1</blockquote>");
+
+  // Tables
+  text = text.replace(/((?:\|[^\n]+\|\n?)+)/g, (table) => {
+    const rows = table.trim().split("\n").map((r) => r.trim()).filter(Boolean);
+    if (rows.length < 2) return table;
+    const header = rows[0].split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map((c) => c.trim());
+    const hasDivider = rows[1] && rows[1].includes("---");
+    const dataRows = rows.slice(hasDivider ? 2 : 1);
+    const ths = header.map((h) => `<th>${h}</th>`).join("");
+    const trs = dataRows.map((r) => {
+      const cells = r.split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map((c) => `<td>${c.trim()}</td>`).join("");
+      return `<tr>${cells}</tr>`;
+    }).join("");
+    return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+  });
+
+  // Bold & Italic
+  text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Lists
+  text = text.replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>");
+  text = text.replace(/(<li>[\s\S]*?<\/li>)/gim, "<ul>$1</ul>");
+
+  // Paragraphs
+  text = text.split("\n\n").map((p) => {
+    p = p.trim();
+    if (!p) return "";
+    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<div") || p.startsWith("<table") || p.startsWith("<ul") || p.startsWith("<blockquote")) {
+      return p;
+    }
+    return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
+  }).join("\n");
+
+  return `<div class="md-body">${text}</div>`;
+}
+
+function renderA2UI(obj) {
+  const comp = obj.component || obj.type;
+  if (comp === "decision-card" || comp === "decision") {
+    const metrics = (obj.metrics || []).map((m) => `
+      <div class="a2ui-metric-box">
+        <span>${esc(m.label)}</span>
+        <strong>${esc(m.value)}</strong>
+      </div>
+    `).join("");
+
+    const sections = (obj.sections || []).map((sec) => `
+      <div style="margin-top:10px;">
+        <strong style="font-size:10.5px; text-transform:uppercase; color:var(--text-muted); font-family:var(--font-mono); letter-spacing:0.08em;">${esc(sec.title)}</strong>
+        <ul style="margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--text-main);">
+          ${(sec.items || []).map((item) => `<li>${esc(item)}</li>`).join("")}
+        </ul>
+      </div>
+    `).join("");
+
+    const statusBadge = obj.status === "CAUTION"
+      ? '<span class="sheet-badge error" style="font-weight:600;">CAUTION</span>'
+      : '<span class="sheet-badge done" style="font-weight:600;">APPROVED</span>';
+
+    return `
+      <div class="a2ui-card" style="border-left: 3px solid var(--accent-emerald);">
+        <div class="a2ui-header">
+          <div>
+            <strong style="font-size:14px; font-weight:700;">${esc(obj.title || "Office Decision & Consensus")}</strong>
+            ${obj.verdict ? `<p style="margin:4px 0 0; color:var(--text-main); font-size:12px; font-weight:500;">${esc(obj.verdict)}</p>` : ""}
+          </div>
+          ${statusBadge}
+        </div>
+        ${metrics ? `<div class="a2ui-metric-grid" style="margin:10px 0;">${metrics}</div>` : ""}
+        ${sections}
+      </div>
+    `;
+  }
+  if (comp === "metric" || comp === "metrics") {
+    const items = Array.isArray(obj.items) ? obj.items : [obj];
+    const boxes = items.map((m) => `
+      <div class="a2ui-metric-box">
+        <span>${esc(m.label || m.title || "Metric")}</span>
+        <strong>${esc(m.value ?? "-")}</strong>
+        ${m.change ? `<small style="color:var(--accent-emerald)">${esc(m.change)}</small>` : ""}
+      </div>
+    `).join("");
+    return `<div class="a2ui-card"><div class="a2ui-header"><strong>${esc(obj.title || "Metrics")}</strong></div><div class="a2ui-metric-grid">${boxes}</div></div>`;
+  }
+  if (comp === "card") {
+    return `<div class="a2ui-card">
+      <div class="a2ui-header">
+        <strong>${esc(obj.title || "A2UI Component")}</strong>
+        ${obj.badge ? `<span class="sheet-badge done">${esc(obj.badge)}</span>` : ""}
+      </div>
+      ${obj.description ? `<p style="margin:4px 0 8px; color:var(--text-muted); font-size:11px;">${esc(obj.description)}</p>` : ""}
+      ${obj.content ? renderMarkdown(obj.content) : ""}
+    </div>`;
+  }
+  if (comp === "alert") {
+    const levelClass = obj.level === "error" ? "callout-danger" : obj.level === "warning" ? "callout-warn" : "callout-info";
+    return `<div class="a2ui-card"><blockquote class="${levelClass}"><strong>${esc(obj.title || obj.level || "Alert")}:</strong> ${esc(obj.message || "")}</blockquote></div>`;
+  }
+  return `<div class="a2ui-card"><pre><code>${esc(JSON.stringify(obj, null, 2))}</code></pre></div>`;
+}
+
+function markdownToA2UIDecision(text) {
+  const lines = String(text || "").split("\n");
+  let verdict = "Proceed with implementation after reviewing key trade-offs.";
+  const consensus = [];
+  const disagreements = [];
+  const risks = [];
+  const actions = [];
+  let currentSec = "";
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith("## Decision")) { currentSec = "decision"; continue; }
+    if (line.startsWith("## Consensus")) { currentSec = "consensus"; continue; }
+    if (line.startsWith("## Disagreements")) { currentSec = "disagreements"; continue; }
+    if (line.startsWith("## Risks")) { currentSec = "risks"; continue; }
+    if (line.startsWith("## Next actions")) { currentSec = "actions"; continue; }
+    if (line.startsWith("## Open questions")) { currentSec = "questions"; continue; }
+    if (line.startsWith("## ")) { currentSec = ""; continue; }
+
+    if (currentSec === "decision" && line && !line.startsWith("#")) {
+      verdict = line;
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      const item = line.slice(2).trim();
+      if (currentSec === "consensus") consensus.push(item);
+      else if (currentSec === "disagreements") disagreements.push(item);
+      else if (currentSec === "risks") risks.push(item);
+      else if (currentSec === "actions") actions.push(item);
+    }
+  }
+
+  const sections = [];
+  if (consensus.length) sections.push({ title: "Consensus Points", items: consensus });
+  if (disagreements.length) sections.push({ title: "Key Disagreements", items: disagreements });
+  if (risks.length) sections.push({ title: "Identified Risks", items: risks });
+  if (actions.length) sections.push({ title: "Action Items", items: actions });
+
+  const schema = {
+    component: "decision-card",
+    title: "Synthesized Office Decision",
+    verdict,
+    status: risks.length > 3 ? "CAUTION" : "APPROVED",
+    metrics: [
+      { label: "Consensus", value: `${Math.max(60, 100 - disagreements.length * 10)}%` },
+      { label: "Disagreements", value: String(disagreements.length) },
+      { label: "Risks", value: String(risks.length) },
+      { label: "Action Items", value: String(actions.length) },
+    ],
+    sections,
+  };
+  return JSON.stringify(schema, null, 2);
+}
+
+/* ------------------------------------------------------------- Sheet View */
+
+function relevantSheetNodes() {
+  return nodes.filter((n) => n.kind === "agent" || n.kind === "sink" || n.kind === "join");
+}
+
+function renderSheetView() {
+  const grid = $("#sheet-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+
+  const activeNodes = relevantSheetNodes();
+  if (activeNodes.length === 0) {
+    grid.innerHTML = `<div class="sheet-card" style="grid-column: 1 / -1; align-items: center; justify-content: center; padding: 48px 24px; text-align: center;">
+      <p style="color: var(--text-muted); margin: 0 0 14px; font-size: 13px;">No agents or decision nodes in workflow.</p>
+      <button class="primary tiny" id="btn-sheet-add-example">Load Example Office</button>
+    </div>`;
+    $("#btn-sheet-add-example")?.addEventListener("click", () => $("#btn-example").click());
+    return;
+  }
+
+  for (const node of activeNodes) {
+    const card = createSheetCard(node);
+    grid.append(card);
+  }
+
+  grid.querySelectorAll(".btn-copy-code").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.dataset.copy;
+      navigator.clipboard.writeText(code).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => (btn.textContent = orig), 1500);
+      });
+    });
+  });
+}
+
+function createSheetCard(node) {
+  const card = document.createElement("div");
+  card.className = "sheet-card";
+  card.dataset.id = node.id;
+  if (node.runtime?.status === "running") card.classList.add("running");
+  if (node.runtime?.status === "error") card.classList.add("error");
+
+  const mode = sheetModes.get(node.id) || "rendered";
+  const rec = node.runtime;
+  const rawText = rec?.text || "";
+  const charCount = rawText.length;
+  const wordCount = rawText ? rawText.trim().split(/\s+/).length : 0;
+  const status = rec?.status || "idle";
+  const adapter = adapterLabel(node);
+
+  let dotColor = "var(--accent-emerald)";
+  if (node.kind === "sink") dotColor = "var(--text-muted)";
+  else if (node.kind === "join") dotColor = "var(--accent-blue)";
+
+  card.innerHTML = `
+    <div class="sheet-card-head">
+      <div class="sheet-agent-info">
+        <span class="sheet-dot" style="background:${dotColor}"></span>
+        <span class="sheet-agent-title" title="${esc(node.label || node.id)}">${esc(node.label || node.id)}</span>
+        <span class="sheet-agent-adapter">${esc(adapter)}</span>
+      </div>
+      <span class="sheet-badge ${status}">${status}</span>
+    </div>
+    <div class="sheet-card-bar">
+      <span>${charCount.toLocaleString()} chars · ${wordCount} words${rec?.taint === "untrusted" ? " · <strong style='color:var(--accent-amber)'>TAINTED</strong>" : ""}</span>
+      <div class="tools">
+        <button type="button" class="tiny ghost btn-toggle-mode" data-id="${node.id}">
+          ${mode === "rendered" ? "Raw" : "Rendered"}
+        </button>
+        <button type="button" class="tiny ghost btn-copy-card" data-id="${node.id}" title="Copy output">Copy</button>
+        <button type="button" class="tiny ghost btn-rerun-card" data-id="${node.id}" title="Rerun agent">Rerun</button>
+      </div>
+    </div>
+    <div class="sheet-card-body" id="sheet-body-${node.id}">
+      ${mode === "rendered" ? (rawText ? renderMarkdown(rawText) : "") : `<pre class="result-preview" style="max-height:none; height:100%;">${esc(rawText)}</pre>`}
+    </div>
+  `;
+
+  card.querySelector(".btn-toggle-mode").addEventListener("click", () => {
+    const nextMode = mode === "rendered" ? "raw" : "rendered";
+    sheetModes.set(node.id, nextMode);
+    updateSheetCard(node);
+  });
+  card.querySelector(".btn-copy-card").addEventListener("click", () => {
+    if (!rawText) return;
+    navigator.clipboard.writeText(rawText).then(() => toast(`Copied output of ${node.label || node.id}`));
+  });
+  card.querySelector(".btn-rerun-card").addEventListener("click", () => {
+    rerunNode(node, { downstream: false });
+  });
+
+  return card;
+}
+
+function updateSheetCard(node) {
+  if (currentView !== "sheet") return;
+  const card = $(`#sheet-grid .sheet-card[data-id="${node.id}"]`);
+  if (!card) {
+    renderSheetView();
+    return;
+  }
+  const rec = node.runtime;
+  const status = rec?.status || "idle";
+  card.classList.toggle("running", status === "running");
+  card.classList.toggle("error", status === "error");
+
+  const badge = card.querySelector(".sheet-badge");
+  if (badge) {
+    badge.className = `sheet-badge ${status}`;
+    badge.textContent = status;
+  }
+
+  const rawText = rec?.text || "";
+  const charCount = rawText.length;
+  const wordCount = rawText ? rawText.trim().split(/\s+/).length : 0;
+  const barSpan = card.querySelector(".sheet-card-bar span");
+  if (barSpan) {
+    barSpan.innerHTML = `${charCount.toLocaleString()} chars · ${wordCount} words${rec?.taint === "untrusted" ? " · <strong style='color:var(--accent-amber)'>TAINTED</strong>" : ""}`;
+  }
+
+  const mode = sheetModes.get(node.id) || "rendered";
+  const body = card.querySelector(".sheet-card-body");
+  if (body) {
+    if (mode === "rendered") {
+      body.innerHTML = rawText ? renderMarkdown(rawText) : "";
+    } else {
+      body.innerHTML = `<pre class="result-preview" style="max-height:none; height:100%;">${esc(rawText)}</pre>`;
+    }
+  }
+}
+
+function copyAllSheetOutputs() {
+  const parts = [];
+  for (const node of relevantSheetNodes()) {
+    const text = node.runtime?.text || "";
+    if (text) {
+      parts.push(`## ${node.label || node.id} (${adapterLabel(node)})\n\n${text}`);
+    }
+  }
+  if (!parts.length) {
+    toast("No outputs available to copy.");
+    return;
+  }
+  const full = parts.join("\n\n---\n\n");
+  navigator.clipboard.writeText(full).then(() => toast("Copied all agent outputs to clipboard"));
+}
+
+/* ------------------------------------------------- Spatial Office Simulation */
+
+function getAgentPersona(node) {
+  const adapter = String(node.config?.adapter || "");
+  const id = node.id || "";
+  const label = node.label || id;
+  const rawHandle = node.config?.handle || id.replace(/^agent-?/, "") || id;
+  const handle = rawHandle.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  const worktree = node.config?.worktree || "";
+
+  let avatar = "🤖";
+  if (adapter.includes("claude") || id.includes("claude")) avatar = "🤖";
+  else if (adapter.includes("gemini") || id.includes("gemini")) avatar = "⚡";
+  else if (adapter.includes("chatgpt") || id.includes("chatgpt")) avatar = "🧠";
+  else if (adapter.includes("mistral") || id.includes("mistral")) avatar = "🦊";
+  else if (adapter === "opencode" || id.includes("code")) avatar = "💻";
+  else if (adapter === "agy" || id.includes("agy")) avatar = "🚀";
+  else if (adapter === "ext" || adapter.includes("browser")) avatar = "🌐";
+  else if (adapter === "llm") avatar = "🔮";
+
+  return { avatar, label, handle, worktree, adapter: adapterLabel(node) };
+}
+
+function renderOfficeView() {
+  renderWarRoomSeats();
+  renderWarRoomDecision();
+  renderOfficeDesks();
+}
+
+function renderWarRoomSeats() {
+  const seatsEl = $("#office-war-seats");
+  if (!seatsEl) return;
+  seatsEl.replaceChildren();
+
+  const agentNodes = nodes.filter((n) => n.kind === "agent");
+  for (const node of agentNodes) {
+    const persona = getAgentPersona(node);
+    const chip = document.createElement("span");
+    chip.className = "seat-chip";
+    if (node.runtime?.status === "running") chip.classList.add("active");
+    chip.innerHTML = `<span class="seat-avatar">${persona.avatar}</span><span>@${esc(persona.handle)}</span>`;
+    chip.title = `${persona.label} (${persona.adapter})`;
+    seatsEl.append(chip);
+  }
+}
+
+function renderWarRoomDecision() {
+  const prevEl = $("#office-decision-preview");
+  if (!prevEl) return;
+  const sink = nodes.find((n) => n.kind === "sink" || n.kind === "join");
+  const rec = sink?.runtime;
+  if (!rec || !rec.text) {
+    prevEl.innerHTML = `
+      <div class="office-empty-state">
+        <p>Awaiting findings from active agent desks. Run workflow or tap <strong>War-Room Sync</strong> to synthesize consensus.</p>
+      </div>`;
+    return;
+  }
+  prevEl.innerHTML = renderMarkdown(rec.text);
+}
+
+function renderOfficeDesks() {
+  const grid = $("#office-desks");
+  const countEl = $("#office-desk-count");
+  if (!grid) return;
+  grid.replaceChildren();
+
+  const agentNodes = nodes.filter((n) => n.kind === "agent");
+  if (countEl) countEl.textContent = `${agentNodes.length} agent${agentNodes.length === 1 ? "" : "s"} on the floor`;
+
+  if (agentNodes.length === 0) {
+    grid.innerHTML = `
+      <div class="office-empty-state" style="grid-column: 1 / -1; padding: 48px 24px;">
+        <p>No agents currently hired. Click <strong>+ Hire Agent</strong> to deploy one to the office.</p>
+      </div>`;
+    return;
+  }
+
+  for (const node of agentNodes) {
+    const desk = createDeskCard(node);
+    grid.append(desk);
+  }
+}
+
+function createDeskCard(node) {
+  const card = document.createElement("div");
+  card.className = "desk-card";
+  card.id = `desk-card-${node.id}`;
+  card.dataset.id = node.id;
+
+  const rec = node.runtime;
+  const status = rec?.status || "idle";
+  if (status === "running") card.classList.add("running");
+  if (status === "error") card.classList.add("error");
+
+  const persona = getAgentPersona(node);
+  const text = rec?.text || "";
+  const charCount = text.length;
+  const wordCount = text ? text.trim().split(/\s+/).length : 0;
+
+  card.innerHTML = `
+    <div class="desk-header">
+      <div class="desk-identity">
+        <div class="desk-avatar-wrap">
+          <span>${persona.avatar}</span>
+          <span class="desk-status-dot ${status}"></span>
+        </div>
+        <div class="desk-info">
+          <span class="desk-title" title="${esc(persona.label)}">${esc(persona.label)}</span>
+          <div class="desk-sub-row">
+            <span class="desk-handle">@${esc(persona.handle)}</span>
+            ${persona.worktree ? `<span class="desk-worktree" title="Worktree: ${esc(persona.worktree)}">🌿 ${esc(persona.worktree)}</span>` : ""}
+          </div>
+        </div>
+      </div>
+      <span class="sheet-badge ${status}">${status}</span>
+    </div>
+
+    <div class="desk-bubble" id="desk-bubble-${node.id}">
+      ${text ? renderMarkdown(text) : '<span class="desk-bubble-empty">Awaiting brief or peer assignment...</span>'}
+    </div>
+
+    <div class="desk-footer">
+      <span class="desk-stats" id="desk-stats-${node.id}">
+        ${charCount ? `${charCount.toLocaleString()} chars · ${wordCount} words` : persona.adapter}
+      </span>
+      <div class="desk-actions">
+        <button type="button" class="tiny ghost btn-tap-desk" data-id="${node.id}" title="Tap on shoulder (direct message / query)">
+          👋 Tap
+        </button>
+        <button type="button" class="tiny ghost btn-inspect-desk" data-id="${node.id}" title="Inspect in Canvas">
+          🔍 Inspect
+        </button>
+        <button type="button" class="tiny ghost btn-dismiss-desk" data-id="${node.id}" title="Dismiss / Offboard agent" style="color:var(--accent-rose);">
+          ✕ Dismiss
+        </button>
+      </div>
+    </div>
+  `;
+
+  card.querySelector(".btn-tap-desk")?.addEventListener("click", () => openTapModal(node));
+  card.querySelector(".btn-inspect-desk")?.addEventListener("click", () => {
+    selectNode(node.id);
+    switchView("canvas");
+  });
+  card.querySelector(".btn-dismiss-desk")?.addEventListener("click", () => {
+    if (confirm(`Dismiss ${persona.label} (@${persona.handle}) from the office roster?`)) {
+      dismissAgent(node.id);
+    }
+  });
+
+  return card;
+}
+
+function updateOfficeDesk(node) {
+  if (node.kind === "sink" || node.kind === "join") {
+    renderWarRoomDecision();
+    return;
+  }
+  if (node.kind !== "agent") return;
+
+  const card = $(`#desk-card-${node.id}`);
+  if (!card) {
+    renderOfficeView();
+    return;
+  }
+
+  const rec = node.runtime;
+  const status = rec?.status || "idle";
+  card.classList.toggle("running", status === "running");
+  card.classList.toggle("error", status === "error");
+
+  const dot = card.querySelector(".desk-status-dot");
+  if (dot) dot.className = `desk-status-dot ${status}`;
+
+  const badge = card.querySelector(".sheet-badge");
+  if (badge) {
+    badge.className = `sheet-badge ${status}`;
+    badge.textContent = status;
+  }
+
+  const bubble = $(`#desk-bubble-${node.id}`);
+  if (bubble) {
+    const text = rec?.text || "";
+    bubble.innerHTML = text ? renderMarkdown(text) : '<span class="desk-bubble-empty">Awaiting brief or peer assignment...</span>';
+    bubble.scrollTop = bubble.scrollHeight;
+  }
+
+  const stats = $(`#desk-stats-${node.id}`);
+  if (stats) {
+    const text = rec?.text || "";
+    const charCount = text.length;
+    const wordCount = text ? text.trim().split(/\s+/).length : 0;
+    const persona = getAgentPersona(node);
+    stats.textContent = charCount ? `${charCount.toLocaleString()} chars · ${wordCount} words` : persona.adapter;
+  }
+
+  renderWarRoomSeats();
+}
+
+function syncWarRoomDecision() {
+  const agentNodes = nodes.filter((n) => n.kind === "agent");
+  const agentOutputs = agentNodes
+    .map((n) => ({ persona: getAgentPersona(n), text: n.runtime?.text || "" }))
+    .filter((a) => Boolean(a.text.trim()));
+
+  if (!agentOutputs.length) {
+    toast("No active desk findings yet. Run workflow first.", true);
+    return;
+  }
+
+  const items = [];
+  for (const { persona, text } of agentOutputs) {
+    const cleanLines = text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+    const snippet = cleanLines.slice(0, 2).join(" ").slice(0, 160);
+    items.push(`@${persona.handle} (${persona.label}): ${snippet || "Findings recorded."}`);
+  }
+
+  const decisionObj = {
+    component: "decision-card",
+    title: "Office War-Room Consensus",
+    verdict: "Synthesized alignment from active office agent desks.",
+    status: "APPROVED",
+    metrics: [
+      { label: "Reporting Desks", value: String(agentOutputs.length) },
+      { label: "Consensus", value: `${Math.min(100, 75 + agentOutputs.length * 6)}%` },
+      { label: "Worktrees", value: String(agentNodes.filter((n) => n.config?.worktree).length) },
+    ],
+    sections: [
+      {
+        title: "Desk Synthesis & Review",
+        items: items.length ? items : ["All desks reported in with aligned recommendations."],
+      },
+      {
+        title: "Office Action Items",
+        items: [
+          "Incorporate validated peer feedback into active workflow branch.",
+          "Keep git worktree isolation for distinct feature tasks.",
+        ],
+      },
+    ],
+  };
+
+  const json = JSON.stringify(decisionObj, null, 2);
+  const sink = nodes.find((n) => n.kind === "sink" || n.kind === "join");
+  if (sink) {
+    if (!sink.runtime) sink.runtime = startNodeRecord(sink, { status: "done", format: "a2ui" });
+    sink.runtime.text = json;
+    sink.runtime.status = "done";
+    sink.runtime.format = "a2ui";
+    updateNodeRecordView(sink);
+  }
+
+  renderWarRoomDecision();
+  log("info", "Office: War-Room synchronized consensus across active desks");
+  toast("War-Room synchronized consensus!");
+}
+
+/* ------------------------------------------------ Dynamic Agent Roster */
+
+function hireAgent({ label, handle, adapter, worktree, instructions }) {
+  const cleanHandle = String(handle || "").trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, "");
+  if (!cleanHandle) {
+    toast("Handle must contain valid alphanumeric characters", true);
+    return false;
+  }
+
+  const id = `agent-${cleanHandle}`;
+  if (nodeById(id)) {
+    toast(`Agent with handle @${cleanHandle} already exists`, true);
+    return false;
+  }
+
+  const agentCount = nodes.filter((n) => n.kind === "agent").length;
+  const x = 280 + (agentCount % 3) * 290;
+  const y = 80 + Math.floor(agentCount / 3) * 220;
+
+  const node = makeNode("agent", {
+    id,
+    label: label.trim() || `Agent @${cleanHandle}`,
+    x,
+    y,
+    config: {
+      adapter: adapter || "demo:claude",
+      handle: cleanHandle,
+      worktree: worktree ? worktree.trim() : undefined,
+      instructions: instructions ? instructions.trim() : undefined,
+      outputFormat: "markdown",
+    },
+  });
+
+  nodes.push(node);
+
+  // Auto-connect from brief / source node
+  const source = sourceNode();
+  if (source && source.outputs.length && node.inputs.length) {
+    edges.push({
+      id: uid("edge"),
+      from: { node: source.id, port: source.outputs[0] },
+      to: { node: node.id, port: node.inputs[0] },
+    });
+  }
+
+  // Auto-connect to sink / decision node
+  const sink = nodes.find((n) => n.kind === "sink" || n.kind === "join");
+  if (sink && node.outputs.length && sink.inputs.length) {
+    edges.push({
+      id: uid("edge"),
+      from: { node: node.id, port: node.outputs[0] },
+      to: { node: sink.id, port: sink.inputs[0] },
+    });
+  }
+
+  if (!applyGraph()) {
+    nodes = nodes.filter((n) => n.id !== id);
+    pruneEdges(node);
+    return false;
+  }
+
+  saveGraph();
+  bumpWorkflowVersion(`hired agent @${cleanHandle}`);
+  renderAll();
+  log("info", `Office: Hired ${node.label} (@${cleanHandle}) with adapter ${adapter}`);
+  toast(`Hired @${cleanHandle} successfully!`);
+  return true;
+}
+
+function dismissAgent(id) {
+  const node = nodeById(id);
+  if (!node) return;
+  const label = node.label || id;
+  const persona = getAgentPersona(node);
+
+  for (const [key, job] of activeJobs.entries()) {
+    if (job.nodeId === id) {
+      job.cancel?.();
+      activeJobs.delete(key);
+    }
+  }
+
+  nodes = nodes.filter((n) => n.id !== id);
+  edges = edges.filter((e) => e.from.node !== id && e.to.node !== id);
+  if (selectedId === id) selectedId = null;
+
+  applyGraph();
+  saveGraph();
+  bumpWorkflowVersion(`dismissed agent @${persona.handle}`);
+  renderAll();
+  log("warn", `Office: Dismissed ${label} (@${persona.handle}) from office roster`);
+  toast(`Dismissed @${persona.handle}`);
+}
+
+/* --------------------------------------- Named ID Peer Delegation (@mention) */
+
+function openTapModal(targetNode) {
+  const persona = getAgentPersona(targetNode);
+  const modal = $("#modal-tap");
+  const targetIdInput = $("#tap-target-node-id");
+  const targetBadge = $("#tap-target-badge");
+  const senderSelect = $("#tap-sender");
+  const msgInput = $("#tap-message");
+
+  if (!modal || !targetIdInput || !targetBadge || !senderSelect || !msgInput) return;
+
+  targetIdInput.value = targetNode.id;
+  targetBadge.textContent = `${persona.avatar} ${persona.label} (@${persona.handle})`;
+  msgInput.value = "";
+
+  senderSelect.replaceChildren();
+  const humanOpt = document.createElement("option");
+  humanOpt.value = "human";
+  humanOpt.textContent = "👤 Human Director (Trusted)";
+  senderSelect.append(humanOpt);
+
+  for (const other of nodes.filter((n) => n.kind === "agent" && n.id !== targetNode.id)) {
+    const p = getAgentPersona(other);
+    const opt = document.createElement("option");
+    opt.value = other.id;
+    opt.textContent = `${p.avatar} @${p.handle} (${p.label})`;
+    senderSelect.append(opt);
+  }
+
+  modal.hidden = false;
+  msgInput.focus();
+}
+
+function triggerPeerTurn({ fromNode, toNode, prompt, hops = 1, taint = "untrusted" }) {
+  const fromPersona = fromNode ? getAgentPersona(fromNode) : { handle: "director", label: "Human Director" };
+  const toPersona = getAgentPersona(toNode);
+
+  log("info", `Office: Peer Delegation (${hops}/3): @${fromPersona.handle} -> @${toPersona.handle}`);
+
+  const targetDesk = $(`#desk-card-${toNode.id}`);
+  if (targetDesk) {
+    targetDesk.classList.add("active-peer");
+    setTimeout(() => targetDesk.classList.remove("active-peer"), 2200);
+  }
+
+  const command = {
+    node: toNode.id,
+    inputs: [
+      {
+        port: "peer",
+        text: prompt,
+        role: fromPersona.handle,
+        taint: taint || undefined,
+      },
+    ],
+    context: [],
+    job: uid("peer_job"),
+    __gen: generation,
+    __manual: true,
+    __route: false,
+    __peerHops: hops,
+  };
+
+  queue.push(command);
+  drain();
+  updateStatus();
+}
+
+function detectPeerDelegation(senderNode, responseText, command) {
+  if (!responseText || typeof responseText !== "string") return;
+  const hops = command.__peerHops || 0;
+  if (hops >= 3) return; // Prevent runaway ping-pong loops (turn bounding)
+
+  const matches = [...responseText.matchAll(/@([a-zA-Z0-9_-]{2,24})/g)];
+  if (!matches.length) return;
+
+  const senderPersona = getAgentPersona(senderNode);
+
+  for (const match of matches) {
+    const handle = match[1].toLowerCase();
+    if (handle === senderPersona.handle.toLowerCase() || handle === senderNode.id.toLowerCase()) continue;
+
+    const targetNode = nodes.find((n) => {
+      if (n.kind !== "agent") return false;
+      const p = getAgentPersona(n);
+      return (
+        p.handle.toLowerCase() === handle ||
+        n.id.toLowerCase() === handle ||
+        n.label.toLowerCase().includes(handle)
+      );
+    });
+
+    if (!targetNode) continue;
+
+    const targetPersona = getAgentPersona(targetNode);
+    log("info", `Office: ${senderPersona.label} tapped @${targetPersona.handle} on the shoulder`);
+
+    const snippet = responseText.slice(Math.max(0, match.index - 20), Math.min(responseText.length, match.index + 240)).trim();
+
+    triggerPeerTurn({
+      fromNode: senderNode,
+      toNode: targetNode,
+      prompt: `Peer delegation from @${senderPersona.handle}:\n"${snippet}"\n\nPlease provide your expert feedback and recommendation.`,
+      hops: hops + 1,
+      taint: "untrusted",
+    });
+    break; // Bound to one delegation per turn
+  }
 }
 
 function renderInspector() {
@@ -985,7 +1871,7 @@ function renderInspector() {
     <div class="field">
       <label>Result format</label>
       <select id="f-format">
-        ${["markdown", "text", "json", "image"]
+        ${["a2ui", "markdown", "text", "json", "image"]
           .map((value) => `<option value="${value}" ${value === formatForNode(node) ? "selected" : ""}>${esc(value)}</option>`)
           .join("")}
       </select>
@@ -1727,6 +2613,7 @@ async function runAgent(node, command) {
       taint: taint || undefined,
     });
     finishJob(command);
+    detectPeerDelegation(node, finalText || streamed, command);
   } catch (err) {
     if (err.name === "AbortError" || command.__gen !== generation) {
       finishJob(command);
@@ -1984,8 +2871,11 @@ async function runJoin(node, command) {
 }
 
 function runPassthrough(node, command) {
-  const text = promptFromInputs(command.inputs, command.context);
+  let text = promptFromInputs(command.inputs, command.context);
   const format = formatForNode(node);
+  if (format === "a2ui" && text && !text.trim().startsWith("{")) {
+    text = markdownToA2UIDecision(text);
+  }
   const taint =
     inputsTainted(command.inputs) || inputsTainted(command.context) ? "untrusted" : null;
   if (taint && command.__record) {
@@ -2606,6 +3496,105 @@ function setupUi() {
   );
   $("#btn-open-claude").addEventListener("click", () => openAgent("claude"));
   $("#btn-open-gemini").addEventListener("click", () => openAgent("gemini"));
+
+  // View Mode Switcher
+  $("#btn-canvas-view")?.addEventListener("click", () => switchView("canvas"));
+  $("#btn-sheet-view")?.addEventListener("click", () => switchView("sheet"));
+  $("#btn-office-view")?.addEventListener("click", () => switchView("office"));
+
+  // Office View Actions
+  $("#btn-office-hire")?.addEventListener("click", () => {
+    const modal = $("#modal-hire");
+    if (modal) {
+      modal.hidden = false;
+      $("#hire-label")?.focus();
+    }
+  });
+  $("#btn-office-sync")?.addEventListener("click", () => syncWarRoomDecision());
+
+  // Modal Closures
+  const closeModals = () => {
+    const hireModal = $("#modal-hire");
+    const tapModal = $("#modal-tap");
+    if (hireModal) hireModal.hidden = true;
+    if (tapModal) tapModal.hidden = true;
+  };
+  $("#btn-close-hire")?.addEventListener("click", closeModals);
+  $("#btn-cancel-hire")?.addEventListener("click", closeModals);
+  $("#btn-close-tap")?.addEventListener("click", closeModals);
+  $("#btn-cancel-tap")?.addEventListener("click", closeModals);
+  $$(".modal-backdrop").forEach((backdrop) => {
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) closeModals();
+    });
+  });
+
+  // Hire Agent Form
+  $("#form-hire-agent")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const label = $("#hire-label")?.value || "";
+    const handle = $("#hire-id")?.value || "";
+    const adapter = $("#hire-adapter")?.value || "demo:claude";
+    const worktree = $("#hire-worktree")?.value || "";
+    const instructions = $("#hire-prompt")?.value || "";
+
+    const ok = hireAgent({ label, handle, adapter, worktree, instructions });
+    if (ok) {
+      closeModals();
+      $("#form-hire-agent").reset();
+    }
+  });
+
+  // Tap on Shoulder Form
+  $("#form-tap-agent")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const targetNodeId = $("#tap-target-node-id")?.value;
+    const targetNode = nodeById(targetNodeId);
+    if (!targetNode) {
+      toast("Target agent not found", true);
+      return;
+    }
+    const senderVal = $("#tap-sender")?.value || "human";
+    const msg = $("#tap-message")?.value || "";
+    if (!msg.trim()) return;
+
+    const fromNode = senderVal === "human" ? null : nodeById(senderVal);
+    const taint = senderVal === "human" ? null : "untrusted";
+
+    triggerPeerTurn({
+      fromNode,
+      toNode: targetNode,
+      prompt: msg.trim(),
+      hops: 1,
+      taint,
+    });
+
+    closeModals();
+    toast(`Tapped @${getAgentPersona(targetNode).handle} on the shoulder`);
+  });
+
+  // Theme Toggle
+  $("#btn-theme")?.addEventListener("click", () => toggleTheme());
+
+  // More Menu Dropdown
+  const moreBtn = $("#btn-more");
+  const moreMenu = $("#more-menu");
+  if (moreBtn && moreMenu) {
+    moreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      moreMenu.hidden = !moreMenu.hidden;
+    });
+    document.addEventListener("click", (e) => {
+      if (!moreBtn.contains(e.target) && !moreMenu.contains(e.target)) {
+        moreMenu.hidden = true;
+      }
+    });
+  }
+
+  // Sheet View Toolbar Buttons
+  $("#btn-sheet-rerun-all")?.addEventListener("click", () => emitBrief());
+  $("#btn-sheet-copy-all")?.addEventListener("click", () => copyAllSheetOutputs());
+
   stage.addEventListener("click", (event) => {
     if (event.target === stage || event.target.closest("#edges")) {
       if (selectedId) selectNode(null);
@@ -2626,6 +3615,7 @@ function setupUi() {
 }
 
 async function boot() {
+  initTheme();
   const graph = loadGraph();
   nodes = graph.nodes;
   edges = graph.edges;
