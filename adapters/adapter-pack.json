@@ -6,8 +6,8 @@
     "schema": 1,
     "packId": "melon-adapters",
     "version": 2,
-    "generatedAt": "2026-11-13T09:32:35.711Z",
-    "expiresAt": "2027-11-13T09:32:35.711Z",
+    "generatedAt": "2026-11-13T11:04:43.609Z",
+    "expiresAt": "2027-11-13T11:04:43.609Z",
     "minExtensionVersion": "0.1.0",
     "adapters": {
       "chatgpt": {
@@ -32,7 +32,10 @@
             "candidates": [
               "[data-testid=\"send-button\"]",
               "button[aria-label*=\"Send\"]",
-              "button[type=\"submit\"]"
+              "button[type=\"submit\"]",
+              "button[aria-label*=\"send\" i]",
+              "button[aria-label*=\"Submit\" i]",
+              "button[class*=\"SendButton\"]"
             ]
           },
           "stop": {
@@ -41,7 +44,8 @@
               "[data-testid=\"stop-button\"]",
               "button[data-testid=\"stop-button\"]",
               "button[aria-label*=\"Stop\"]",
-              "button[aria-label*=\"stop\" i]"
+              "button[aria-label*=\"stop\" i]",
+              "button[class*=\"StopButton\"]"
             ]
           },
           "response": {
@@ -56,6 +60,9 @@
               "article:not(:has([data-message-author-role=\"user\"])) [class*=\"markdown\"]",
               "article:not(:has([data-message-author-role=\"user\"]))",
               "[data-testid^=\"conversation-turn-\"]:not(:has([data-message-author-role=\"user\"]))",
+              "[class*=\"MarkdownRoot\"]",
+              "[class*=\"DilResponseRoot\"]",
+              "[class*=\"DilRenderer\"]",
               ".agent-turn .markdown",
               ".agent-turn",
               "div[data-message-model-slug]",
@@ -191,6 +198,6 @@
       }
     }
   },
-  "sha256": "53870d80d61925fc794ef5057a145efef1d9cd28211577314f894dd881186e7e",
-  "signature": "BOWnmU0LYZn87JFHf5Hr0ypounsNbiUaxZ+UBuBX7DCG9pZFltlbzpwcmN7LIfHESmJaV+t6dxGeyIhf3He5CA=="
+  "sha256": "473f10b2f0fa511a41a0d93bc0de6e9824230c617702e3e69d5c339d53cb0eb6",
+  "signature": "x9TGVJmx6hqLWFW4j1TrooM+CBvXTsJ/n+J1TPdducJSdAVyrObpWTrjIrptyh/vvwIs+gYtrxQCj1INzX/kDg=="
 }

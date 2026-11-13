@@ -130,6 +130,9 @@
     }
 
     const candidateSelectors = [
+      '[class*="MarkdownRoot"]',
+      '[class*="DilResponseRoot"]',
+      '[class*="DilRenderer"]',
       "message-content .markdown",
       "model-response message-content .markdown",
       ".model-response-text",
@@ -167,6 +170,29 @@
         }
       } catch {}
     }
+
+    // Traversal fallback: look for speaker headers like "ChatGPT said:"
+    try {
+      const walker = document.createTreeWalker(document.querySelector("main") || document.body, NodeFilter.SHOW_ELEMENT);
+      let foundAssistant = false;
+      while (walker.nextNode()) {
+        const el = walker.currentNode;
+        const t = (el.textContent || "").trim();
+        if (/ChatGPT said:/i.test(t) && el.children.length === 0) {
+          foundAssistant = true;
+          // Walk up to find the container
+          let container = el.parentElement;
+          while (container && container !== document.body && container.tagName !== "MAIN") {
+            const nextSib = container.nextElementSibling;
+            if (nextSib) {
+              const text = (adapters?.textOf ? adapters.textOf(nextSib) : nextSib.innerText || nextSib.textContent) || "";
+              if (text.trim().length > 20) return text.trim();
+            }
+            container = container.parentElement;
+          }
+        }
+      }
+    } catch {}
 
     return "";
   }

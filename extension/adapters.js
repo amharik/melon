@@ -25,6 +25,9 @@
             '[data-testid="send-button"]',
             'button[aria-label*="Send"]',
             'button[type="submit"]',
+            'button[aria-label*="send" i]',
+            'button[aria-label*="Submit" i]',
+            'button[class*="SendButton"]',
           ],
         },
         stop: {
@@ -34,6 +37,7 @@
             'button[data-testid="stop-button"]',
             'button[aria-label*="Stop"]',
             'button[aria-label*="stop" i]',
+            'button[class*="StopButton"]',
           ],
         },
         response: {
@@ -48,6 +52,9 @@
             'article:not(:has([data-message-author-role="user"])) [class*="markdown"]',
             'article:not(:has([data-message-author-role="user"]))',
             '[data-testid^="conversation-turn-"]:not(:has([data-message-author-role="user"]))',
+            '[class*="MarkdownRoot"]',
+            '[class*="DilResponseRoot"]',
+            '[class*="DilRenderer"]',
             '.agent-turn .markdown',
             '.agent-turn',
             'div[data-message-model-slug]',
@@ -215,9 +222,9 @@
         }
       } catch {}
     }
-    if (fieldName === "response") return true;
+    if (fieldName === "response" || (typeof document !== "undefined" && document.hidden)) return true;
     const rect = el.getBoundingClientRect?.();
-    return !rect || (rect.width > 1 && rect.height > 1);
+    return !rect || (rect.width > 0 && rect.height > 0);
   }
 
   function candidatesOf(field) {
