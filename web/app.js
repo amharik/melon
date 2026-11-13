@@ -1389,7 +1389,10 @@ function createDeskCard(node) {
         ${charCount ? `${charCount.toLocaleString()} chars · ${wordCount} words` : persona.adapter}
       </span>
       <div class="desk-actions">
-        ${node.config?.extTabId ? `<button type="button" class="tiny ghost btn-extract-desk" data-id="${node.id}" title="Re-extract latest response from bridged tab">⟳ Extract</button>` : ""}
+        ${node.config?.extTabId ? `
+          <button type="button" class="tiny ghost btn-extract-desk" data-id="${node.id}" title="Re-extract latest response from bridged tab">⟳ Extract</button>
+          <button type="button" class="tiny primary btn-continue-desk" data-id="${node.id}" title="Extract from tab and continue downstream workflow">▶ Continue</button>
+        ` : ""}
         <button type="button" class="tiny ghost btn-tap-desk" data-id="${node.id}" title="Tap on shoulder (direct message / query)">
           👋 Tap
         </button>
@@ -1403,7 +1406,8 @@ function createDeskCard(node) {
     </div>
   `;
 
-  card.querySelector(".btn-extract-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id));
+  card.querySelector(".btn-extract-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }));
+  card.querySelector(".btn-continue-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }));
   card.querySelector(".btn-tap-desk")?.addEventListener("click", () => openTapModal(node));
   card.querySelector(".btn-inspect-desk")?.addEventListener("click", () => {
     selectNode(node.id);
@@ -1905,7 +1909,7 @@ function renderInspector() {
       ${node.kind === "source" ? `<button id="f-run-node">Run source</button>` : `<button id="f-run-node">Rerun node</button>`}
       <button id="f-run-here" class="primary">${node.kind === "source" ? "Run from here" : "Resume from here"}</button>
       ${node.kind === "agent" && demoRole ? `<button id="f-open">Open ${esc(roleLabel(demoRole))} tab</button>` : ""}
-      ${node.config?.extTabId ? `<button type="button" id="f-reextract" title="Extract latest response text from bridged tab">⟳ Re-extract from tab</button>` : ""}
+      ${node.config?.extTabId ? `<button type="button" id="f-reextract" title="Extract latest response text from bridged tab">⟳ Re-extract</button><button type="button" id="f-reextract-continue" class="primary" title="Extract from tab and resume downstream graph execution">▶ Re-extract &amp; Continue</button>` : ""}
       <button id="f-delete" class="delete">Delete</button>
     </div>
     <div class="field result-block">
@@ -2027,7 +2031,8 @@ function renderInspector() {
   $("#f-run-node", fields)?.addEventListener("click", () => rerunNode(node, { downstream: false }));
   $("#f-run-here", fields)?.addEventListener("click", () => rerunNode(node, { downstream: true }));
   $("#f-open", fields)?.addEventListener("click", () => openAgent(demoRole));
-  $("#f-reextract", fields)?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id));
+  $("#f-reextract", fields)?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }));
+  $("#f-reextract-continue", fields)?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }));
   $("#f-delete", fields).addEventListener("click", () => deleteNode(node.id));
 
   for (const button of $$("[data-record]", fields)) {
@@ -3088,11 +3093,13 @@ function renderExtTabs() {
           <div class="inline-actions">
             <button ${tab.supported === false ? "disabled" : ""}>Use</button>
             <button class="tiny" data-extract ${tab.supported === false ? "disabled" : ""} title="Re-extract latest response text from tab">Extract</button>
+            <button class="tiny primary" data-extract-continue ${tab.supported === false ? "disabled" : ""} title="Extract response and continue graph workflow">Extract &amp; Continue</button>
             <button class="tiny" data-shot ${tab.supported === false ? "disabled" : ""}>Shot</button>
           </div>
         `;
-        item.querySelector("button:not([data-shot]):not([data-extract])").addEventListener("click", () => bindExtTab(tab));
-        item.querySelector("[data-extract]").addEventListener("click", () => reextractFromTab(tab.id));
+        item.querySelector("button:not([data-shot]):not([data-extract]):not([data-extract-continue])").addEventListener("click", () => bindExtTab(tab));
+        item.querySelector("[data-extract]").addEventListener("click", () => reextractFromTab(tab.id, null, { continueGraph: false }));
+        item.querySelector("[data-extract-continue]").addEventListener("click", () => reextractFromTab(tab.id, null, { continueGraph: true }));
         item.querySelector("[data-shot]").addEventListener("click", () => insertScreenshot(tab));
         return item;
       }),
@@ -3235,7 +3242,7 @@ async function insertScreenshot(tab) {
   log("hub", `screenshot requested for ${name}; review it before sending`);
 }
 
-async function reextractFromTab(tabId, targetNodeId) {
+async function reextractFromTab(tabId, targetNodeId, { continueGraph = false } = {}) {
   if (!hub.online) {
     toast("Hub offline. Start server/hub.mjs first.", true);
     return;
@@ -3266,7 +3273,40 @@ async function reextractFromTab(tabId, targetNodeId) {
       node.runtime.taint = "untrusted";
       updateNodeRecordView(node);
       renderAll();
-      toast(`Re-extracted ${text.length.toLocaleString()} chars from bridged tab!`);
+
+      if (continueGraph) {
+        log("info", `Continuing execution graph from ${node.label}...`);
+        const outgoing = edges.filter((e) => e.from.node === node.id);
+        if (outgoing.length) {
+          const stamped = {
+            type: "text",
+            text,
+            role: node.config?.adapter || "ext",
+            stream: uid("stream"),
+            node: node.id,
+            format: formatForNode(node),
+            taint: "untrusted",
+            runId: currentRun?.id || null,
+            runSeq: currentRun?.seq || null,
+            workflowVersion,
+          };
+          for (const edge of outgoing) {
+            pump(core.call({ op: "input", node: edge.to.node, port: edge.to.port, message: stamped }));
+          }
+          toast(`Continuing workflow from ${node.label} (${outgoing.length} branch${outgoing.length > 1 ? "es" : ""})`);
+        } else {
+          toast(`Extracted ${text.length.toLocaleString()} chars into ${node.label}`);
+        }
+
+        if (typeof renderWarRoomDecision === "function") {
+          renderWarRoomDecision();
+        }
+        if (typeof updateOfficeDeskCards === "function") {
+          updateOfficeDeskCards();
+        }
+      } else {
+        toast(`Re-extracted ${text.length.toLocaleString()} chars from bridged tab!`);
+      }
     } else {
       navigator.clipboard.writeText(text).catch(() => {});
       toast(`Extracted ${text.length.toLocaleString()} chars (copied to clipboard)`);

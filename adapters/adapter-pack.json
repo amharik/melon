@@ -6,8 +6,8 @@
     "schema": 1,
     "packId": "melon-adapters",
     "version": 2,
-    "generatedAt": "2026-11-13T11:04:43.609Z",
-    "expiresAt": "2027-11-13T11:04:43.609Z",
+    "generatedAt": "2026-11-13T12:44:09.705Z",
+    "expiresAt": "2027-11-13T12:44:09.705Z",
     "minExtensionVersion": "0.1.0",
     "adapters": {
       "chatgpt": {
@@ -35,6 +35,8 @@
               "button[type=\"submit\"]",
               "button[aria-label*=\"send\" i]",
               "button[aria-label*=\"Submit\" i]",
+              "button.bg-composer-primary",
+              "button[class*=\"composer-primary\"]",
               "button[class*=\"SendButton\"]"
             ]
           },
@@ -198,6 +200,6 @@
       }
     }
   },
-  "sha256": "473f10b2f0fa511a41a0d93bc0de6e9824230c617702e3e69d5c339d53cb0eb6",
-  "signature": "x9TGVJmx6hqLWFW4j1TrooM+CBvXTsJ/n+J1TPdducJSdAVyrObpWTrjIrptyh/vvwIs+gYtrxQCj1INzX/kDg=="
+  "sha256": "f8c4793b02e84b7b32df535c4ffd6eea90967fc99b32b36633159d6aa0b8ee37",
+  "signature": "H+cMGEDj14hKapnE391JrIUnaN4cspiPigpYLSS1KpSZUTg9q2fDvccn40/MOzhitpzpa3r3C48VAcMvfKwyAQ=="
 }

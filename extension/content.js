@@ -117,15 +117,28 @@
     return adapters.resolveAdapter(name, location.hostname);
   }
 
-  function snapshot(adapter) {
+  function baseSnapshot(adapter) {
     return adapters.snapshot(document, adapter, {
       visible: (el, field) => visible(el, field || "response"),
     });
   }
 
+  function snapshot(adapter) {
+    const snap = baseSnapshot(adapter);
+    const extracted = extractLatestResponse(adapter);
+    if (extracted && (!snap.text || extracted.length > snap.text.length)) {
+      return {
+        ...snap,
+        text: extracted,
+        count: Math.max(snap.count || 0, 1),
+      };
+    }
+    return snap;
+  }
+
   function extractLatestResponse(adapter) {
     if (adapter) {
-      const snap = snapshot(adapter);
+      const snap = baseSnapshot(adapter);
       if (snap?.text && snap.text.trim()) return snap.text.trim();
     }
 
@@ -231,17 +244,39 @@
   }
 
   async function submit(composer, adapter, prompt, state) {
+    const form = composer.closest?.("form");
     let button = await chooseField("send", adapter, { composer, query: prompt });
-    for (let i = 0; i < 20; i++) {
+    if (!button && form) {
+      button = form.querySelector('button[aria-label*="Send" i], button.bg-composer-primary, button[data-testid="send-button"], button[type="submit"]');
+    }
+    for (let i = 0; i < 25; i++) {
       if (state?.cancelled) return false;
       if (button && !button.disabled && button.getAttribute("aria-disabled") !== "true") {
-        button.click();
-        return true;
+        const aria = (button.getAttribute("aria-label") || "").toLowerCase();
+        if (!aria.includes("voice") && !aria.includes("dictate")) {
+          button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true }));
+          button.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, composed: true }));
+          button.click();
+          return true;
+        }
       }
       await sleep(100);
-      if (!button) button = await chooseField("send", adapter, { composer, query: prompt });
+      if (!button) {
+        button = await chooseField("send", adapter, { composer, query: prompt });
+        if (!button && form) {
+          button = form.querySelector('button[aria-label*="Send" i], button.bg-composer-primary, button[data-testid="send-button"], button[type="submit"]');
+        }
+      }
     }
     if (state?.cancelled) return false;
+
+    if (form) {
+      try {
+        form.requestSubmit();
+        return true;
+      } catch {}
+    }
+
     composer.focus();
     for (const type of ["keydown", "keypress", "keyup"]) {
       composer.dispatchEvent(
@@ -252,6 +287,7 @@
           which: 13,
           bubbles: true,
           cancelable: true,
+          composed: true,
         })
       );
     }
@@ -507,9 +543,9 @@
       }
 
       if (!last) {
-        const finalSnap = snapshot(adapter);
-        if (finalSnap.text && finalSnap.text !== before.text) {
-          last = finalSnap.text;
+        const latest = extractLatestResponse(adapter);
+        if (latest && (latest !== before.text || !before.text)) {
+          last = latest;
         }
       }
 

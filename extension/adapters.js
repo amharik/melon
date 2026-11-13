@@ -27,6 +27,8 @@
             'button[type="submit"]',
             'button[aria-label*="send" i]',
             'button[aria-label*="Submit" i]',
+            'button.bg-composer-primary',
+            'button[class*="composer-primary"]',
             'button[class*="SendButton"]',
           ],
         },

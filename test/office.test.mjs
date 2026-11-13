@@ -140,5 +140,8 @@ test("re-extraction endpoint and UI action handlers are wired end-to-end", async
   // App provides reextractFromTab function and UI buttons
   assert.match(appCode, /function reextractFromTab/);
   assert.match(appCode, /data-extract/);
+  assert.match(appCode, /data-extract-continue/);
   assert.match(appCode, /f-reextract/);
+  assert.match(appCode, /f-reextract-continue/);
+  assert.match(appCode, /continueGraph/);
 });
