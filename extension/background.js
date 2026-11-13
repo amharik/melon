@@ -510,6 +510,29 @@ function connect() {
       }).catch(() => {});
     } else if (message.type === "agent.screenshot") {
       captureAndInsert(message.tabId, message.requestId);
+    } else if (message.type === "agent.extract") {
+      const tabId = Number(message.tabId);
+      sendToTab(tabId, { type: "melon.extract", adapter: message.adapter || "auto" })
+        .then((res) => {
+          send({
+            type: "extract.result",
+            requestId: message.requestId,
+            tabId: message.tabId,
+            ok: !!res?.ok,
+            text: res?.text || "",
+            error: res?.error || null,
+          });
+        })
+        .catch((err) => {
+          send({
+            type: "extract.result",
+            requestId: message.requestId,
+            tabId: message.tabId,
+            ok: false,
+            text: "",
+            error: String(err?.message || err),
+          });
+        });
     } else if (message.type === "ping") {
       send({ type: "pong", t: message.t });
     }

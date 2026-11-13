@@ -89,6 +89,7 @@ const opencodeStreams = new Map();
 const plans = new Map();
 const toolRequests = new Map();
 const screenshotRequests = new Map();
+const extractRequests = new Map();
 let adapterPackCache = { mtimeMs: 0, envelope: null, etag: null, error: null };
 
 // ---------------------------------------------------------------------------
@@ -453,6 +454,25 @@ function requestScreenshot(tabId) {
   return requestId;
 }
 
+function requestExtract(tabId, adapter = "auto") {
+  const requestId = `ext_${crypto.randomBytes(6).toString("base64url")}`;
+  const sent = sendToTab(String(tabId), {
+    type: "agent.extract",
+    requestId,
+    tabId: String(tabId),
+    adapter,
+  });
+  if (!sent) return Promise.resolve({ ok: false, error: "tab is not connected" });
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      extractRequests.delete(requestId);
+      resolve({ ok: false, error: "timeout waiting for tab extraction" });
+    }, 15000);
+    timer.unref?.();
+    extractRequests.set(requestId, { id: requestId, tabId: String(tabId), resolve, timer });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Extension WebSocket bridge
 // ---------------------------------------------------------------------------
@@ -613,6 +633,28 @@ function handleExtMessage(client, raw) {
       requestId: String(message.requestId),
       tabId: message.tabId ?? null,
       ok: !!message.ok,
+      error: message.error || null,
+    });
+    return;
+  }
+  if (message.type === "extract.result" && message.requestId) {
+    const req = extractRequests.get(String(message.requestId));
+    if (req) {
+      clearTimeout(req.timer);
+      extractRequests.delete(String(message.requestId));
+      req.resolve({
+        ok: !!message.ok,
+        text: String(message.text || ""),
+        tabId: message.tabId ?? req.tabId,
+        error: message.error || null,
+      });
+    }
+    broadcast({
+      type: "extract.result",
+      requestId: String(message.requestId),
+      tabId: message.tabId ?? null,
+      ok: !!message.ok,
+      text: message.text || "",
       error: message.error || null,
     });
     return;
@@ -1327,6 +1369,16 @@ async function handleApi(req, res, url) {
     const requestId = requestScreenshot(decodeURIComponent(screenshotMatch[1]));
     if (!requestId) return json(res, 404, { ok: false, error: "tab is not connected" });
     return json(res, 202, { ok: true, requestId });
+  }
+
+  const extractMatch = pathname.match(/^\/api\/tabs\/([^/]+)\/extract$/);
+  if (extractMatch && req.method === "POST") {
+    let body = {};
+    try {
+      body = await readBody(req);
+    } catch {}
+    const result = await requestExtract(decodeURIComponent(extractMatch[1]), body.adapter || "auto");
+    return json(res, result.ok ? 200 : 400, result);
   }
 
   if (pathname === "/api/plan" && req.method === "POST") {

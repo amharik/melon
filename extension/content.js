@@ -123,6 +123,54 @@
     });
   }
 
+  function extractLatestResponse(adapter) {
+    if (adapter) {
+      const snap = snapshot(adapter);
+      if (snap?.text && snap.text.trim()) return snap.text.trim();
+    }
+
+    const candidateSelectors = [
+      "message-content .markdown",
+      "model-response message-content .markdown",
+      ".model-response-text",
+      "message-content",
+      "model-response",
+      ".model-response-contents",
+      'div[data-message-author-role="model"]',
+      '[data-message-author-role="assistant"] .markdown',
+      '[data-message-author-role="assistant"] div.prose',
+      'article[data-testid^="conversation-turn-"] .markdown',
+      'article[data-testid^="conversation-turn-"] div.prose',
+      'article:not(:has([data-message-author-role="user"])) .markdown',
+      'article:not(:has([data-message-author-role="user"])) [data-message-author-role="assistant"]',
+      '[data-message-author-role="assistant"]',
+      'article:not(:has([data-message-author-role="user"]))',
+      '.agent-turn .markdown',
+      "div[data-is-streaming] .font-claude-message",
+      '[data-testid="assistant-message"]',
+      ".font-claude-message",
+      '[data-testid="chat-message-assistant"]',
+      ".markdown",
+      ".prose",
+      "article",
+    ];
+
+    for (const sel of candidateSelectors) {
+      try {
+        const matches = Array.from(document.querySelectorAll(sel)).filter((el) => el.isConnected);
+        if (matches.length) {
+          const lastEl = matches[matches.length - 1];
+          const text =
+            (adapters?.textOf ? adapters.textOf(lastEl) : lastEl.innerText || lastEl.textContent) ||
+            "";
+          if (text.trim().length > 0) return text.trim();
+        }
+      } catch {}
+    }
+
+    return "";
+  }
+
   function setNativeValue(el, value) {
     const proto =
       el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -470,6 +518,17 @@
         health: adapter ? adapters.health(document, adapter, { visible }) : null,
         url: location.href,
         busy: !!current,
+      });
+      return false;
+    }
+    if (message?.type === "melon.extract") {
+      const adapter = pickAdapter(message.adapter || "auto");
+      const text = extractLatestResponse(adapter);
+      sendResponse({
+        ok: !!text,
+        text,
+        charCount: text.length,
+        error: text ? null : "no response text found in tab",
       });
       return false;
     }

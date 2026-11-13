@@ -6,8 +6,8 @@
     "schema": 1,
     "packId": "melon-adapters",
     "version": 2,
-    "generatedAt": "2026-11-13T09:25:45.954Z",
-    "expiresAt": "2027-11-13T09:25:45.954Z",
+    "generatedAt": "2026-11-13T09:32:35.711Z",
+    "expiresAt": "2027-11-13T09:32:35.711Z",
     "minExtensionVersion": "0.1.0",
     "adapters": {
       "chatgpt": {
@@ -140,7 +140,13 @@
             "candidates": [
               "model-response",
               "message-content",
-              ".model-response-text"
+              ".model-response-text",
+              "message-content .markdown",
+              "model-response message-content .markdown",
+              "model-response .markdown",
+              ".model-response-contents",
+              "div[data-message-author-role=\"model\"]",
+              "message-content [class*=\"markdown\"]"
             ]
           }
         }
@@ -185,6 +191,6 @@
       }
     }
   },
-  "sha256": "37efab473324555c9159ca2da91cce0cdf739ee5b21eb0af2bde107c3e1291c1",
-  "signature": "WbuvVWa8Xr4wsCr3anHhjUiEewiZ3jcozmJ0Z5VimvmKgin4jrJuigOm7THpU+vqMXqpAS1Yn2b0tOUcjdcMCQ=="
+  "sha256": "53870d80d61925fc794ef5057a145efef1d9cd28211577314f894dd881186e7e",
+  "signature": "BOWnmU0LYZn87JFHf5Hr0ypounsNbiUaxZ+UBuBX7DCG9pZFltlbzpwcmN7LIfHESmJaV+t6dxGeyIhf3He5CA=="
 }

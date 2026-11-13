@@ -1389,6 +1389,7 @@ function createDeskCard(node) {
         ${charCount ? `${charCount.toLocaleString()} chars · ${wordCount} words` : persona.adapter}
       </span>
       <div class="desk-actions">
+        ${node.config?.extTabId ? `<button type="button" class="tiny ghost btn-extract-desk" data-id="${node.id}" title="Re-extract latest response from bridged tab">⟳ Extract</button>` : ""}
         <button type="button" class="tiny ghost btn-tap-desk" data-id="${node.id}" title="Tap on shoulder (direct message / query)">
           👋 Tap
         </button>
@@ -1402,6 +1403,7 @@ function createDeskCard(node) {
     </div>
   `;
 
+  card.querySelector(".btn-extract-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id));
   card.querySelector(".btn-tap-desk")?.addEventListener("click", () => openTapModal(node));
   card.querySelector(".btn-inspect-desk")?.addEventListener("click", () => {
     selectNode(node.id);
@@ -1903,6 +1905,7 @@ function renderInspector() {
       ${node.kind === "source" ? `<button id="f-run-node">Run source</button>` : `<button id="f-run-node">Rerun node</button>`}
       <button id="f-run-here" class="primary">${node.kind === "source" ? "Run from here" : "Resume from here"}</button>
       ${node.kind === "agent" && demoRole ? `<button id="f-open">Open ${esc(roleLabel(demoRole))} tab</button>` : ""}
+      ${node.config?.extTabId ? `<button type="button" id="f-reextract" title="Extract latest response text from bridged tab">⟳ Re-extract from tab</button>` : ""}
       <button id="f-delete" class="delete">Delete</button>
     </div>
     <div class="field result-block">
@@ -2024,6 +2027,7 @@ function renderInspector() {
   $("#f-run-node", fields)?.addEventListener("click", () => rerunNode(node, { downstream: false }));
   $("#f-run-here", fields)?.addEventListener("click", () => rerunNode(node, { downstream: true }));
   $("#f-open", fields)?.addEventListener("click", () => openAgent(demoRole));
+  $("#f-reextract", fields)?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id));
   $("#f-delete", fields).addEventListener("click", () => deleteNode(node.id));
 
   for (const button of $$("[data-record]", fields)) {
@@ -3083,10 +3087,12 @@ function renderExtTabs() {
           </div>
           <div class="inline-actions">
             <button ${tab.supported === false ? "disabled" : ""}>Use</button>
+            <button class="tiny" data-extract ${tab.supported === false ? "disabled" : ""} title="Re-extract latest response text from tab">Extract</button>
             <button class="tiny" data-shot ${tab.supported === false ? "disabled" : ""}>Shot</button>
           </div>
         `;
-        item.querySelector("button:not([data-shot])").addEventListener("click", () => bindExtTab(tab));
+        item.querySelector("button:not([data-shot]):not([data-extract])").addEventListener("click", () => bindExtTab(tab));
+        item.querySelector("[data-extract]").addEventListener("click", () => reextractFromTab(tab.id));
         item.querySelector("[data-shot]").addEventListener("click", () => insertScreenshot(tab));
         return item;
       }),
@@ -3227,6 +3233,48 @@ async function insertScreenshot(tab) {
     return;
   }
   log("hub", `screenshot requested for ${name}; review it before sending`);
+}
+
+async function reextractFromTab(tabId, targetNodeId) {
+  if (!hub.online) {
+    toast("Hub offline. Start server/hub.mjs first.", true);
+    return;
+  }
+  const node = targetNodeId ? nodeById(targetNodeId) : (selectedId ? nodeById(selectedId) : null);
+  toast(`Re-extracting response from tab ${tabId}...`);
+  log("info", `Requesting response extraction from tab ${tabId}...`);
+  try {
+    const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}/extract`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ adapter: node?.config?.adapter || "auto" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !data.text) {
+      toast(`Extraction failed: ${data.error || "no response text found in tab"}`, true);
+      log("error", `Extraction from tab ${tabId} failed: ${data.error || "no text"}`);
+      return;
+    }
+
+    const text = data.text;
+    log("info", `Extracted ${text.length} chars from bridged tab ${tabId}`);
+
+    if (node) {
+      if (!node.runtime) node.runtime = startNodeRecord(node, { status: "done", format: "markdown" });
+      node.runtime.text = text;
+      node.runtime.status = "done";
+      node.runtime.taint = "untrusted";
+      updateNodeRecordView(node);
+      renderAll();
+      toast(`Re-extracted ${text.length.toLocaleString()} chars from bridged tab!`);
+    } else {
+      navigator.clipboard.writeText(text).catch(() => {});
+      toast(`Extracted ${text.length.toLocaleString()} chars (copied to clipboard)`);
+    }
+  } catch (err) {
+    toast(`Failed to extract from tab: ${err.message}`, true);
+    log("error", `Extraction error: ${err.message}`);
+  }
 }
 
 function connectHub() {

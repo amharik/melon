@@ -115,7 +115,17 @@
         },
         response: {
           required: false,
-          candidates: ["model-response", "message-content", ".model-response-text"],
+          candidates: [
+            "model-response",
+            "message-content",
+            ".model-response-text",
+            "message-content .markdown",
+            "model-response message-content .markdown",
+            "model-response .markdown",
+            ".model-response-contents",
+            'div[data-message-author-role="model"]',
+            'message-content [class*="markdown"]',
+          ],
         },
       },
     },
@@ -161,9 +171,18 @@
 
   function textOf(el) {
     if (!el) return "";
-    const inner = typeof el.innerText === "string" ? el.innerText.trim() : "";
-    const text = inner || (typeof el.textContent === "string" ? el.textContent.trim() : "");
-    return text.replace(/\u200b/g, "").trim();
+    let raw = "";
+    if (el.shadowRoot) {
+      try {
+        const shadowText = typeof el.shadowRoot.innerText === "string" ? el.shadowRoot.innerText.trim() : "";
+        raw = shadowText || el.shadowRoot.textContent || "";
+      } catch {}
+    }
+    if (!raw) {
+      const inner = typeof el.innerText === "string" ? el.innerText.trim() : "";
+      raw = inner || (typeof el.textContent === "string" ? el.textContent.trim() : "");
+    }
+    return String(raw || "").replace(/\u200b/g, "").trim();
   }
 
   function metaOf(el) {
@@ -407,7 +426,7 @@
     let text = "";
     if (element) {
       const inner =
-        element.querySelector?.('.markdown, .prose, [class*="markdown"], [class*="prose"]') ||
+        element.querySelector?.('.markdown, .prose, message-content, [class*="markdown"], [class*="prose"], .model-response-text') ||
         element;
       text = textOf(inner) || textOf(element);
     }

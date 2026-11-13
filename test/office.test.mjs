@@ -117,3 +117,28 @@ test("dynamically hired and dismissed agent graphs are accepted atomically by wa
   assert.equal(set3.ok, true);
   assert.equal(Object.keys(set3.metrics.nodes).length, 2);
 });
+
+test("re-extraction endpoint and UI action handlers are wired end-to-end", async () => {
+  const hubCode = await fs.readFile(path.join(ROOT, "server/hub.mjs"), "utf8");
+  const appCode = await fs.readFile(path.join(ROOT, "web/app.js"), "utf8");
+  const contentCode = await fs.readFile(path.join(ROOT, "extension/content.js"), "utf8");
+  const bgCode = await fs.readFile(path.join(ROOT, "extension/background.js"), "utf8");
+
+  // Hub handles POST /api/tabs/:id/extract
+  assert.ok(hubCode.includes("/extract"));
+  assert.match(hubCode, /requestExtract/);
+  assert.match(hubCode, /agent\.extract/);
+
+  // Background relays to tab
+  assert.match(bgCode, /agent\.extract/);
+  assert.match(bgCode, /melon\.extract/);
+
+  // Content script handles melon.extract and extracts latest response
+  assert.match(contentCode, /melon\.extract/);
+  assert.match(contentCode, /function extractLatestResponse/);
+
+  // App provides reextractFromTab function and UI buttons
+  assert.match(appCode, /function reextractFromTab/);
+  assert.match(appCode, /data-extract/);
+  assert.match(appCode, /f-reextract/);
+});
