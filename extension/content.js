@@ -20,16 +20,26 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  function visible(el) {
+  function visible(el, fieldName) {
     if (!el || !el.isConnected) return false;
-    const style = getComputedStyle(el);
-    if (style.display === "none" || style.visibility === "hidden") return false;
-    const rect = el.getBoundingClientRect();
+    try {
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+    } catch {}
+    if (document.hidden) return true;
+    if (fieldName === "response") return true;
+    const rect = el.getBoundingClientRect?.();
+    if (!rect) return true;
     return rect.width > 1 && rect.height > 1;
   }
 
   function find(field, adapter, options = {}) {
-    return adapters.resolveElement(document, adapter, field, { ...options, visible })?.el || null;
+    return (
+      adapters.resolveElement(document, adapter, field, {
+        ...options,
+        visible: (el) => visible(el, field),
+      })?.el || null
+    );
   }
 
   async function kevRerank(query, candidates) {
@@ -108,7 +118,9 @@
   }
 
   function snapshot(adapter) {
-    return adapters.snapshot(document, adapter, { visible });
+    return adapters.snapshot(document, adapter, {
+      visible: (el, field) => visible(el, field || "response"),
+    });
   }
 
   function setNativeValue(el, value) {
@@ -418,6 +430,13 @@
           return;
         }
         await sleep(350);
+      }
+
+      if (!last) {
+        const finalSnap = snapshot(adapter);
+        if (finalSnap.text && finalSnap.text !== before.text) {
+          last = finalSnap.text;
+        }
       }
 
       if (last) {

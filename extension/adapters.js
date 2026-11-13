@@ -29,13 +29,29 @@
         },
         stop: {
           required: false,
-          candidates: ['[data-testid="stop-button"]', 'button[aria-label*="Stop"]'],
+          candidates: [
+            '[data-testid="stop-button"]',
+            'button[data-testid="stop-button"]',
+            'button[aria-label*="Stop"]',
+            'button[aria-label*="stop" i]',
+          ],
         },
         response: {
           required: false,
           candidates: [
             '[data-message-author-role="assistant"] .markdown',
             '[data-message-author-role="assistant"]',
+            'article[data-testid^="conversation-turn-"] .markdown',
+            'article[data-testid^="conversation-turn-"] div.prose',
+            'article:not(:has([data-message-author-role="user"])) [data-message-author-role="assistant"]',
+            'article:not(:has([data-message-author-role="user"])) .markdown',
+            'article:not(:has([data-message-author-role="user"])) [class*="markdown"]',
+            'article:not(:has([data-message-author-role="user"]))',
+            '[data-testid^="conversation-turn-"]:not(:has([data-message-author-role="user"]))',
+            '.agent-turn .markdown',
+            '.agent-turn',
+            'div[data-message-model-slug]',
+            'div.markdown',
           ],
         },
       },
@@ -144,9 +160,10 @@
   }
 
   function textOf(el) {
-    return String(el?.innerText ?? el?.textContent ?? "")
-      .replace(/\u200b/g, "")
-      .trim();
+    if (!el) return "";
+    const inner = typeof el.innerText === "string" ? el.innerText.trim() : "";
+    const text = inner || (typeof el.textContent === "string" ? el.textContent.trim() : "");
+    return text.replace(/\u200b/g, "").trim();
   }
 
   function metaOf(el) {
@@ -165,20 +182,23 @@
       .toLowerCase();
   }
 
-  function defaultVisible(el) {
+  function defaultVisible(el, fieldName) {
     if (!el || !el.isConnected) return false;
     if (typeof getComputedStyle === "function") {
-      const style = getComputedStyle(el);
-      if (
-        style?.display === "none" ||
-        style?.visibility === "hidden" ||
-        style?.opacity === "0"
-      ) {
-        return false;
-      }
+      try {
+        const style = getComputedStyle(el);
+        if (
+          style?.display === "none" ||
+          style?.visibility === "hidden" ||
+          style?.opacity === "0"
+        ) {
+          return false;
+        }
+      } catch {}
     }
+    if (fieldName === "response") return true;
     const rect = el.getBoundingClientRect?.();
-    return !!rect && rect.width > 1 && rect.height > 1;
+    return !rect || (rect.width > 1 && rect.height > 1);
   }
 
   function candidatesOf(field) {
@@ -250,7 +270,7 @@
     const seen = new Set();
     candidatesOf(field).forEach((selector, index) => {
       for (const el of queryAll(doc, selector)) {
-        if (seen.has(el) || !visible(el)) continue;
+        if (seen.has(el) || !visible(el, fieldName)) continue;
         seen.add(el);
         out.push({ el, selector, index });
       }
@@ -302,7 +322,7 @@
   }
 
   function eligible(item, fieldName, visible) {
-    if (!visible(item.el)) return false;
+    if (!visible(item.el, fieldName)) return false;
     if (fieldName === "composer") return isEditable(item.el);
     if (fieldName === "send" || fieldName === "stop") {
       return isButton(item.el) && !isDisabled(item.el);
@@ -383,11 +403,19 @@
   function snapshot(doc, adapter, options = {}) {
     const responses = resolveResponses(doc, adapter, options);
     const last = responses[responses.length - 1];
+    let element = last?.el || null;
+    let text = "";
+    if (element) {
+      const inner =
+        element.querySelector?.('.markdown, .prose, [class*="markdown"], [class*="prose"]') ||
+        element;
+      text = textOf(inner) || textOf(element);
+    }
     return {
       count: responses.length,
-      text: last ? textOf(last.el) : "",
+      text,
       selector: last?.selector || null,
-      element: last?.el || null,
+      element,
     };
   }
 

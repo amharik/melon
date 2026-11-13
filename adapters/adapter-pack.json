@@ -6,8 +6,8 @@
     "schema": 1,
     "packId": "melon-adapters",
     "version": 2,
-    "generatedAt": "2026-11-08T07:31:35.760Z",
-    "expiresAt": "2027-11-08T07:31:35.760Z",
+    "generatedAt": "2026-11-13T09:25:45.954Z",
+    "expiresAt": "2027-11-13T09:25:45.954Z",
     "minExtensionVersion": "0.1.0",
     "adapters": {
       "chatgpt": {
@@ -39,14 +39,27 @@
             "required": false,
             "candidates": [
               "[data-testid=\"stop-button\"]",
-              "button[aria-label*=\"Stop\"]"
+              "button[data-testid=\"stop-button\"]",
+              "button[aria-label*=\"Stop\"]",
+              "button[aria-label*=\"stop\" i]"
             ]
           },
           "response": {
             "required": false,
             "candidates": [
               "[data-message-author-role=\"assistant\"] .markdown",
-              "[data-message-author-role=\"assistant\"]"
+              "[data-message-author-role=\"assistant\"]",
+              "article[data-testid^=\"conversation-turn-\"] .markdown",
+              "article[data-testid^=\"conversation-turn-\"] div.prose",
+              "article:not(:has([data-message-author-role=\"user\"])) [data-message-author-role=\"assistant\"]",
+              "article:not(:has([data-message-author-role=\"user\"])) .markdown",
+              "article:not(:has([data-message-author-role=\"user\"])) [class*=\"markdown\"]",
+              "article:not(:has([data-message-author-role=\"user\"]))",
+              "[data-testid^=\"conversation-turn-\"]:not(:has([data-message-author-role=\"user\"]))",
+              ".agent-turn .markdown",
+              ".agent-turn",
+              "div[data-message-model-slug]",
+              "div.markdown"
             ]
           }
         }
@@ -172,6 +185,6 @@
       }
     }
   },
-  "sha256": "91d2143bd4c844370eb6dfdb1192ab3802e6adaa176b1fc6fd08541ebd40a81c",
-  "signature": "h3YX5U0IS9nThi3T/kRQj4laZX5E4o8VzUr8oIhNMFAo3VhyTxQZdQo4DzJKMa18PZMQ4Vf4FIsKUEWyGJKZAA=="
+  "sha256": "37efab473324555c9159ca2da91cce0cdf739ee5b21eb0af2bde107c3e1291c1",
+  "signature": "WbuvVWa8Xr4wsCr3anHhjUiEewiZ3jcozmJ0Z5VimvmKgin4jrJuigOm7THpU+vqMXqpAS1Yn2b0tOUcjdcMCQ=="
 }
