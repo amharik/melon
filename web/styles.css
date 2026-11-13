@@ -573,6 +573,45 @@ select { cursor: pointer; }
 }
 .toast.bad { border-color: rgba(224, 122, 106, 0.5); color: #f0b9ae; }
 
+/* -------------------------------------------------------------- approvals */
+
+.inline-actions { display: flex; flex-direction: column; gap: 4px; }
+.inline-actions button { padding: 4px 8px; font-size: 11px; }
+
+.approval-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+.approval-item + .approval-item { margin-top: 7px; }
+.approval-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.approval-head strong { color: var(--accent); font-weight: 600; }
+.approval-head span { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.approval-item code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 5px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.approval-item p { margin: 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+
+#blackboard-text {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
 /* ------------------------------------------------------------- responsive */
 
 @media (max-width: 1180px) {

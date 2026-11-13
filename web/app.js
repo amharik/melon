@@ -12,6 +12,7 @@ import { buildResponse, roleLabel, streamText } from "./shared/simulator.js";
 
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
+const THREAD_KEY = "melon.thread.v1";
 const MAX_ACTIVE = 12;
 
 const KIND_DEFS = {
@@ -35,6 +36,7 @@ const ADAPTERS = [
   ["demo:moderator", "Demo · Moderator"],
   ["ext", "Bridged web tab (extension)"],
   ["opencode", "opencode serve"],
+  ["agy", "agy CLI (stdio/worktree)"],
   ["llm", "Hub LLM endpoint"],
 ];
 
@@ -79,7 +81,10 @@ const pendingHubRuns = new Map();
 const nodeVersions = new Map();
 const lastInputs = new Map();
 const jobRecords = new Map();
-const hub = { online: false, llm: false, kev: false, opencodeUrl: "", es: null };
+const toolRequests = new Map();
+const hub = { online: false, llm: false, kev: false, agy: false, opencodeUrl: "", worktreeRoot: "", es: null };
+let currentThreadId = localStorage.getItem(THREAD_KEY) || null;
+let blackboard = { ok: false, text: "", path: null, error: null };
 
 function abortError() {
   const err = new Error("aborted");
@@ -116,6 +121,14 @@ function nodeById(id) {
 
 function nodeLabel(id) {
   return nodeById(id)?.label || id;
+}
+
+function ensureThreadId() {
+  if (!currentThreadId) {
+    currentThreadId = uid("thread");
+    localStorage.setItem(THREAD_KEY, currentThreadId);
+  }
+  return currentThreadId;
 }
 
 function sourceNode() {
@@ -907,6 +920,19 @@ function renderInspector() {
         <input id="f-opencode-session" value="${esc(node.config.sessionId || "")}" placeholder="create a new session per run" />
       </div>`;
   }
+  if (node.kind === "agent" && adapter === "agy") {
+    binding = `
+      <div class="field">
+        <label>Worktree name (optional)</label>
+        <input id="f-worktree" value="${esc(node.config.worktree || "")}" placeholder="agent-agy" />
+        <p class="note">Creates or reuses <code>.melon/worktrees/&lt;name&gt;</code> on branch <code>melon/&lt;name&gt;</code>. Leave blank to run in the worktree root.</p>
+      </div>
+      <div class="field">
+        <label>Working directory (optional)</label>
+        <input id="f-cwd" value="${esc(node.config.cwd || "")}" placeholder="relative to the worktree root" />
+        <p class="note">Hub: ${esc(hub.worktreeRoot || ".melon/worktrees")}. The hub spawns <code>${esc(hub.online ? "agy" : "AGY_CMD")}</code> with NDJSON over stdio.</p>
+      </div>`;
+  }
   if (node.kind === "agent" && adapter === "llm") {
     binding = `<p class="hint">Uses the hub's OpenAI-compatible endpoint. Start the hub with LLM_URL and LLM_MODEL, or use the demo adapters.</p>`;
   }
@@ -1052,8 +1078,16 @@ function renderInspector() {
     bumpWorkflowVersion("opencode endpoint changed");
   });
   $("#f-opencode-session", fields)?.addEventListener("change", (event) => {
-    node.config.sessionId = event.target.value.trim();
+    node.config.sessionId = event.target.value.trim() || undefined;
     bumpWorkflowVersion("opencode session changed");
+  });
+  $("#f-worktree", fields)?.addEventListener("change", (event) => {
+    node.config.worktree = event.target.value.trim() || undefined;
+    bumpWorkflowVersion("agy worktree changed");
+  });
+  $("#f-cwd", fields)?.addEventListener("change", (event) => {
+    node.config.cwd = event.target.value.trim() || undefined;
+    bumpWorkflowVersion("agy working directory changed");
   });
 
   $("#f-instructions", fields)?.addEventListener("change", (event) => {
@@ -1218,6 +1252,7 @@ function beginRun(reason, options = {}) {
     id: `run_${runSeq}`,
     seq: runSeq,
     workflowVersion,
+    threadId: ensureThreadId(),
     status: "running",
     reason,
     startedAt: Date.now(),
@@ -1675,6 +1710,8 @@ async function runAgent(node, command) {
       finalText = await runExtension(node, prompt, onChunk, command);
     } else if (adapter === "opencode") {
       finalText = await runOpencode(node, prompt, onChunk, command);
+    } else if (adapter === "agy") {
+      finalText = await runAgy(node, prompt, onChunk, command);
     } else if (adapter === "llm") {
       finalText = await runLlm(node, prompt, onChunk, command);
     } else {
@@ -1799,7 +1836,12 @@ function startHubRun(target, prompt, onChunk) {
   fetch("/api/runs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ runId, target, prompt }),
+    body: JSON.stringify({
+      runId,
+      target,
+      prompt,
+      threadId: currentRun?.threadId || ensureThreadId(),
+    }),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -1862,6 +1904,23 @@ async function runOpencode(node, prompt, onChunk, command) {
       type: "opencode",
       url: node.config.opencodeUrl || hub.opencodeUrl || "http://127.0.0.1:4096",
       sessionId: node.config.sessionId || undefined,
+      node: node.id,
+      label: node.label,
+    },
+    prompt,
+    onChunk,
+  );
+  setHandleCancel(command, run.cancel);
+  return run.promise;
+}
+
+async function runAgy(node, prompt, onChunk, command) {
+  const run = startHubRun(
+    {
+      type: "agy",
+      worktree: node.config.worktree || undefined,
+      cwd: node.config.cwd || undefined,
+      base: node.config.base || undefined,
       node: node.id,
       label: node.label,
     },
@@ -2132,9 +2191,13 @@ function renderExtTabs() {
             <span>${esc(tab.controlId || `tab ${tab.id}`)} · ${esc(hostOf(tab.url))}</span>
             <span class="health ${esc(info.level)}" title="${esc(info.title)}">${esc(info.label)}</span>
           </div>
-          <button ${tab.supported === false ? "disabled" : ""}>Use</button>
+          <div class="inline-actions">
+            <button ${tab.supported === false ? "disabled" : ""}>Use</button>
+            <button class="tiny" data-shot ${tab.supported === false ? "disabled" : ""}>Shot</button>
+          </div>
         `;
-        item.querySelector("button").addEventListener("click", () => bindExtTab(tab));
+        item.querySelector("button:not([data-shot])").addEventListener("click", () => bindExtTab(tab));
+        item.querySelector("[data-shot]").addEventListener("click", () => insertScreenshot(tab));
         return item;
       }),
     );
@@ -2192,6 +2255,90 @@ function updateStatus() {
   runChip.classList.toggle("bad", run?.status === "cancelled" || run?.status === "failed");
 }
 
+function renderToolRequests() {
+  const list = $("#approval-list");
+  const count = $("#approval-count");
+  const pending = [...toolRequests.values()]
+    .filter((request) => request.status === "pending")
+    .sort((a, b) => a.createdAt - b.createdAt);
+  if (count) count.textContent = String(pending.length);
+  if (!list) return;
+  if (!pending.length) {
+    list.innerHTML = `<p class="empty">No tool requests. Approved commands run only inside the worktree root.</p>`;
+    return;
+  }
+  list.replaceChildren(
+    ...pending.map((request) => {
+      const item = document.createElement("div");
+      item.className = "approval-item";
+      item.innerHTML = `
+        <div class="approval-head">
+          <strong>${esc(request.taint === "untrusted" ? "untrusted tool request" : "tool request")}</strong>
+          <span>${esc(request.controlId || request.runId || "local")}</span>
+        </div>
+        <code>${esc(request.command)}</code>
+        <p>${esc(request.cwd)}${request.reason ? ` · ${esc(request.reason)}` : ""}</p>
+        <div class="row">
+          <button class="primary" data-act="approve">Approve</button>
+          <button data-act="modify">Modify</button>
+          <button class="danger" data-act="deny">Deny</button>
+        </div>
+      `;
+      item.querySelector('[data-act="approve"]').addEventListener("click", () => decideTool(request.id, "approve"));
+      item.querySelector('[data-act="modify"]').addEventListener("click", () => {
+        const next = prompt("Approved command", request.command);
+        if (next && next.trim() && next !== request.command) decideTool(request.id, "approve", next.trim());
+      });
+      item.querySelector('[data-act="deny"]').addEventListener("click", () => decideTool(request.id, "deny"));
+      return item;
+    }),
+  );
+}
+
+async function decideTool(id, decision, command) {
+  const response = await fetch(`/api/tool-requests/${encodeURIComponent(id)}/decision`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, command }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    toast(data.error || `tool decision failed (${response.status})`, true);
+    return;
+  }
+  if (data.request) {
+    toolRequests.set(data.request.id, data.request);
+    renderToolRequests();
+  }
+  log("info", `tool ${decision}: ${data.request?.command || id}`);
+}
+
+function renderBlackboard() {
+  const text = $("#blackboard-text");
+  const meta = $("#blackboard-meta");
+  if (!text) return;
+  text.textContent = blackboard.ok
+    ? blackboard.text || "Blackboard is empty."
+    : blackboard.error
+      ? `Blackboard unavailable: ${blackboard.error}`
+      : "No blackboard file yet.";
+  if (meta) meta.textContent = blackboard.path || "read-only";
+}
+
+async function insertScreenshot(tab) {
+  const name = tab.controlId || `tab ${tab.id}`;
+  if (!confirm(`Capture the visible ${name} tab and insert it into its composer? Nothing is sent until you press send in that tab.`)) {
+    return;
+  }
+  const response = await fetch(`/api/tabs/${encodeURIComponent(tab.id)}/screenshot`, { method: "POST" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    toast(data.error || `screenshot failed (${response.status})`, true);
+    return;
+  }
+  log("hub", `screenshot requested for ${name}; review it before sending`);
+}
+
 function connectHub() {
   try {
     hub.es = new EventSource("/api/events");
@@ -2221,6 +2368,19 @@ function connectHub() {
         updateExtTabs(message.tabs || []);
       } else if (message.type === "run.event") {
         handleHubRunEvent(message);
+      } else if (message.type === "run.status") {
+        log("hub", `${message.label || message.node || message.runId} · ${message.status}`);
+        if (message.status === "waiting_human") toast("Tool approval needed");
+      } else if (message.type === "tool.request" || message.type === "tool.result") {
+        if (message.request) {
+          toolRequests.set(message.request.id, message.request);
+          renderToolRequests();
+          if (message.request.status === "pending") {
+            log("warn", `tool approval: ${message.request.command}`);
+          }
+        }
+      } else if (message.type === "screenshot.result") {
+        log("hub", message.ok ? "screenshot inserted into tab" : `screenshot failed: ${message.error || "unknown"}`);
       }
     };
   } catch {}
@@ -2230,17 +2390,32 @@ function connectHub() {
 
 async function refreshHub() {
   try {
-    const [healthResponse, tabsResponse] = await Promise.all([
+    const [healthResponse, tabsResponse, toolsResponse, boardResponse] = await Promise.all([
       fetch("/api/health", { cache: "no-store" }),
       fetch("/api/tabs", { cache: "no-store" }),
+      fetch("/api/tool-requests", { cache: "no-store" }),
+      fetch("/api/blackboard", { cache: "no-store" }),
     ]);
     const health = await healthResponse.json();
     const tabs = await tabsResponse.json();
+    const tools = await toolsResponse.json().catch(() => ({}));
+    const board = await boardResponse.json().catch(() => ({}));
     hub.online = !!health.ok;
     hub.llm = !!health.llm;
     hub.kev = !!health.kev;
+    hub.agy = !!health.agy;
     hub.opencodeUrl = health.opencodeUrl || hub.opencodeUrl;
+    hub.worktreeRoot = health.worktreeRoot || hub.worktreeRoot;
     updateExtTabs(tabs.tabs || []);
+    if (Array.isArray(tools.requests)) {
+      toolRequests.clear();
+      for (const request of tools.requests) toolRequests.set(request.id, request);
+      renderToolRequests();
+    }
+    blackboard = board.ok
+      ? { ok: true, text: board.text || "", path: board.path || null, error: null }
+      : { ok: false, text: "", path: board.path || null, error: board.error || null };
+    renderBlackboard();
   } catch {
     hub.online = false;
     updateExtTabs([]);

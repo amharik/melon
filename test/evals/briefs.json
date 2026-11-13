@@ -1,0 +1,22 @@
+[
+  {
+    "id": "oauth-pkce",
+    "goal": "Design an OAuth2 PKCE login flow for a local-first desktop app. Cover token storage, redirect validation, failure modes, and tests.",
+    "expect": ["pkce", "redirect", "token", "risk", "test"]
+  },
+  {
+    "id": "rate-limit",
+    "goal": "Refactor an API rate limiter to bound memory, expose backpressure, and cancel queued work safely.",
+    "expect": ["limit", "queue", "backpressure", "cancel", "test"]
+  },
+  {
+    "id": "adapter-drift",
+    "goal": "Review a browser adapter strategy where third-party DOM selectors drift between releases. Propose health checks and a fallback.",
+    "expect": ["selector", "health", "fallback", "risk", "contract"]
+  },
+  {
+    "id": "worktree-tools",
+    "goal": "Design guarded local tool execution for web agents using git worktrees, human approval, and untrusted output handling.",
+    "expect": ["worktree", "approval", "untrusted", "command", "test"]
+  }
+]

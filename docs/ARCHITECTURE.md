@@ -10,7 +10,8 @@ Melon separates three concerns that are easy to conflate:
    Owned by the canvas and the user.
 
 The core never knows what a model is. The extension never schedules. The hub
-stores no conversation content; an optional audit log stores run metadata only.
+persists no conversation content; bounded threads are in memory only, and an
+optional audit log stores run metadata only.
 
 ## Component map
 
@@ -25,7 +26,8 @@ stores no conversation content; an optional audit log stores run metadata only.
 │         │ HTTP + SSE                                             │
 │  ┌──────▼─────────────────────────────────────────────────────┐  │
 │  │ local hub (server/hub.mjs)                                 │  │
-│  │ static · SSE · run broker · opencode · OpenAI-compatible   │  │
+│  │ static · SSE · threads · approvals · worktrees · agy       │  │
+│  │ opencode · OpenAI-compatible                               │  │
 │  └──────┬──────────────────────────────┬──────────────────────┘  │
 │         │ WebSocket (token)            │ HTTP + SSE              │
 │  ┌──────▼────────────┐          ┌──────▼──────────────┐          │
@@ -171,23 +173,33 @@ routing contract, not a substitute for the extension.
   whether the audit log is enabled.
 - `GET /api/config` — non-secret adapter configuration.
 - `GET /api/tabs` — aggregated tabs from connected extensions.
-- `GET /api/events` — SSE: `hello`, `tabs`, `run.event`.
-- `POST /api/runs` — `{ runId, prompt, target }`, where target is one of:
+- `GET /api/events` — SSE: `hello`, `tabs`, `run.event`, `run.status`,
+  `tool.request`, `tool.result`, `screenshot.result`.
+- `POST /api/runs` — `{ runId, threadId?, prompt, target }`, where target is one of:
   - `{ "type": "extension", "tabId": 42, "adapter": "auto" }`
   - `{ "type": "opencode", "url": "http://127.0.0.1:4096" }`
+  - `{ "type": "agy", "worktree": "agent-agy" | "cwd": "relative/path" }`
   - `{ "type": "llm" }`
 - `POST /api/runs/:id/cancel`
+- `GET /api/threads`, `POST /api/threads`, `GET /api/threads/:id`
+- `GET /api/tool-requests`, `POST /api/tool-requests`,
+  `POST /api/tool-requests/:id/decision`
+- `GET /api/worktrees`, `POST /api/worktrees`
+- `GET /api/blackboard`
+- `POST /api/tabs/:id/screenshot`
 - `POST /api/llm` — streaming proxy for same-origin use.
 
 Run IDs are client-generated and unique. The hub returns `202` immediately and
-streams progress over SSE.
+streams progress over SSE. Threads, tool requests and run status are in memory;
+the hub still persists no conversation content.
 
 ### Audit log
 
 `MELON_AUDIT_LOG=/path/to/audit.jsonl` (or `MELON_AUDIT=1` for
 `.melon/audit.jsonl`) enables an append-only JSONL log. `server/audit.mjs` writes
-only an allowlist of fields: timestamp, event, run id, target, node, label,
-adapter, tab/control id, status, duration, character count, and timeout flag.
+only an allowlist of fields: timestamp, event, run id, thread id, target, node,
+label, adapter, tab/control id, tool, command id, decision, exit code, status,
+duration, character count, and timeout flag.
 Prompts, streamed text, page context, and raw error messages are dropped before
 serialization. The file is created with mode `0600`. This is operational
 metadata for a local run, not a conversation transcript.
@@ -203,6 +215,9 @@ Extension to hub:
 { "type": "hello", "name": "melon-extension", "tabs": [] }
 { "type": "tabs", "tabs": [{ "id": 42, "title": "...", "url": "...", "active": true, "attached": true }] }
 { "type": "run.event", "runId": "run-1", "event": { "type": "chunk", "text": "..." } }
+{ "type": "tool.request", "runId": "run-1", "tabId": "42", "command": "npm test", "reason": "verify" }
+{ "type": "tool.result", "requestId": "tool-1", "ok": true, "output": "...", "exitCode": 0 }
+{ "type": "screenshot.result", "requestId": "shot-1", "tabId": "42", "ok": true }
 { "type": "pong", "t": 123 }
 ```
 
@@ -210,6 +225,8 @@ Hub to extension:
 
 ```json
 { "type": "agent.run", "runId": "run-1", "tabId": "42", "controlId": "T-16", "prompt": "...", "adapter": "auto" }
+{ "type": "agent.tool.result", "controlId": "T-16", "requestId": "tool-1", "ok": true, "output": "...", "exitCode": 0, "taint": "untrusted" }
+{ "type": "agent.screenshot", "tabId": "42", "requestId": "shot-1" }
 { "type": "cancel", "runId": "run-1" }
 { "type": "ping", "t": 123 }
 ```
@@ -367,6 +384,53 @@ Note: ACP (Zed's Agent Client Protocol) is a *client-to-agent* stdio protocol.
 It is not a cross-tab RPC. Melon can add an ACP adapter, but it would sit next to
 the opencode HTTP adapter, not replace the hub.
 
+## Host orchestration
+
+Phase 0–3 additions live in the hub host layer. The WASM core still owns only the
+DAG and its command protocol; nothing in `core/` changed.
+
+### Threads
+
+`server/threads.mjs` is a bounded in-memory store. `POST /api/runs` may include a
+`threadId`; the hub records the user prompt and the final assistant text, and emits
+`run.status` events as the run moves through `thinking`, `streaming`,
+`waiting_human`, `done`, `error`, `cancelled` or `idle`. Threads are never written
+to disk. `GET /api/threads/:id` is the read path; the canvas keeps one local thread
+id per workspace.
+
+### agy / stdio CLI adapter
+
+`server/agy.mjs` spawns a configured CLI (`AGY_CMD`, default `agy`) with
+`AGY_ARGS` and writes one JSON prompt frame. It reads newline-delimited JSON from
+stdout and normalizes common shapes (`text`, `delta`, `assistant` content blocks,
+`done`, `result`, `error`, bare lines). `AGY_INPUT_FORMAT=stream-json` is the
+default; `prompt` writes a plain prompt. Abort kills the child.
+
+### Approvals and worktrees
+
+Web agents can propose commands in a fenced `melon:tool` block. The content script
+extracts the proposal and sends `tool.request`; the hub creates a pending record
+with `taint: untrusted`, pauses the run at `waiting_human`, and waits for a human
+decision. On approve, the hub runs `/bin/sh -c` with the command, a timeout, a
+minimal environment, and a cwd confined by `server/worktrees.mjs` to
+`MELON_WORKTREE_ROOT` (default `.melon/worktrees`). Output is truncated and sent
+back as `agent.tool.result`; the content script inserts it with a data-not-
+instructions header and does not submit. The approval gate is the security
+control; the worktree is a working-directory bound, not a sandbox.
+
+`POST /api/worktrees` creates or reuses `melon/<name>` via `git worktree add`
+before an agy run starts. `POST /api/runs` can also select a relative `cwd` under
+the root.
+
+### Blackboard and screenshots
+
+`GET /api/blackboard` returns the read-only contents of
+`MELON_BLACKBOARD` (default `.melon/blackboard.md`), capped at 64 KB. The hub
+never writes it. `POST /api/tabs/:id/screenshot` sends `agent.screenshot` to the
+extension client that owns the tab; the background worker calls
+`chrome.tabs.captureVisibleTab`, then replies with `screenshot.result`. The
+content script pastes the image into the composer without sending.
+
 ## Security model
 
 - The hub is a local trusted service. Binding to localhost is the boundary.
@@ -382,8 +446,12 @@ the opencode HTTP adapter, not replace the hub.
   still in scope. Each controlled tab advertises a unique control id in-page and
   in the canvas so the grant is observable. Bridged-tab output is tainted and
   downstream prompts explicitly label it as untrusted data.
-- The hub deliberately keeps no history. It holds prompts and streamed text in
-  memory only for the lifetime of a run.
+- The hub persists no conversation history. It holds prompts, streamed text and
+  bounded thread state in memory only; restarting the hub clears it. The audit log
+  remains metadata-only.
+- Tool execution is human-gated. Approved commands run as the local user inside a
+  worktree-confined cwd; this is not an OS sandbox. Tool output is always
+  `taint: untrusted` and is never auto-submitted into a tab.
 - Local AI downloads model files from Hugging Face only after an explicit
   optional-permission grant. The runtime is vendored locally; model output is
   treated as untrusted and never executed as code.

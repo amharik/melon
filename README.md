@@ -8,8 +8,8 @@ Melon is deliberately small:
 - **Rust core compiled to WASM** — graph validation, scheduling, bounded queues,
   fan-out/join, concurrency, cancellation, metrics. No model logic.
 - **One local Node hub** — static server, SSE to the canvas, WebSocket to the
-  extension, plus opencode and OpenAI-compatible adapters. No database, no
-  conversation history.
+  extension, plus opencode, agy/stdio CLI and OpenAI-compatible adapters. Threads
+  and run status live in memory only: no database, no persistence.
 - **Vanilla canvas UI** — no bundler, no framework. Nodes, ports, drag-to-connect,
   inspector, activity log, demo tabs.
 - **MV3 extension bridge** — drives real ChatGPT, Claude, Gemini and Mistral tabs
@@ -199,6 +199,108 @@ Agent nodes with adapter `llm` stream from `/chat/completions`. The browser can
 also call `POST /api/llm` directly; that path is intended for local models and
 same-origin use.
 
+### Threads and run status
+
+Runs may carry a `threadId`. The hub keeps a small in-memory conversation log per
+thread — user prompt plus the final assistant text — and updates a status field as
+the run moves through `thinking`, `streaming`, `waiting_human`, `done`, `error` or
+`cancelled`. Threads are never written to disk or a database.
+
+```bash
+curl -s localhost:8787/api/threads
+curl -s localhost:8787/api/threads/<threadId>
+# POST /api/runs accepts { "runId": "...", "threadId": "...", "prompt": "...", "target": {...} }
+```
+
+The canvas reuses one local thread id per workspace and shows live `run.status`
+events in the activity log. The Rust core is unchanged: this is host-level
+orchestration, not new scheduler semantics.
+
+### agy and other stdio CLI agents
+
+The hub can spawn a local CLI agent and speak newline-delimited JSON over stdio.
+`agy` is the default command; any stream-json compatible binary works.
+
+```bash
+AGY_CMD=agy \
+AGY_ARGS="--input-format stream-json --output-format stream-json" \
+node server/hub.mjs
+```
+
+```json
+{
+  "runId": "run-cli-1",
+  "threadId": "thread-1",
+  "prompt": "run the tests and summarize the failure",
+  "target": { "type": "agy", "worktree": "agent-agy" }
+}
+```
+
+`worktree` creates or reuses `.melon/worktrees/<name>` on a `melon/<name>` branch
+before the CLI starts. `cwd` selects a directory inside the worktree root instead.
+The adapter accepts common stream shapes (`text`, `delta`, `assistant` content,
+`done`, `result`, `error`) and treats bare stdout lines as text. `AGY_INPUT_FORMAT`
+defaults to `stream-json` and also supports `prompt`. Tests use
+`scripts/fake-agy.mjs`, so CI does not need a real CLI.
+
+### Guarded tool execution
+
+A web agent can propose a command with a fenced block:
+
+````text
+```melon:tool
+{"command": "npm test -- --filter=auth", "reason": "verify the change"}
+```
+````
+
+The content script extracts the proposal and sends it to the hub. The hub pauses
+the run at `waiting_human` and adds it to the canvas **Approvals** panel. Nothing
+runs until a human chooses **Approve**, **Modify** or **Deny**. Approved commands
+run with `/bin/sh` inside a directory under the worktree root, with a timeout and
+a reduced environment. Output is returned as `taint: untrusted`; the extension
+inserts it into the tab composer with an explicit data-not-instructions header and
+does **not** submit it. The user still presses send.
+
+```bash
+curl -s localhost:8787/api/tool-requests
+curl -s -X POST localhost:8787/api/tool-requests/<id>/decision \
+  -H 'content-type: application/json' \
+  -d '{"decision":"approve"}'
+curl -s -X POST localhost:8787/api/worktrees \
+  -H 'content-type: application/json' \
+  -d '{"name":"agent-agy"}'
+```
+
+This is process-level isolation, not a container. The approval gate is the primary
+control; the worktree root bounds the working directory, not the process's access
+to the rest of the filesystem.
+
+### Shared blackboard
+
+`.melon/blackboard.md` is a read-only shared note file. Edit it with your own
+editor; the hub never writes it. `GET /api/blackboard` returns the text and the
+canvas shows it in the **Blackboard** panel. Set `MELON_BLACKBOARD=/path/file.md`
+to use another file.
+
+### Screenshot insertion
+
+The **Shot** button next to a bridged tab asks for confirmation, captures the
+visible tab with `chrome.tabs.captureVisibleTab`, and inserts the image into that
+tab's composer. It never sends the message. This is best-effort: Chrome may
+require an active-tab gesture, and some sites do not accept synthetic paste
+events.
+
+### Evaluation harness
+
+```bash
+npm run eval
+```
+
+`scripts/eval.mjs` runs fixed briefs through the same prompt/rubric pipeline and
+reports a single-agent baseline against a two-reviewer moderator. It is
+deterministic and key-free: a harness for measuring changes, not a model quality
+benchmark. Replace its agents with real adapters when comparing models.
+
 ## What is real vs simulated
 
 | Path | Status |
@@ -207,6 +309,11 @@ same-origin use.
 | Same-origin demo tabs over `BroadcastChannel` | Real |
 | Extension bridge and DOM adapters | Real, selector-dependent |
 | opencode adapter | Real, tolerant of v1/v2 routes |
+| agy / stdio CLI adapter | Real when `AGY_CMD` exists; NDJSON contract |
+| Threads and run status | Real, in-memory and non-persistent |
+| Approval-gated tool execution | Real; worktree-scoped, human-approved, untrusted output |
+| Shared blackboard | Real, read-only |
+| Screenshot insertion | Real, best-effort, confirmed and never auto-sent |
 | OpenAI-compatible streaming | Real |
 | Built-in demo agents | Deterministic simulation, not models |
 | Local model graph proposal | Real, optional, schema-validated before apply |
@@ -265,10 +372,17 @@ web/                 canvas UI and demo agent tabs
   shared/simulator.js deterministic demo agents
   app.js             graph editor, runtime host, adapters
 server/hub.mjs       zero-dependency HTTP/SSE/WebSocket hub
+server/threads.mjs   in-memory thread/session state
+server/agy.mjs       agy/stdio NDJSON CLI adapter
+server/worktrees.mjs isolated git worktrees under .melon/worktrees
+server/blackboard.mjs read-only shared note file
 extension/           MV3 bridge (background, content adapters, options)
   ai/                model catalog and offscreen model host
   vendor/            generated local AI runtime (npm run vendor:ai)
 test/                Node tests for the hub, WASM ABI, extension, AI catalog and simulator
+test/evals/          fixed briefs for npm run eval
+scripts/eval.mjs     deterministic single-agent vs moderator baseline
+scripts/fake-agy.mjs stdio CLI test double
 scripts/build.sh     test + build + copy the WASM artifact
 scripts/vendor-ai.sh download and vendor Transformers.js + ONNX runtime
 scripts/e2e-remote.sh sync and test the working tree on sillyoci
@@ -287,6 +401,9 @@ cd core-runtime && cargo test
 
 # Hub, WASM, extension, AI catalog and simulator tests
 npm test
+
+# Deterministic fixed-brief evaluation (single agent vs moderator)
+npm run eval
 
 # Real Chromium E2E against synthetic ChatGPT, Claude, Gemini, and Mistral fixtures
 # Set CHROME_PATH if Chrome/Chromium is not auto-detected.
@@ -363,9 +480,10 @@ JSON out. See `docs/ARCHITECTURE.md`.
 
 Read this before pointing Melon at an account you care about.
 
-- The hub binds to `127.0.0.1` by default and stores no conversation history. It
-  still sees prompt and streamed text in memory for the duration of a run, and
-  any local process can call it. Treat it as part of the local trusted client,
+- The hub binds to `127.0.0.1` by default and persists no conversation history. It
+  holds prompt and streamed text in memory for the duration of a run, and bounded
+  thread state until restart, and any local process can call it. Treat it as part
+  of the local trusted client,
   not as an untrusted cloud backend. Do not expose it to a network interface
   without authentication and TLS. A stricter design would relay through the
   extension content script via `postMessage` and keep the hub out of the data
@@ -389,6 +507,16 @@ Read this before pointing Melon at an account you care about.
   `taint: untrusted`; downstream prompts label them as untrusted browser content
   and instruct the model to treat them as data, never as instructions. The canvas
   marks tainted nodes and output lineage.
+- Tool execution is human-gated. A web agent can propose a command, but it runs
+  only after **Approve** in the canvas, with a confirmed working directory under
+  the worktree root. Output returns as `taint: untrusted` and is never submitted
+  automatically. This is not a container: the command still runs as your user.
+- Worktrees isolate branches and working directories, not the process. Treat
+  approved commands as code you chose to run.
+- Threads, run status and tool request records are in memory. The blackboard and
+  worktree files live under `.melon/`, which is gitignored.
+- Screenshot insertion requires confirmation and activates the target tab to
+  capture it. The image is pasted into the composer but not sent.
 - DOM adapters are brittle. Site markup changes will break selectors. The
   adapter health check is the tab's `melon.ping`; failures surface as run errors.
   Keep the fallback to a human handoff.
@@ -409,6 +537,13 @@ Read this before pointing Melon at an account you care about.
   and on hardware without a usable WebGPU adapter. Model downloads are large and
   model quality varies; deterministic adapters remain the fallback.
 - No persistence, no multi-user sync, no hosted deployment, no mobile support.
+  Threads and run status are lost when the hub restarts.
+- The `agy` adapter assumes a newline-delimited JSON CLI. The exact `agy` flags
+  are configured with `AGY_CMD` / `AGY_ARGS` and are not pinned.
+- Tool execution is worktree-scoped but not sandboxed at the OS level. There is
+  no command allowlist beyond human approval.
+- Screenshot capture depends on Chrome's `activeTab`/capture rules and on the site
+  accepting a synthetic paste event.
 - Run/output history and workflow version live in memory and the saved graph;
   output text is intentionally not written to localStorage or the hub.
 - The canvas is mouse-first; keyboard support is limited to Escape and

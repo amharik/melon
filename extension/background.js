@@ -498,6 +498,18 @@ function connect() {
         );
     } else if (message.type === "cancel") {
       sendToTab(message.tabId, { type: "melon.cancel", runId: message.runId }).catch(() => {});
+    } else if (message.type === "agent.tool.result") {
+      sendToTab(message.tabId, {
+        type: "melon.tool.result",
+        commandId: message.commandId,
+        command: message.command,
+        exitCode: message.exitCode,
+        output: message.output,
+        status: message.status,
+        taint: message.taint || "untrusted",
+      }).catch(() => {});
+    } else if (message.type === "agent.screenshot") {
+      captureAndInsert(message.tabId, message.requestId);
     } else if (message.type === "ping") {
       send({ type: "pong", t: message.t });
     }
@@ -667,6 +679,35 @@ async function sendToTab(tabId, message) {
   }
 }
 
+async function captureAndInsert(tabId, requestId) {
+  try {
+    const id = Number(tabId);
+    const tab = await chrome.tabs.get(id);
+    if (!tab.active) await chrome.tabs.update(id, { active: true });
+    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+    const response = await sendToTab(id, {
+      type: "melon.screenshot.insert",
+      dataUrl,
+      name: `melon-${Date.now()}.png`,
+    });
+    send({
+      type: "screenshot.result",
+      requestId,
+      tabId,
+      ok: !!response?.ok,
+      error: response?.error || null,
+    });
+  } catch (err) {
+    send({
+      type: "screenshot.result",
+      requestId,
+      tabId,
+      ok: false,
+      error: String(err?.message || err),
+    });
+  }
+}
+
 async function runInTab(message) {
   const tabId = Number(message.tabId);
   if (!Number.isFinite(tabId)) {
@@ -714,6 +755,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === "run.event") {
     send({ type: "run.event", runId: message.runId, event: message.event });
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (message?.type === "melon.tool.request") {
+    send({
+      type: "tool.request",
+      runId: message.runId || null,
+      tabId: sender.tab?.id ?? null,
+      command: String(message.command || "").slice(0, 500),
+      reason: String(message.reason || "").slice(0, 400),
+      taint: message.taint || "untrusted",
+    });
     sendResponse({ ok: true });
     return false;
   }

@@ -4,6 +4,7 @@ import path from "node:path";
 const FIELDS = new Set([
   "event",
   "runId",
+  "threadId",
   "target",
   "node",
   "label",
@@ -14,6 +15,10 @@ const FIELDS = new Set([
   "durationMs",
   "chars",
   "timedOut",
+  "tool",
+  "commandId",
+  "decision",
+  "exitCode",
 ]);
 
 function clean(value) {

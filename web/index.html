@@ -101,9 +101,29 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             <span class="count" id="ext-count">0</span>
           </div>
           <div class="list" id="ext-list">
-            <p class="empty">No extension tabs. See README to load the bridge.</p>
+            <p class="empty">No extension tabs. See README to load the extension.</p>
           </div>
-          <p class="hint">Real ChatGPT / Claude / Gemini / Mistral tabs, driven by the MV3 extension through the local hub.</p>
+          <p class="hint">Real ChatGPT / Claude / Gemini / Mistral tabs, driven by the MV3 extension through the local hub. <strong>Shot</strong> inserts a confirmed screenshot into that tab's composer.</p>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Approvals</h2>
+            <span class="count" id="approval-count">0</span>
+          </div>
+          <div class="list" id="approval-list">
+            <p class="empty">No tool requests. Approved commands run only inside the worktree root.</p>
+          </div>
+          <p class="hint">Web agents may propose commands. Nothing runs until you approve it; output returns as untrusted data.</p>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Blackboard</h2>
+            <span class="block-meta" id="blackboard-meta">read-only</span>
+          </div>
+          <pre id="blackboard-text" class="result-preview">No blackboard file yet.</pre>
+          <p class="hint">Edit <code>.melon/blackboard.md</code> yourself. The hub only reads it.</p>
         </section>
       </aside>
 

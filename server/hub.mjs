@@ -6,18 +6,24 @@
 //   - brokers runs and optional graph planning between the canvas and extension
 //   - adapts opencode serve (HTTP + SSE) and any OpenAI-compatible LLM endpoint
 //
-// It owns no model inference; opencode, LLM, and Kev calls are external. It
-// stores no conversation history.
+// It owns no model inference; opencode, agy, LLM, and Kev calls are external.
+// Conversation threads are in-memory only; there is no persistence.
 
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { exec as execCb } from "node:child_process";
+import { promisify } from "node:util";
 import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 import { createKevClient } from "./kev.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { packEtag, packSummary, readPackFile } from "./adapter-pack.mjs";
+import { createThreadStore } from "./threads.mjs";
+import { createAgyRunner, splitArgs } from "./agy.mjs";
+import { createWorktreeManager } from "./worktrees.mjs";
+import { readBlackboard } from "./blackboard.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -44,8 +50,26 @@ const ADAPTER_PACK_FILE = process.env.MELON_ADAPTER_PACK_FILE
 const ADAPTER_PACK_PUB_FILE = process.env.MELON_ADAPTER_PACK_PUB_FILE
   ? path.resolve(process.env.MELON_ADAPTER_PACK_PUB_FILE)
   : path.join(ROOT, "adapters", "adapter-pack.pub.json");
+const AGY_CMD = process.env.AGY_CMD || "agy";
+const AGY_ARGS = process.env.AGY_ARGS
+  ? splitArgs(process.env.AGY_ARGS)
+  : ["--input-format", "stream-json", "--output-format", "stream-json"];
+const AGY_INPUT_FORMAT = process.env.AGY_INPUT_FORMAT || "stream-json";
+const WORKTREE_ROOT = path.resolve(
+  process.env.MELON_WORKTREE_ROOT || path.join(ROOT, ".melon", "worktrees"),
+);
+const BLACKBOARD_FILE = process.env.MELON_BLACKBOARD
+  ? path.resolve(process.env.MELON_BLACKBOARD)
+  : path.join(ROOT, ".melon", "blackboard.md");
+const TOOL_TIMEOUT_MS = Math.max(1000, Math.min(120000, Number(process.env.MELON_TOOL_TIMEOUT_MS) || 30000));
+const TOOL_MAX_OUTPUT = 20000;
 const kev = createKevClient({ url: KEV_URL, model: KEV_MODEL });
 const audit = createAuditLog({ file: AUDIT_LOG });
+const threads = createThreadStore();
+const agy = createAgyRunner({ cmd: AGY_CMD, args: AGY_ARGS, inputFormat: AGY_INPUT_FORMAT });
+const worktrees = createWorktreeManager({ root: WORKTREE_ROOT, repo: ROOT });
+const exec = promisify(execCb);
+worktrees.ensureRoot().catch((err) => console.warn(`[hub] worktree root: ${err.message}`));
 
 let TOKEN = process.env.MELON_TOKEN || "";
 if (!TOKEN) {
@@ -63,6 +87,8 @@ const extClients = new Set();
 const runs = new Map();
 const opencodeStreams = new Map();
 const plans = new Map();
+const toolRequests = new Map();
+const screenshotRequests = new Map();
 let adapterPackCache = { mtimeMs: 0, envelope: null, etag: null, error: null };
 
 // ---------------------------------------------------------------------------
@@ -89,22 +115,43 @@ function broadcastTabs() {
 // Run lifecycle
 // ---------------------------------------------------------------------------
 
+function setRunStatus(run, status, detail = {}) {
+  if (!run) return;
+  run.status = status;
+  if (run.threadId) threads.setStatus(run.threadId, status);
+  broadcast({
+    type: "run.status",
+    runId: run.id,
+    threadId: run.threadId || null,
+    status,
+    node: run.audit?.node ?? null,
+    label: run.audit?.label ?? null,
+    at: Date.now(),
+    ...detail,
+  });
+}
+
 function newRun(id, target) {
   const tab =
     target.type === "extension"
       ? aggregateTabs().find((item) => String(item.id) === String(target.tabId))
       : null;
+  const threadId = target.threadId ? String(target.threadId) : null;
+  if (threadId) threads.ensure(threadId, { title: target.label || target.node || "Office thread" });
   const run = {
     id,
     target,
+    threadId,
     createdAt: Date.now(),
     text: "",
+    status: "thinking",
     timer: null,
     controller: new AbortController(),
     sessionId: target.sessionId || null,
     base: null,
     audit: {
       runId: id,
+      threadId,
       target: target.type,
       node: target.node || null,
       label: target.label || null,
@@ -114,7 +161,16 @@ function newRun(id, target) {
     },
   };
   runs.set(id, run);
+  if (threadId) {
+    threads.append(threadId, {
+      role: "user",
+      text: target.prompt || "",
+      runId: id,
+      node: target.node || null,
+    });
+  }
   audit.write({ event: "run.start", ...run.audit });
+  setRunStatus(run, "thinking");
   run.timer = setTimeout(() => {
     finishRun(id, { type: "error", error: { message: "run timed out" }, timedOut: true });
   }, target.timeoutMs || 300000);
@@ -126,11 +182,32 @@ function finishRun(id, event) {
   if (!run) return;
   clearTimeout(run.timer);
   run.controller.abort();
+  const status =
+    event.type === "done" ? "done" : event.type === "cancelled" ? "cancelled" : "error";
+  if (run.threadId) {
+    if (status === "done") {
+      threads.append(run.threadId, {
+        role: "assistant",
+        text: event.text ?? run.text,
+        runId: id,
+        node: run.audit?.node || null,
+        taint: event.taint === "untrusted" ? "untrusted" : null,
+      });
+    } else if (status === "error") {
+      threads.append(run.threadId, {
+        role: "system",
+        text: `run failed: ${event.error?.message || "unknown error"}`,
+        runId: id,
+        node: run.audit?.node || null,
+      });
+    }
+  }
+  setRunStatus(run, status);
   runs.delete(id);
   audit.write({
     event: "run.end",
     ...run.audit,
-    status: event.type === "done" ? "done" : event.type === "cancelled" ? "cancelled" : "error",
+    status,
     durationMs: Date.now() - run.createdAt,
     chars: String(event.text ?? run.text ?? "").length,
     timedOut: !!event.timedOut,
@@ -143,6 +220,16 @@ function runEvent(id, event) {
   if (!run) return;
   if (event.type === "chunk") {
     run.text += event.text || "";
+    if (run.status !== "streaming") setRunStatus(run, "streaming");
+    broadcast({ type: "run.event", runId: id, event });
+    return;
+  }
+  if (event.type === "status" && event.status) {
+    setRunStatus(run, event.status, event.detail || {});
+    broadcast({ type: "run.event", runId: id, event });
+    return;
+  }
+  if (event.type === "meta") {
     broadcast({ type: "run.event", runId: id, event });
     return;
   }
@@ -170,10 +257,200 @@ function abortRun(id) {
       fetch(`${base}/api/session/${encodeURIComponent(run.sessionId)}/abort`, { method: "POST" }).catch(() => {}),
     );
     finishRun(id, { type: "error", error: { message: "cancelled by user" } });
+  } else if (run.target.type === "agy") {
+    finishRun(id, { type: "cancelled" });
   } else {
     finishRun(id, { type: "error", error: { message: "cancelled by user" } });
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Threads, tool approvals, worktrees and screenshots
+// ---------------------------------------------------------------------------
+
+function publicToolRequest(record) {
+  return {
+    id: record.id,
+    runId: record.runId,
+    threadId: record.threadId,
+    command: record.command,
+    cwd: record.cwd,
+    worktree: record.worktree,
+    reason: record.reason,
+    status: record.status,
+    taint: "untrusted",
+    tabId: record.tabId,
+    controlId: record.controlId,
+    exitCode: record.exitCode ?? null,
+    output: record.output ?? "",
+    error: record.error ?? null,
+    createdAt: record.createdAt,
+    decidedAt: record.decidedAt ?? null,
+  };
+}
+
+function resolveToolCwd({ cwd, worktree }) {
+  if (worktree) return worktrees.resolve(worktree);
+  return worktrees.resolve(cwd || "");
+}
+
+function createToolRequest(input = {}) {
+  const command = String(input.command || "").trim();
+  if (!command) throw new Error("command is required");
+  if (command.length > 500) throw new Error("command is too long");
+  if (command.includes("\u0000")) throw new Error("command contains a null byte");
+  const id = `tool_${crypto.randomBytes(8).toString("base64url")}`;
+  const cwd = resolveToolCwd({ cwd: input.cwd, worktree: input.worktree });
+  const run = input.runId ? runs.get(String(input.runId)) : null;
+  const record = {
+    id,
+    runId: input.runId ? String(input.runId) : null,
+    threadId: input.threadId ? String(input.threadId) : run?.threadId || null,
+    command,
+    cwd,
+    worktree: input.worktree ? String(input.worktree) : null,
+    reason: String(input.reason || "").slice(0, 400),
+    status: "pending",
+    taint: "untrusted",
+    tabId: input.tabId ?? null,
+    controlId: input.controlId || null,
+    source: input.source || "api",
+    output: "",
+    error: null,
+    exitCode: null,
+    createdAt: Date.now(),
+    decidedAt: null,
+  };
+  toolRequests.set(id, record);
+  if (run) setRunStatus(run, "waiting_human");
+  audit.write({
+    event: "tool.request",
+    tool: "exec",
+    commandId: id,
+    runId: record.runId,
+    threadId: record.threadId,
+    status: "pending",
+    tabId: record.tabId,
+    controlId: record.controlId,
+  });
+  broadcast({ type: "tool.request", request: publicToolRequest(record) });
+  return record;
+}
+
+function toolEnv(cwd) {
+  const env = { MELON_WORKTREE: cwd, TERM: "dumb" };
+  for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SHELL"]) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  return env;
+}
+
+async function decideToolRequest(id, decision, commandOverride) {
+  const record = toolRequests.get(String(id));
+  if (!record) return { ok: false, status: 404, error: "tool request not found" };
+  if (record.status !== "pending") return { ok: false, status: 409, error: `request already ${record.status}` };
+  if (decision !== "approve" && decision !== "deny") {
+    return { ok: false, status: 400, error: "decision must be approve or deny" };
+  }
+  record.decidedAt = Date.now();
+  if (decision === "deny") {
+    record.status = "denied";
+    const run = record.runId ? runs.get(record.runId) : null;
+    if (run) setRunStatus(run, "streaming");
+    audit.write({
+      event: "tool.result",
+      tool: "exec",
+      commandId: record.id,
+      runId: record.runId,
+      threadId: record.threadId,
+      decision: "deny",
+      status: "denied",
+    });
+    broadcast({ type: "tool.result", request: publicToolRequest(record) });
+    return { ok: true, request: publicToolRequest(record) };
+  }
+
+  if (commandOverride !== undefined) {
+    const next = String(commandOverride || "").trim();
+    if (!next) return { ok: false, status: 400, error: "modified command is empty" };
+    if (next.length > 500) return { ok: false, status: 400, error: "modified command is too long" };
+    if (next.includes("\u0000")) return { ok: false, status: 400, error: "command contains a null byte" };
+    record.command = next;
+  }
+
+  record.status = "running";
+  broadcast({ type: "tool.result", request: publicToolRequest(record) });
+  const started = Date.now();
+  try {
+    const result = await exec(record.command, {
+      cwd: record.cwd,
+      timeout: TOOL_TIMEOUT_MS,
+      maxBuffer: TOOL_MAX_OUTPUT * 4,
+      env: toolEnv(record.cwd),
+      shell: "/bin/sh",
+    });
+    record.output = String(result.stdout || result.stderr || "").slice(-TOOL_MAX_OUTPUT);
+    record.exitCode = 0;
+    record.status = "done";
+  } catch (err) {
+    record.output = String(err.stdout || err.stderr || err.message || "").slice(-TOOL_MAX_OUTPUT);
+    record.exitCode = Number.isInteger(err.code) ? err.code : null;
+    record.error = err.killed ? "command timed out" : String(err.message || err).slice(0, 400);
+    record.status = "error";
+  }
+  record.durationMs = Date.now() - started;
+  const run = record.runId ? runs.get(record.runId) : null;
+  if (run && runs.has(run.id)) setRunStatus(run, "streaming");
+  audit.write({
+    event: "tool.result",
+    tool: "exec",
+    commandId: record.id,
+    runId: record.runId,
+    threadId: record.threadId,
+    decision: "approve",
+    status: record.status,
+    exitCode: record.exitCode,
+    durationMs: record.durationMs,
+  });
+  broadcast({ type: "tool.result", request: publicToolRequest(record) });
+  if (record.tabId) {
+    sendToTab(String(record.tabId), {
+      type: "agent.tool.result",
+      runId: record.runId,
+      commandId: record.id,
+      command: record.command,
+      exitCode: record.exitCode,
+      output: record.output,
+      status: record.status,
+      taint: "untrusted",
+    });
+  }
+  return { ok: true, request: publicToolRequest(record) };
+}
+
+function sendToTab(tabId, object) {
+  for (const client of extClients) {
+    if (client.tabs.some((tab) => String(tab.id) === String(tabId))) {
+      sendWs(client, object);
+      return true;
+    }
+  }
+  return false;
+}
+
+function requestScreenshot(tabId) {
+  const requestId = `shot_${crypto.randomBytes(6).toString("base64url")}`;
+  const sent = sendToTab(String(tabId), {
+    type: "agent.screenshot",
+    requestId,
+    tabId: String(tabId),
+  });
+  if (!sent) return null;
+  screenshotRequests.set(requestId, { id: requestId, tabId: String(tabId), createdAt: Date.now() });
+  const timer = setTimeout(() => screenshotRequests.delete(requestId), 60000);
+  timer.unref?.();
+  return requestId;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +581,40 @@ function handleExtMessage(client, raw) {
   }
   if (message.type === "run.event" && message.runId) {
     runEvent(String(message.runId), message.event || {});
+    return;
+  }
+  if (message.type === "tool.request") {
+    try {
+      const tab = client.tabs.find((item) => String(item.id) === String(message.tabId));
+      createToolRequest({
+        runId: message.runId,
+        threadId: message.threadId,
+        command: message.command,
+        reason: message.reason,
+        cwd: message.cwd,
+        worktree: message.worktree,
+        tabId: message.tabId,
+        controlId: tab?.controlId || message.controlId || null,
+        source: "extension",
+      });
+    } catch (err) {
+      sendWs(client, {
+        type: "tool.rejected",
+        runId: message.runId || null,
+        error: String(err.message || err),
+      });
+    }
+    return;
+  }
+  if (message.type === "screenshot.result" && message.requestId) {
+    screenshotRequests.delete(String(message.requestId));
+    broadcast({
+      type: "screenshot.result",
+      requestId: String(message.requestId),
+      tabId: message.tabId ?? null,
+      ok: !!message.ok,
+      error: message.error || null,
+    });
     return;
   }
   if (message.type === "plan.result" && message.requestId) {
@@ -618,6 +929,37 @@ async function startOpencodeRun(run) {
 }
 
 // ---------------------------------------------------------------------------
+// agy / stdio CLI adapter (newline-delimited JSON)
+// ---------------------------------------------------------------------------
+
+async function startAgyRun(run) {
+  try {
+    let cwd;
+    if (run.target.worktree) {
+      cwd = (await worktrees.add({ name: run.target.worktree, base: run.target.base })).path;
+    } else {
+      await worktrees.ensureRoot();
+      cwd = resolveToolCwd({ cwd: run.target.cwd });
+    }
+    run.cwd = cwd;
+    runEvent(run.id, { type: "meta", adapter: "agy", cwd });
+    const text = await agy.run({
+      prompt: run.target.prompt,
+      cwd,
+      signal: run.controller.signal,
+      env: { ...process.env, MELON_WORKTREE: cwd },
+      onChunk: (chunk) => runEvent(run.id, { type: "chunk", text: chunk }),
+    });
+    if (!runs.has(run.id)) return;
+    finishRun(run.id, { type: "done", text });
+  } catch (err) {
+    if (!runs.has(run.id)) return;
+    if (err.name === "AbortError") finishRun(run.id, { type: "cancelled" });
+    else finishRun(run.id, { type: "error", error: { message: err.message } });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // LLM adapter (OpenAI-compatible /chat/completions)
 // ---------------------------------------------------------------------------
 
@@ -800,7 +1142,11 @@ async function handleApi(req, res, url) {
     url.pathname === "/api/runs" ||
     url.pathname === "/api/llm" ||
     url.pathname === "/api/plan" ||
-    url.pathname === "/api/kev/rerank";
+    url.pathname === "/api/kev/rerank" ||
+    url.pathname === "/api/threads" ||
+    url.pathname === "/api/worktrees" ||
+    url.pathname === "/api/tool-requests" ||
+    /^\/api\/tool-requests\/[^/]+\/decision$/.test(url.pathname);
   if (needsJson && req.method === "POST" && !String(req.headers["content-type"] || "").startsWith("application/json")) {
     return json(res, 415, { ok: false, error: "content-type must be application/json" });
   }
@@ -819,10 +1165,16 @@ async function handleApi(req, res, url) {
       kev: kev.enabled,
       kevModel: kev.enabled ? kev.model : null,
       audit: audit.enabled,
+      agy: !!AGY_CMD,
+      agyCommand: AGY_CMD,
       adapterPack: packSummary(adapterPackRecord().envelope),
       extensionClients: extClients.size,
       tabs: aggregateTabs().length,
       runs: runs.size,
+      threads: threads.list().length,
+      pendingToolRequests: [...toolRequests.values()].filter((item) => item.status === "pending").length,
+      worktreeRoot: WORKTREE_ROOT,
+      blackboard: readBlackboard({ file: BLACKBOARD_FILE }).ok,
     });
   }
 
@@ -833,6 +1185,10 @@ async function handleApi(req, res, url) {
       opencodeUrl: OPENCODE_URL,
       llmConfigured: !!(LLM_URL && LLM_MODEL),
       kevConfigured: kev.enabled,
+      agyConfigured: !!AGY_CMD,
+      agyCommand: AGY_CMD,
+      worktreeRoot: WORKTREE_ROOT,
+      blackboardFile: BLACKBOARD_FILE,
       adapterPackConfigured: !!adapterPackRecord().envelope,
       adapterPackVersion: adapterPackRecord().envelope?.payload?.version || null,
       extensionTokenHint: TOKEN.slice(0, 4) + "…",
@@ -881,6 +1237,96 @@ async function handleApi(req, res, url) {
 
   if (pathname === "/api/tabs" && req.method === "GET") {
     return json(res, 200, { tabs: aggregateTabs() });
+  }
+
+  if (pathname === "/api/threads" && req.method === "GET") {
+    return json(res, 200, { ok: true, threads: threads.list() });
+  }
+
+  if (pathname === "/api/threads" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const thread = threads.create({ id: body.id, title: body.title });
+    return json(res, 201, { ok: true, thread });
+  }
+
+  const threadMatch = pathname.match(/^\/api\/threads\/([^/]+)$/);
+  if (threadMatch && req.method === "GET") {
+    const thread = threads.get(decodeURIComponent(threadMatch[1]));
+    if (!thread) return json(res, 404, { ok: false, error: "thread not found" });
+    return json(res, 200, { ok: true, thread });
+  }
+
+  if (pathname === "/api/worktrees" && req.method === "GET") {
+    return json(res, 200, { ok: true, root: WORKTREE_ROOT, worktrees: await worktrees.list() });
+  }
+
+  if (pathname === "/api/worktrees" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    try {
+      const result = await worktrees.add({ name: body.name, base: body.base || "HEAD" });
+      return json(res, 201, { ok: true, ...result });
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+  }
+
+  if (pathname === "/api/tool-requests" && req.method === "GET") {
+    const list = [...toolRequests.values()]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map(publicToolRequest);
+    return json(res, 200, { ok: true, requests: list });
+  }
+
+  if (pathname === "/api/tool-requests" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    try {
+      const request = createToolRequest(body);
+      return json(res, 201, { ok: true, request: publicToolRequest(request) });
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+  }
+
+  const decisionMatch = pathname.match(/^\/api\/tool-requests\/([^/]+)\/decision$/);
+  if (decisionMatch && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const result = await decideToolRequest(
+      decodeURIComponent(decisionMatch[1]),
+      body.decision,
+      body.command,
+    );
+    return json(res, result.status || (result.ok ? 200 : 400), result);
+  }
+
+  if (pathname === "/api/blackboard" && req.method === "GET") {
+    return json(res, 200, { ok: true, ...readBlackboard({ file: BLACKBOARD_FILE }) });
+  }
+
+  const screenshotMatch = pathname.match(/^\/api\/tabs\/([^/]+)\/screenshot$/);
+  if (screenshotMatch && req.method === "POST") {
+    const requestId = requestScreenshot(decodeURIComponent(screenshotMatch[1]));
+    if (!requestId) return json(res, 404, { ok: false, error: "tab is not connected" });
+    return json(res, 202, { ok: true, requestId });
   }
 
   if (pathname === "/api/plan" && req.method === "POST") {
@@ -980,8 +1426,8 @@ async function handleApi(req, res, url) {
     const runId = String(body.runId || "");
     const target = body.target || {};
     if (!runId) return json(res, 400, { ok: false, error: "runId is required" });
-    if (!["extension", "opencode", "llm"].includes(target.type)) {
-      return json(res, 400, { ok: false, error: "target.type must be extension, opencode or llm" });
+    if (!["extension", "opencode", "llm", "agy"].includes(target.type)) {
+      return json(res, 400, { ok: false, error: "target.type must be extension, opencode, llm or agy" });
     }
     const prompt = String(body.prompt || "");
     if (!prompt.trim()) return json(res, 400, { ok: false, error: "prompt is required" });
@@ -989,11 +1435,16 @@ async function handleApi(req, res, url) {
     target.prompt = prompt;
     target.adapter = target.adapter || "auto";
     target.retrievePageContext = !!target.retrievePageContext;
+    target.threadId = body.threadId || target.threadId || null;
+    if (target.worktree !== undefined) target.worktree = String(target.worktree || "") || null;
+    if (target.cwd !== undefined) target.cwd = String(target.cwd || "") || null;
+    if (target.base !== undefined) target.base = String(target.base || "") || "HEAD";
 
     const run = newRun(runId, target);
-    json(res, 202, { ok: true, runId });
+    json(res, 202, { ok: true, runId, threadId: run.threadId });
     if (target.type === "extension") startExtensionRun(run);
     else if (target.type === "opencode") startOpencodeRun(run);
+    else if (target.type === "agy") startAgyRun(run);
     else startLlmRun(run);
     return;
   }
@@ -1018,7 +1469,10 @@ async function handleApi(req, res, url) {
       version: VERSION,
       llm: !!(LLM_URL && LLM_MODEL),
       kev: kev.enabled,
+      agy: !!AGY_CMD,
       opencodeUrl: OPENCODE_URL,
+      worktreeRoot: WORKTREE_ROOT,
+      blackboard: readBlackboard({ file: BLACKBOARD_FILE }).ok,
       tabs: aggregateTabs(),
     });
     const heartbeat = setInterval(() => {
@@ -1224,6 +1678,9 @@ server.listen(PORT, HOST, () => {
   console.log(`  canvas      ${base}/`);
   console.log(`  hub health  ${base}/api/health`);
   console.log(`  opencode    ${OPENCODE_URL}`);
+  console.log(`  agy         ${AGY_CMD} ${AGY_ARGS.join(" ")}`.trim());
+  console.log(`  worktrees   ${WORKTREE_ROOT}`);
+  console.log(`  blackboard  ${readBlackboard({ file: BLACKBOARD_FILE }).ok ? BLACKBOARD_FILE : "not found (optional)"}`);
   console.log(`  llm         ${LLM_URL && LLM_MODEL ? `${LLM_MODEL} @ ${LLM_URL}` : "not configured"}`);
   console.log(`  kev         ${kev.enabled ? `${kev.model} @ ${kev.endpoint}` : "not configured (set KEV_URL)"}`);
   console.log(`  audit       ${audit.enabled ? audit.file : "off (set MELON_AUDIT=1 or MELON_AUDIT_LOG)"}`);

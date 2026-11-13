@@ -25,6 +25,14 @@ Acceptance criteria:
 - [ ] Hardware WebGPU planner run with a production model. Local Intel gen-7 adapter and SmolLM2 load were verified, but Haswell Vulkan stalls during full graph generation; the remote Chromium runner exposes only a `google/swiftshader` WebGPU adapter.
 - [ ] Authenticated live-tab run in CI or on a persistent login profile. Remote probes hit Cloudflare challenges on ChatGPT/Claude/Mistral and Google login-required on Gemini.
 - [x] Remote adapter-pack signing, hosting, and update verification.
+- [x] In-memory threads, `run.status` events, and host-level orchestration without
+  changing the WASM core contracts.
+- [x] agy/stdio CLI adapter with newline-delimited JSON and abort.
+- [x] Human-approved tool execution: pending requests, approve/modify/deny,
+  worktree-confined cwd, reduced environment, timeout, untrusted output.
+- [x] Read-only shared blackboard and confirmed screenshot insertion.
+- [x] Deterministic fixed-brief evaluation (`npm run eval`) with single-agent vs
+  moderator scoring.
 
 Evidence from the 2026-11-09 remote Chromium run: [`docs/evidence/2026-11-09/README.md`](evidence/2026-11-09/README.md).
 
@@ -32,5 +40,5 @@ Tracking rules:
 
 - Keep `dev` as the integration branch; push after each verified slice.
 - Update this milestone when a criterion changes state.
-- Run `npm test` and `npm run e2e` before every push.
+- Run `npm test`, `npm run eval`, and `npm run e2e` before every push.
 - Use `npm run test:remote` for the pinned remote Linux/arm64 test lane.
