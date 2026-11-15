@@ -18,6 +18,7 @@ import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 import { extractArtifactsFromText } from "../web/shared/artifacts.js";
+import { createTelemetryTracker } from "./telemetry.mjs";
 import { createKevClient } from "./kev.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { packEtag, packSummary, readPackFile } from "./adapter-pack.mjs";
@@ -66,6 +67,10 @@ const TOOL_TIMEOUT_MS = Math.max(1000, Math.min(120000, Number(process.env.MELON
 const TOOL_MAX_OUTPUT = 20000;
 const kev = createKevClient({ url: KEV_URL, model: KEV_MODEL });
 const audit = createAuditLog({ file: AUDIT_LOG });
+const TELEMETRY_FILE = process.env.MELON_TELEMETRY_LOG
+  ? path.resolve(process.env.MELON_TELEMETRY_LOG)
+  : path.join(ROOT, ".melon", "telemetry.jsonl");
+const telemetry = createTelemetryTracker({ file: TELEMETRY_FILE });
 const threads = createThreadStore();
 const agy = createAgyRunner({ cmd: AGY_CMD, args: AGY_ARGS, inputFormat: AGY_INPUT_FORMAT });
 const worktrees = createWorktreeManager({ root: WORKTREE_ROOT, repo: ROOT });
@@ -202,6 +207,15 @@ function finishRun(id, event) {
         text: `run failed: ${event.error?.message || "unknown error"}`,
         runId: id,
         node: run.audit?.node || null,
+      });
+      telemetry.record({
+        subsystem: run.target?.type || "run",
+        type: "run_failed",
+        message: event.error?.message || "unknown run error",
+        runId: id,
+        tabId: run.target?.tabId,
+        adapter: run.target?.adapter,
+        nodeId: run.audit?.node || null,
       });
     }
   }
@@ -1205,6 +1219,7 @@ async function handleApi(req, res, url) {
     url.pathname === "/api/worktrees" ||
     url.pathname === "/api/tool-requests" ||
     url.pathname === "/api/artifacts/export" ||
+    url.pathname === "/api/telemetry" ||
     /^\/api\/tool-requests\/[^/]+\/decision$/.test(url.pathname);
   if (needsJson && req.method === "POST" && !String(req.headers["content-type"] || "").startsWith("application/json")) {
     return json(res, 415, { ok: false, error: "content-type must be application/json" });
@@ -1224,6 +1239,7 @@ async function handleApi(req, res, url) {
       kev: kev.enabled,
       kevModel: kev.enabled ? kev.model : null,
       audit: audit.enabled,
+      telemetryErrors: telemetry.size,
       agy: !!AGY_CMD,
       agyCommand: AGY_CMD,
       adapterPack: packSummary(adapterPackRecord().envelope),
@@ -1574,6 +1590,23 @@ async function handleApi(req, res, url) {
       filesWritten,
       branch: gitBranchCreated,
     });
+  }
+
+  if (pathname === "/api/telemetry" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const record = telemetry.record(body);
+    broadcast({ type: "telemetry.error", record });
+    return json(res, 201, { ok: true, id: record.id, diagnosis: record.diagnosis });
+  }
+
+  if (pathname === "/api/telemetry/errors" && req.method === "GET") {
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 20));
+    return json(res, 200, { ok: true, count: telemetry.size, errors: telemetry.list(limit) });
   }
 
   if (pathname === "/api/events" && req.method === "GET") {

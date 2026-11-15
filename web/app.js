@@ -3406,6 +3406,10 @@ function connectHub() {
         }
       } else if (message.type === "screenshot.result") {
         log("hub", message.ok ? "screenshot inserted into tab" : `screenshot failed: ${message.error || "unknown"}`);
+      } else if (message.type === "telemetry.error") {
+        const err = message.record || {};
+        log("warn", `telemetry: [${err.subsystem || "hub"}] ${err.message}`);
+        if (err.diagnosis) log("hint", `💡 diagnosis: ${err.diagnosis}`);
       }
     };
   } catch {}
@@ -4160,6 +4164,35 @@ function setupOnboarding() {
 }
 
 async function boot() {
+  window.addEventListener("error", (event) => {
+    fetch("/api/telemetry", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        level: "error",
+        subsystem: "canvas",
+        type: "unhandled_error",
+        message: event.message || "Unknown client error",
+        stack: event.error?.stack || null,
+        context: { filename: event.filename, lineno: event.lineno, colno: event.colno },
+      }),
+    }).catch(() => {});
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    fetch("/api/telemetry", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        level: "error",
+        subsystem: "canvas",
+        type: "unhandled_rejection",
+        message: String(event.reason?.message || event.reason),
+        stack: event.reason?.stack || null,
+      }),
+    }).catch(() => {});
+  });
+
   initTheme();
   const graph = loadGraph();
   nodes = graph.nodes;

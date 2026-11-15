@@ -520,11 +520,48 @@ async function handleDoctor(opts) {
     console.log(`  [✔] Worktrees Root:         ${health.worktreeRoot}`);
   }
 
+  // 8. Telemetry & Errors
+  if (health && health.telemetryErrors > 0) {
+    console.log(`  [!] Telemetry & Errors:     ${health.telemetryErrors} captured issue(s) (run \`melon errors\` to inspect)`);
+    issues++;
+  } else if (health) {
+    console.log(`  [✔] Telemetry & Errors:     Clean (0 active errors)`);
+  }
+
   console.log("");
   if (issues === 0) {
     console.log(`  🎉 All systems operational! Ready to run graphs, tournaments, or \`melon ask\`.\n`);
   } else {
     console.log(`  ⚠️  ${issues} item${issues > 1 ? "s" : ""} need attention. Follow the tips above to get 100% operational.\n`);
+  }
+}
+
+// Command: melon errors
+async function handleErrors(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  try {
+    const data = await requestJson(`${hubUrl}/api/telemetry/errors`, { token: opts.token });
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    const errors = data.errors || [];
+    if (!errors.length) {
+      console.log(`\n✨ Clean telemetry! No recent errors recorded.`);
+      return;
+    }
+    console.log(`\n⚠️  Recent Captured Errors & Telemetry (${errors.length}):\n`);
+    for (const err of errors) {
+      const ts = err.ts ? err.ts.slice(11, 19) : "??:??:??";
+      console.log(`  [${ts}] [${err.subsystem.toUpperCase()}] ${err.type}`);
+      console.log(`    Message:   ${err.message}`);
+      if (err.tabId) console.log(`    Tab ID:    ${err.tabId}${err.adapter ? ` (${err.adapter})` : ""}`);
+      if (err.diagnosis) console.log(`    Diagnosis: 💡 ${err.diagnosis}`);
+      console.log("");
+    }
+  } catch (err) {
+    console.error(`❌ Failed to retrieve telemetry from Melon Hub at ${hubUrl}: ${err.message}`);
+    process.exit(1);
   }
 }
 
@@ -537,6 +574,7 @@ USAGE:
   melon ask -e [options]            Re-extract latest response from active tab without prompting
   melon tabs [options]              List all active bridged browser tabs (ChatGPT, Claude, Gemini)
   melon doctor [options]            Run self-healing diagnostic check on local setup & tabs
+  melon errors [options]            Inspect real-time telemetry, adapter errors & root causes
   melon status [options]            Show Melon Hub runtime health and connected clients
   melon export <runId> [options]    Export code artifacts harvested from a run
 
@@ -594,6 +632,9 @@ async function main() {
     case "doctor":
       await handleDoctor(opts);
       break;
+    case "errors":
+      await handleErrors(opts);
+      break;
     default:
       console.error(`Unknown command: "${opts.command}". Run \`melon --help\` for usage.`);
       process.exit(1);
@@ -608,4 +649,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor };
+export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor, handleErrors };
