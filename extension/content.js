@@ -177,6 +177,7 @@
         if (matches.length) {
           const lastEl = matches[matches.length - 1];
           const text =
+            (adapters?.domToRichMarkdown ? adapters.domToRichMarkdown(lastEl) : null) ||
             (adapters?.textOf ? adapters.textOf(lastEl) : lastEl.innerText || lastEl.textContent) ||
             "";
           if (text.trim().length > 0) return text.trim();
@@ -198,7 +199,10 @@
           while (container && container !== document.body && container.tagName !== "MAIN") {
             const nextSib = container.nextElementSibling;
             if (nextSib) {
-              const text = (adapters?.textOf ? adapters.textOf(nextSib) : nextSib.innerText || nextSib.textContent) || "";
+              const text =
+                (adapters?.domToRichMarkdown ? adapters.domToRichMarkdown(nextSib) : null) ||
+                (adapters?.textOf ? adapters.textOf(nextSib) : nextSib.innerText || nextSib.textContent) ||
+                "";
               if (text.trim().length > 20) return text.trim();
             }
             container = container.parentElement;

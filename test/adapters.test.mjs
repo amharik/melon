@@ -231,3 +231,62 @@ test("health reports missing required fields and schema validation catches bad a
   });
   assert.ok(duplicate.some((error) => /duplicate id/.test(error)));
 });
+
+test("domToRichMarkdown extracts GFM tables, images, and code blocks faithfully", () => {
+  // Mock element hierarchy for a rich table
+  const tableEl = {
+    tagName: "TABLE",
+    childNodes: [],
+    querySelectorAll(sel) {
+      if (sel === "tr") return [row1, row2];
+      return [];
+    },
+  };
+  const th1 = { tagName: "TH", childNodes: [{ nodeType: 3, nodeValue: "Agent" }] };
+  const th2 = { tagName: "TH", childNodes: [{ nodeType: 3, nodeValue: "Role" }] };
+  const row1 = {
+    tagName: "TR",
+    childNodes: [th1, th2],
+    querySelectorAll(sel) {
+      if (sel === "th, td") return [th1, th2];
+      return [];
+    },
+  };
+  const td1 = { tagName: "TD", childNodes: [{ nodeType: 3, nodeValue: "Claude" }] };
+  const td2 = { tagName: "TD", childNodes: [{ nodeType: 3, nodeValue: "Architect" }] };
+  const row2 = {
+    tagName: "TR",
+    childNodes: [td1, td2],
+    querySelectorAll(sel) {
+      if (sel === "th, td") return [td1, td2];
+      return [];
+    },
+  };
+
+  const imgEl = {
+    tagName: "IMG",
+    src: "https://example.com/diagram.png",
+    alt: "Architecture Diagram",
+    getAttribute(name) {
+      if (name === "src") return "https://example.com/diagram.png";
+      if (name === "alt") return "Architecture Diagram";
+      return null;
+    },
+  };
+
+  const container = {
+    tagName: "DIV",
+    childNodes: [tableEl, imgEl],
+    querySelector(sel) {
+      if (sel.includes("table")) return tableEl;
+      if (sel.includes("img")) return imgEl;
+      return null;
+    },
+  };
+
+  const extracted = A.domToRichMarkdown(container);
+  assert.match(extracted, /\| Agent \| Role \|/);
+  assert.match(extracted, /\| --- \| --- \|/);
+  assert.match(extracted, /\| Claude \| Architect \|/);
+  assert.match(extracted, /!\[Architecture Diagram\]\(https:\/\/example\.com\/diagram\.png\)/);
+});

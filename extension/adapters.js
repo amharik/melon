@@ -194,6 +194,242 @@
     return String(raw || "").replace(/\u200b/g, "").trim();
   }
 
+  /* ------------------------------------------------- Rich DOM Extraction */
+
+  function domToRichMarkdown(root) {
+    if (!root) return "";
+    // If element has no child nodes or children, fallback to textOf
+    if (!root.childNodes && !root.children) {
+      return textOf(root);
+    }
+
+    const hasRichElements =
+      root.querySelector &&
+      root.querySelector("table, img, svg, canvas, pre, code, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .katex, [data-tex]");
+    if (!hasRichElements && (!root.childNodes || root.childNodes.length <= 1)) {
+      const fallback = textOf(root);
+      if (fallback) return fallback;
+    }
+
+    function walkChildren(node) {
+      let out = "";
+      const kids = node.childNodes || node.children || [];
+      for (let i = 0; i < kids.length; i++) {
+        out += walk(kids[i]);
+      }
+      return out;
+    }
+
+    function tableToMarkdown(table) {
+      const rows = Array.from(table.querySelectorAll?.("tr") || []);
+      if (!rows.length) return "";
+
+      const grid = [];
+      for (const tr of rows) {
+        const cells = Array.from(tr.querySelectorAll?.("th, td") || []);
+        if (!cells.length) continue;
+        const rowData = cells.map((cell) => {
+          const inner = walkChildren(cell).replace(/\|/g, "\\|").replace(/\n+/g, " ").trim();
+          return inner || " ";
+        });
+        if (rowData.some((c) => c.trim().length > 0)) {
+          grid.push(rowData);
+        }
+      }
+
+      if (!grid.length) return "";
+
+      const maxCols = Math.max(...grid.map((r) => r.length));
+      if (maxCols === 0) return "";
+
+      const normalized = grid.map((r) => {
+        const row = [...r];
+        while (row.length < maxCols) row.push(" ");
+        return row;
+      });
+
+      const header = normalized[0];
+      const headerLine = `| ${header.join(" | ")} |`;
+      const dividerLine = `| ${header.map(() => "---").join(" | ")} |`;
+      const bodyLines = normalized.slice(1).map((r) => `| ${r.join(" | ")} |`);
+
+      return `\n\n${[headerLine, dividerLine, ...bodyLines].join("\n")}\n\n`;
+    }
+
+    function walk(node) {
+      if (!node) return "";
+
+      // Text node (nodeType 3)
+      if (node.nodeType === 3 || (typeof Node !== "undefined" && node.nodeType === Node.TEXT_NODE)) {
+        return node.nodeValue || node.textContent || "";
+      }
+
+      const tag = (node.tagName || "").toLowerCase();
+      if (!tag) return node.textContent || "";
+
+      // Skip non-rendering tags
+      if (tag === "script" || tag === "style" || tag === "noscript") return "";
+
+      // Math / KaTeX
+      if (node.classList?.contains("katex") || node.classList?.contains("math")) {
+        const tex =
+          node.querySelector?.('annotation[encoding*="tex"]')?.textContent?.trim() ||
+          node.getAttribute?.("data-tex");
+        if (tex) {
+          const isDisplay = node.classList?.contains("katex-display") || tag === "div";
+          return isDisplay ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`;
+        }
+      }
+      if (node.classList?.contains("katex-html") && node.closest?.(".katex")) {
+        return "";
+      }
+
+      // Code blocks (<pre><code>)
+      if (tag === "pre") {
+        const codeEl = node.querySelector?.("code") || node;
+        let lang = "";
+        if (codeEl.classList) {
+          for (const cls of codeEl.classList) {
+            if (cls.startsWith("language-")) {
+              lang = cls.replace("language-", "");
+              break;
+            }
+          }
+        }
+        const rawCode = codeEl.innerText || codeEl.textContent || "";
+        return `\n\n\`\`\`${lang}\n${rawCode.replace(/\n$/, "")}\n\`\`\`\n\n`;
+      }
+
+      // Inline code
+      if (tag === "code" && node.parentElement?.tagName?.toLowerCase() !== "pre") {
+        return `\`${node.textContent || ""}\``;
+      }
+
+      // Tables
+      if (tag === "table") {
+        return tableToMarkdown(node);
+      }
+
+      // Images
+      if (tag === "img") {
+        const src = node.getAttribute?.("src") || node.src || "";
+        const alt = node.getAttribute?.("alt") || node.alt || "Image";
+        if (src && !src.startsWith("data:image/svg+xml;base64,PHN2Zy")) {
+          return `\n\n![${alt.replace(/[\[\]]/g, "")}](${src})\n\n`;
+        }
+        return "";
+      }
+
+      // Canvas charts & graphs
+      if (tag === "canvas") {
+        try {
+          const w = node.width || node.clientWidth || 0;
+          const h = node.height || node.clientHeight || 0;
+          if (w >= 32 && h >= 32 && typeof node.toDataURL === "function") {
+            const dataUrl = node.toDataURL("image/png");
+            if (dataUrl && dataUrl.length > 100) {
+              return `\n\n![Rendered Chart](${dataUrl})\n\n`;
+            }
+          }
+        } catch {}
+      }
+
+      // SVG illustrations & diagrams
+      if (tag === "svg") {
+        try {
+          const w = node.clientWidth || parseFloat(node.getAttribute?.("width") || "0");
+          const h = node.clientHeight || parseFloat(node.getAttribute?.("height") || "0");
+          const paths = node.querySelectorAll?.("path, circle, rect, polygon, line, text")?.length || 0;
+          const isIllustration =
+            (w >= 36 && h >= 36) ||
+            paths >= 3 ||
+            node.classList?.contains("mermaid") ||
+            node.closest?.(".chart-container, .diagram, .artifact");
+
+          if (isIllustration && typeof XMLSerializer !== "undefined") {
+            const clone = node.cloneNode(true);
+            if (!clone.getAttribute("xmlns")) {
+              clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            }
+            const serialized = new XMLSerializer().serializeToString(clone);
+            const encoded = encodeURIComponent(serialized);
+            return `\n\n![Diagram](data:image/svg+xml;utf8,${encoded})\n\n`;
+          }
+        } catch {}
+        return "";
+      }
+
+      // Headings
+      if (/^h[1-6]$/.test(tag)) {
+        const level = parseInt(tag[1], 10);
+        const hashes = "#".repeat(level);
+        const inner = walkChildren(node).trim();
+        return `\n\n${hashes} ${inner}\n\n`;
+      }
+
+      // Blockquotes
+      if (tag === "blockquote") {
+        const inner = walkChildren(node).trim();
+        return `\n\n> ${inner.replace(/\n/g, "\n> ")}\n\n`;
+      }
+
+      // Lists
+      if (tag === "ul" || tag === "ol") {
+        const isOrdered = tag === "ol";
+        let idx = 1;
+        let out = "\n\n";
+        const kids = node.children || [];
+        for (const child of kids) {
+          if (child.tagName?.toLowerCase() === "li") {
+            const prefix = isOrdered ? `${idx++}. ` : "- ";
+            out += `${prefix}${walkChildren(child).trim()}\n`;
+          }
+        }
+        return out + "\n";
+      }
+
+      // Links
+      if (tag === "a") {
+        const href = node.getAttribute?.("href") || "";
+        const text = walkChildren(node).trim();
+        if (!href || href.startsWith("javascript:")) return text;
+        return `[${text || href}](${href})`;
+      }
+
+      // Formatting
+      if (tag === "strong" || tag === "b") {
+        const inner = walkChildren(node);
+        return inner.trim() ? `**${inner}**` : "";
+      }
+      if (tag === "em" || tag === "i") {
+        const inner = walkChildren(node);
+        return inner.trim() ? `*${inner}*` : "";
+      }
+      if (tag === "del" || tag === "s" || tag === "strike") {
+        const inner = walkChildren(node);
+        return inner.trim() ? `~~${inner}~~` : "";
+      }
+
+      // Paragraphs & Line Breaks
+      if (tag === "p") {
+        const inner = walkChildren(node).trim();
+        return inner ? `\n\n${inner}\n\n` : "";
+      }
+      if (tag === "br") {
+        return "\n";
+      }
+      if (tag === "hr") {
+        return "\n\n---\n\n";
+      }
+
+      // Container elements (div, span, section, article, etc.)
+      return walkChildren(node);
+    }
+
+    const res = walk(root);
+    return res.replace(/\n{3,}/g, "\n\n").trim();
+  }
+
   function metaOf(el) {
     return [
       attr(el, "aria-label"),
@@ -437,7 +673,7 @@
       const inner =
         element.querySelector?.('.markdown, .prose, message-content, [class*="markdown"], [class*="prose"], .model-response-text') ||
         element;
-      text = textOf(inner) || textOf(element);
+      text = domToRichMarkdown(inner) || domToRichMarkdown(element) || textOf(inner) || textOf(element);
     }
     return {
       count: responses.length,
@@ -568,6 +804,7 @@
     snapshot,
     health,
     textOf,
+    domToRichMarkdown,
     defaultVisible,
   };
 

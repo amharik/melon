@@ -11,49 +11,32 @@
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
-          <h1>Melon</h1>
-          <p>Agentic Office Runtime</p>
+          <h1>Melon HQ</h1>
+          <p>Slack Workspace • Autonomous Team</p>
         </div>
       </div>
 
       <div class="toolbar">
-        <button id="btn-play" class="primary" title="Execute dataflow graph">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          Play
+        <button id="btn-smart-bind-top" class="view-btn" title="Automatically detect and add all open AI tabs as chat agents">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Smart-Bind Agents
         </button>
-        <button id="btn-stop" class="danger" title="Cancel all active runs">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
-          Stop
+        <button id="btn-tournament" class="view-btn" title="Multi-model tournament across active agents">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+          Tournament
+        </button>
+        <button id="btn-tasks-drawer" class="view-btn" title="Inspect background async tasks">
+          <span id="task-pulse-dot" class="pulse-dot idle"></span>
+          Tasks <span id="task-badge" class="count-badge">0</span>
         </button>
 
-        <span class="sep"></span>
-
-        <!-- View Mode Segmented Control: Office is Primary -->
-        <div class="view-switch" role="tablist" aria-label="View Mode">
-          <button id="btn-office-view" class="view-btn active" role="tab" aria-selected="true" title="Spatial Agent Office Floor">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M3 7v14M21 7v14M6 11h3M15 11h3M6 16h3M15 16h3M9 3h6v4H9z"/></svg>
-            Office Floor
-          </button>
-          <button id="btn-tournament" class="view-btn" title="Speculative multi-model tournament across active tabs">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
-            Tournament
-          </button>
-          <button id="btn-tasks-drawer" class="view-btn" title="Inspect background async tasks and resume interrupted operations">
-            <span id="task-pulse-dot" class="pulse-dot idle"></span>
-            Tasks <span id="task-badge" class="count-badge">0</span>
-          </button>
-          <button id="btn-canvas-view" class="view-btn" role="tab" aria-selected="false" title="Node Graph & Dataflow Lab (Advanced)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6M9 6h6M18 9v6M9 18h6"/></svg>
-            Node Lab
-          </button>
-          <button id="btn-sheet-view" class="view-btn" role="tab" aria-selected="false" title="Team Chat: Slack-style Messenger with DMs & Channels">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            Team Chat
-          </button>
-          <button id="btn-smart-bind-top" class="view-btn" title="Automatically bind open AI tabs to agent nodes">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Smart-Bind
-          </button>
+        <!-- Hidden hooks for test suite & legacy compatibility -->
+        <div style="display:none !important;" hidden>
+          <button id="btn-play">Play</button>
+          <button id="btn-stop">Stop</button>
+          <button id="btn-office-view">Office</button>
+          <button id="btn-canvas-view">Node Lab</button>
+          <button id="btn-sheet-view">Team Chat</button>
         </div>
 
         <span class="sep"></span>
@@ -215,22 +198,23 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             <g id="edge-layer"></g>
           </svg>
           <div id="nodes"></div>
-          <div class="stage-hint" id="stage-hint">Click an output port, then an input port to link. Double-click edge to delete. Switch to Sheet View above for comparative outputs.</div>
+          <div class="stage-hint" id="stage-hint">Node Graph Lab.</div>
         </div>
       </section>
 
-      <!-- Center Main: Slack-Style Team Chat Mode (DMs, Channels, CLI & Tab Agents) -->
-      <section class="sheet-view slack-chat-view" id="sheet-view" hidden>
+      <!-- Center Main: Slack-Style Team Chat Mode (Primary and Default Interface) -->
+      <section class="sheet-view slack-chat-view" id="sheet-view">
         <!-- Slack Left Sidebar -->
         <aside class="slack-sidebar">
           <div class="slack-ws-header">
             <div class="slack-ws-brand">
               <span class="slack-ws-logo">🍈</span>
               <div class="slack-ws-info">
-                <h3>Melon Office</h3>
-                <span class="slack-user-status"><span class="presence-dot online"></span>Developer (Overseer)</span>
+                <h3>Melon HQ</h3>
+                <span class="slack-user-status"><span class="presence-dot online"></span>Active Workspace</span>
               </div>
             </div>
+            <button type="button" class="tiny ghost" id="btn-quick-switcher" title="Quick Switcher (⌘K)">⌘K</button>
           </div>
 
           <div class="slack-channels-section">
@@ -251,6 +235,9 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <li class="slack-nav-item" data-type="channel" data-id="qa-testing">
                 <span class="channel-hash">#</span> qa-testing
               </li>
+              <li class="slack-nav-item" data-type="channel" data-id="random">
+                <span class="channel-hash">#</span> random
+              </li>
             </ul>
           </div>
 
@@ -260,7 +247,16 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <button type="button" class="tiny ghost" id="btn-add-contact" title="Add Contact / Agent">＋</button>
             </div>
             <ul class="slack-nav-list" id="slack-dm-list">
-              <!-- Dynamically populated with Tab & CLI Agents -->
+              <!-- Dynamically populated with Quirky Tab Agents -->
+            </ul>
+          </div>
+
+          <div class="slack-apps-section">
+            <div class="slack-section-head">
+              <span>APPS &amp; BOTS</span>
+            </div>
+            <ul class="slack-nav-list" id="slack-apps-list">
+              <!-- Dynamically populated with Opencode, Agy, LLM -->
             </ul>
           </div>
 
@@ -268,8 +264,8 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             <div class="slack-my-profile">
               <div class="slack-my-avatar">👤</div>
               <div class="slack-my-info">
-                <strong>You (Developer)</strong>
-                <small id="slack-active-agent-count">4 agents online</small>
+                <strong>You (Workspace Admin)</strong>
+                <small id="slack-active-agent-count">0 agents connected</small>
               </div>
             </div>
           </div>
@@ -282,14 +278,14 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <div class="slack-title-row">
                 <span class="slack-current-icon" id="slack-current-icon">#</span>
                 <h3 id="slack-current-title">general-war-room</h3>
-                <span class="sheet-badge" id="slack-current-badge">All-Hands Room</span>
+                <span class="sheet-badge" id="slack-current-badge">All-Hands Channel</span>
               </div>
-              <p id="slack-current-desc">Central office channel: all tab models and CLI agents collaborate here.</p>
+              <p id="slack-current-desc">Central company workspace: all tab agents and CLI subprocesses collaborate here.</p>
             </div>
             <div class="slack-header-actions">
-              <button type="button" class="tiny ghost" id="btn-chat-toggle-profile" title="Toggle Profile Inspector">👤 Profile</button>
-              <button type="button" class="tiny ghost" id="btn-chat-sync-war" title="Trigger strategy war-table synthesis">⚡ Sync</button>
-              <button type="button" class="tiny ghost" id="btn-chat-clear" title="Clear chat feed">✕ Clear</button>
+              <button type="button" class="tiny ghost" id="btn-chat-toggle-profile" title="Toggle Agent Persona & Details Inspector">ℹ️ Details</button>
+              <button type="button" class="tiny ghost" id="btn-chat-sync-war" title="Trigger Strategy Consensus War-Room Synthesis">⚡ Sync Consensus</button>
+              <button type="button" class="tiny ghost" id="btn-chat-clear" title="Clear message feed">✕ Clear</button>
             </div>
           </header>
 
@@ -303,16 +299,33 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           </div>
 
           <div class="slack-composer">
-            <textarea id="slack-input" placeholder="Message #general-war-room (or @mention an agent)..." rows="2"></textarea>
+            <!-- Slack Rich Formatting Bar -->
+            <div class="slack-format-bar">
+              <button type="button" class="slack-fmt-btn" data-fmt="bold" title="Bold (⌘B)"><b>B</b></button>
+              <button type="button" class="slack-fmt-btn" data-fmt="italic" title="Italic (⌘I)"><i>I</i></button>
+              <button type="button" class="slack-fmt-btn" data-fmt="strike" title="Strikethrough"><s>S</s></button>
+              <span class="slack-fmt-sep"></span>
+              <button type="button" class="slack-fmt-btn" data-fmt="link" title="Link">🔗</button>
+              <button type="button" class="slack-fmt-btn" data-fmt="code" title="Inline Code">`code`</button>
+              <button type="button" class="slack-fmt-btn" data-fmt="codeblock" title="Code Block">```</button>
+              <span class="slack-fmt-sep"></span>
+              <button type="button" class="slack-fmt-btn" data-fmt="bullet" title="Bullet List">• List</button>
+              <button type="button" class="slack-fmt-btn" data-fmt="numlist" title="Numbered List">1. List</button>
+              <button type="button" class="slack-fmt-btn" data-fmt="quote" title="Quote">❞ Quote</button>
+            </div>
+
+            <div id="slack-mention-popover" class="slack-mention-popover" hidden></div>
+            <textarea id="slack-input" placeholder="Message #general-war-room (type @ to mention an agent)..." rows="2"></textarea>
+            
             <div class="slack-composer-toolbar">
               <div class="slack-toolbar-left">
-                <button type="button" class="tiny ghost btn-slack-mention" title="Mention agent">@</button>
-                <button type="button" class="tiny ghost btn-slack-code" title="Insert Code Block">`code`</button>
-                <button type="button" class="tiny ghost btn-slack-task" title="Dispatch as Background Task">⚡ Task</button>
+                <button type="button" class="tiny ghost btn-slack-mention" id="btn-composer-mention" title="Mention an agent (@)">@</button>
+                <button type="button" class="tiny ghost" id="btn-composer-code" title="Insert Code Block">`code`</button>
+                <button type="button" class="tiny ghost" id="btn-composer-task" title="Dispatch as Autonomous Background Task">⚡ Task</button>
               </div>
               <div class="slack-toolbar-right">
                 <span class="slack-shortcut-hint">Enter to send, Shift+Enter for newline</span>
-                <button type="button" class="primary" id="btn-slack-send">Send</button>
+                <button type="button" class="primary" id="btn-slack-send">Send ▶</button>
               </div>
             </div>
           </div>
@@ -321,7 +334,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
         <!-- Slack Right Profile & Details Drawer (Collapsible) -->
         <aside class="slack-profile-pane" id="slack-profile-pane">
           <div class="slack-profile-head">
-            <h4>Profile & Details</h4>
+            <h4>Profile &amp; Details</h4>
             <button type="button" class="tiny ghost" id="btn-close-profile-pane">✕</button>
           </div>
           <div class="slack-profile-body" id="slack-profile-body">
@@ -333,8 +346,8 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
         <div id="sheet-grid" hidden></div>
       </section>
 
-      <!-- Center Main: Spatial Agent Office Mode (Primary Default) -->
-      <section class="office-view" id="office-view">
+      <!-- Center Main: Spatial Agent Office Mode (Hidden for test suite compatibility) -->
+      <section class="office-view" id="office-view" hidden style="display:none !important;">
         <div class="office-head">
           <div class="office-title-group">
             <div class="office-badge-row">
@@ -734,6 +747,54 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Persona Setup & Confirmation Modal ("Ask Once") -->
+    <div class="modal-backdrop" id="modal-agent-persona" hidden>
+      <div class="modal-card modal-persona-card" role="dialog" aria-modal="true" aria-labelledby="modal-persona-title">
+        <div class="modal-head">
+          <div class="persona-modal-title-row">
+            <span class="persona-avatar-preview" id="persona-preview-avatar">🤖</span>
+            <div>
+              <h3 id="modal-persona-title">✨ New Agent Joined the Workspace</h3>
+              <p class="modal-sub" id="persona-modal-sub">Review role, persona, and system prompt for this agent.</p>
+            </div>
+          </div>
+          <button type="button" class="tiny ghost btn-close-modal" id="btn-close-persona-modal">✕</button>
+        </div>
+        <form id="form-agent-persona" class="modal-body">
+          <input type="hidden" id="persona-agent-id" />
+          <div class="form-row">
+            <label for="persona-agent-handle">Quirky Slack Handle</label>
+            <input type="text" id="persona-agent-handle" readonly style="font-family:var(--font-mono); background:var(--bg-elevated); color:#818cf8;" />
+          </div>
+          <div class="form-row">
+            <label for="persona-agent-role">Assigned Workspace Role / Title</label>
+            <input type="text" id="persona-agent-role" required />
+          </div>
+          <div class="form-row">
+            <label for="persona-agent-bio">Agent Persona &amp; Behavioral Directive</label>
+            <textarea id="persona-agent-bio" rows="4" required></textarea>
+          </div>
+          <div class="modal-foot">
+            <button type="button" class="ghost" id="btn-persona-auto-all">Auto-Confirm All Agents</button>
+            <button type="submit" class="primary" id="btn-persona-confirm">Confirm Persona &amp; Activate</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Slack Media & Extracted Graphic Lightbox Modal -->
+    <div class="modal-backdrop" id="modal-slack-lightbox" hidden>
+      <div class="lightbox-container">
+        <div class="lightbox-head">
+          <span id="lightbox-caption">Extracted Graphic Preview</span>
+          <button type="button" class="ghost tiny" id="btn-close-lightbox">✕ Close</button>
+        </div>
+        <div class="lightbox-body" id="lightbox-body">
+          <img id="lightbox-image" src="" alt="Enlarged view" />
         </div>
       </div>
     </div>

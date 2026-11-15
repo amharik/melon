@@ -87,7 +87,7 @@ const hub = { online: false, llm: false, kev: false, agy: false, opencodeUrl: ""
 let currentThreadId = localStorage.getItem(THREAD_KEY) || null;
 let blackboard = { ok: false, text: "", path: null, error: null };
 const THEME_KEY = "melon.theme.v1";
-let currentView = "office";
+let currentView = "sheet";
 const sheetModes = new Map();
 
 function abortError() {
@@ -931,6 +931,14 @@ function renderMarkdown(raw) {
     return id;
   });
 
+  // Preserve extracted media/images before HTML escaping
+  const mediaBlocks = [];
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
+    const id = `__MEDIA_${mediaBlocks.length}__`;
+    mediaBlocks.push({ alt: alt || "Extracted Graphic", src: src.trim() });
+    return id;
+  });
+
   // Basic HTML sanitization
   text = esc(text);
 
@@ -948,6 +956,18 @@ function renderMarkdown(raw) {
     </div>`;
   });
 
+  // Restore extracted media / images / illustrations
+  text = text.replace(/__MEDIA_(\d+)__/g, (_, idx) => {
+    const m = mediaBlocks[Number(idx)];
+    if (!m) return "";
+    const safeSrc = m.src.replace(/"/g, "&quot;");
+    const safeAlt = esc(m.alt);
+    return `<div class="slack-media-card">
+      <img class="slack-media-img" src="${safeSrc}" alt="${safeAlt}" loading="lazy" onclick="window.openSlackMediaModal('${safeSrc}', '${safeAlt}')" />
+      <div class="slack-media-caption">📷 ${safeAlt}</div>
+    </div>`;
+  });
+
   // Headings
   text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
   text = text.replace(/^## (.*$)/gim, "<h2>$1</h2>");
@@ -959,7 +979,7 @@ function renderMarkdown(raw) {
   text = text.replace(/^\&gt; \[!(DANGER|CRITICAL)\]\s*(.*$)/gim, '<blockquote class="callout-danger"><strong>⛔ $1:</strong> $2</blockquote>');
   text = text.replace(/^\&gt; (.*$)/gim, "<blockquote>$1</blockquote>");
 
-  // Tables
+  // GFM Tables
   text = text.replace(/((?:\|[^\n]+\|\n?)+)/g, (table) => {
     const rows = table.trim().split("\n").map((r) => r.trim()).filter(Boolean);
     if (rows.length < 2) return table;
@@ -971,15 +991,27 @@ function renderMarkdown(raw) {
       const cells = r.split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map((c) => `<td>${c.trim()}</td>`).join("");
       return `<tr>${cells}</tr>`;
     }).join("");
-    return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+    return `<div class="slack-table-wrap"><table class="slack-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
   });
 
-  // Bold & Italic
+  // Links [text](url)
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="slack-chat-link">$1 ↗</a>');
+
+  // Math: Block $$...$$ and Inline $...$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, '<div class="slack-math-block">$1</div>');
+  text = text.replace(/\$([^\$\n]+)\$/g, '<span class="slack-math-inline">$1</span>');
+
+  // Bold, Italic & Strikethrough
   text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
   text = text.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  text = text.replace(/~~(.*?)~~/g, "<del>$1</del>");
   text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
 
-  // Lists
+  // Lists & Task Items
+  text = text.replace(/^\s*[-*]\s+\[([ xX])\]\s+(.*$)/gim, (_, mark, val) => {
+    const checked = mark.toLowerCase() === "x" ? "checked" : "";
+    return `<li class="slack-task-item"><input type="checkbox" disabled ${checked} /> <span>${val}</span></li>`;
+  });
   text = text.replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>");
   text = text.replace(/(<li>[\s\S]*?<\/li>)/gim, "<ul>$1</ul>");
 
@@ -995,6 +1027,17 @@ function renderMarkdown(raw) {
 
   return `<div class="md-body">${text}</div>`;
 }
+
+window.openSlackMediaModal = function(src, caption) {
+  const modal = $("#modal-slack-lightbox");
+  const img = $("#lightbox-image");
+  const cap = $("#lightbox-caption");
+  if (modal && img) {
+    img.src = src;
+    if (cap) cap.textContent = caption || "Extracted Graphic Preview";
+    modal.hidden = false;
+  }
+};
 
 function renderA2UI(obj) {
   const comp = obj.component || obj.type;
@@ -1134,72 +1177,183 @@ let chatChannels = [
   { id: "code-review", title: "code-review", desc: "Code quality checks, diff analysis, and architecture patterns." },
   { id: "architecture", title: "architecture", desc: "High-level design decisions, RFCs, and API boundaries." },
   { id: "qa-testing", title: "qa-testing", desc: "Automated test suites, reproduction steps, and edge-cases." },
+  { id: "random", title: "random", desc: "Team water-cooler banter, coffee breaks, and casual chat." },
 ];
 
 const chatMessages = new Map();
 let customContacts = [];
+
+/* ------------------------------------------------- Quirky Names & Personas */
+
+const QUIRKY_NAME_POOL = [
+  "sparky", "nova", "quill", "blitz", "dex", "atlas", "sage", "echo",
+  "pixel", "byte", "neo", "cosmo", "finch", "juno", "orion", "vesper",
+  "ziggy", "rico", "tux", "cinder", "moxie", "scout", "whiz", "volt", "kairo"
+];
+
+const DEFAULT_PERSONAS = {
+  claude: {
+    role: "Staff Software Architect & Adversarial Reviewer",
+    persona: "Specializes in deep reasoning, clean system boundaries, adversarial code reviews, architectural trade-offs, and edge case detection.",
+    avatar: "🤖",
+  },
+  gemini: {
+    role: "Lead Research Scientist & Multimodal Specialist",
+    persona: "Specializes in massive context analysis, real-time documentation retrieval, cross-domain synthesis, and multimodal reasoning.",
+    avatar: "⚡",
+  },
+  chatgpt: {
+    role: "Principal Full-Stack Engineer & Prototyper",
+    persona: "Specializes in rapid prototyping, clean algorithm design, API integrations, and modular code implementation.",
+    avatar: "🧠",
+  },
+  mistral: {
+    role: "High-Velocity Systems Engineer",
+    persona: "Specializes in high-speed, concise execution, low-latency code generation, and systems programming.",
+    avatar: "🦊",
+  },
+  opencode: {
+    role: "Autonomous Terminal & Codebase Specialist",
+    persona: "Specializes in executing terminal commands, running test suites, inspecting git worktrees, and modifying files on disk.",
+    avatar: "💻",
+  },
+  agy: {
+    role: "Autonomous Subagent Orchestrator",
+    persona: "Specializes in fanning out parallel research tasks, tool execution, and strategic plan synthesis.",
+    avatar: "🚀",
+  },
+  llm: {
+    role: "Offline Edge Model",
+    persona: "Specializes in private offline decisions, low-overhead evaluations, and zero-telemetry tasks.",
+    avatar: "🔮",
+  },
+  web: {
+    role: "Web Intelligence Agent",
+    persona: "Specializes in web page context extraction, DOM inspection, and authenticated web session automation.",
+    avatar: "🌐",
+  },
+};
+
+const assignedAgentMeta = new Map();
+
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function getAgentMeta(id, rawCategory, fallbackTitle) {
+  let savedMap = {};
+  try {
+    savedMap = JSON.parse(localStorage.getItem("melon_agent_meta") || "{}");
+  } catch {}
+
+  if (!assignedAgentMeta.has(id)) {
+    if (savedMap[id]) {
+      assignedAgentMeta.set(id, savedMap[id]);
+    } else {
+      let category = (rawCategory || "web").toLowerCase();
+      if (category.includes("claude")) category = "claude";
+      else if (category.includes("gemini")) category = "gemini";
+      else if (category.includes("chatgpt") || category.includes("openai")) category = "chatgpt";
+      else if (category.includes("mistral")) category = "mistral";
+      else if (category.includes("opencode")) category = "opencode";
+      else if (category.includes("agy")) category = "agy";
+      else if (category.includes("llm")) category = "llm";
+      else category = "web";
+
+      // Fixed quirky name for built-in CLI agents, or unique from pool
+      let quirky = "";
+      if (id === "cli_opencode") quirky = "dex";
+      else if (id === "cli_agy") quirky = "atlas";
+      else if (id === "cli_llm") quirky = "sage";
+      else {
+        const usedQuirkies = new Set(Array.from(assignedAgentMeta.values()).map((m) => m.quirky));
+        quirky = QUIRKY_NAME_POOL.find((q) => !usedQuirkies.has(q));
+        if (!quirky) {
+          quirky = QUIRKY_NAME_POOL[Math.abs(hashString(id)) % QUIRKY_NAME_POOL.length];
+        }
+      }
+
+      const defaultMeta = DEFAULT_PERSONAS[category] || DEFAULT_PERSONAS.web;
+      const handle = `${quirky}-${category}`;
+      const name = `${quirky.charAt(0).toUpperCase() + quirky.slice(1)} (${category.toUpperCase()})`;
+
+      const meta = {
+        id,
+        quirky,
+        category,
+        handle,
+        name,
+        role: defaultMeta.role,
+        persona: defaultMeta.persona,
+        avatar: defaultMeta.avatar,
+        title: fallbackTitle || name,
+        confirmed: false,
+      };
+
+      assignedAgentMeta.set(id, meta);
+      savedMap[id] = meta;
+      try {
+        localStorage.setItem("melon_agent_meta", JSON.stringify(savedMap));
+      } catch {}
+    }
+  }
+
+  return assignedAgentMeta.get(id);
+}
 
 function getSlackContacts() {
   const contacts = [];
 
   for (const tab of extTabs.values()) {
     if (tab.supported === false) continue;
-    const adapter = (tab.adapter || "auto").toLowerCase();
-    let avatar = "🌐";
-    if (adapter.includes("chatgpt")) avatar = "🧠";
-    else if (adapter.includes("gemini")) avatar = "⚡";
-    else if (adapter.includes("claude")) avatar = "🤖";
-    else if (adapter.includes("mistral")) avatar = "🦊";
+    const meta = getAgentMeta(`tab_${tab.id}`, tab.adapter, tab.title);
 
     contacts.push({
-      id: `tab_${tab.id}`,
+      ...meta,
       type: "tab",
       tabId: tab.id,
       adapter: tab.adapter || "auto",
-      name: tab.title ? tab.title.slice(0, 22) : `Tab ${tab.id}`,
-      handle: adapter === "auto" ? `tab-${tab.id}` : adapter,
-      avatar,
       status: tab.attached !== false ? "online" : "idle",
       tag: "TAB",
-      desc: `Bridged Browser Tab: ${tab.url || "Authenticated session"}`,
+      desc: meta.persona,
       url: tab.url || "",
     });
   }
 
+  // Built-in CLI agents
+  const opencodeMeta = getAgentMeta("cli_opencode", "opencode", "Opencode CLI");
   contacts.push({
-    id: "cli_opencode",
+    ...opencodeMeta,
     type: "opencode",
-    name: "Opencode CLI",
-    handle: "opencode",
-    avatar: "💻",
     adapter: "opencode",
     status: hub.opencodeUrl ? "online" : "idle",
     tag: "CLI",
-    desc: `Local Opencode HTTP + SSE server at ${hub.opencodeUrl || "127.0.0.1:4096"}`,
+    desc: opencodeMeta.persona,
   });
 
+  const agyMeta = getAgentMeta("cli_agy", "agy", "Agy CLI Agent");
   contacts.push({
-    id: "cli_agy",
+    ...agyMeta,
     type: "agy",
-    name: "Agy CLI Agent",
-    handle: "agy",
-    avatar: "🚀",
     adapter: "agy",
     status: hub.agy ? "online" : "idle",
     tag: "CLI",
-    desc: "Autonomous Subagent CLI runner (stream-json)",
+    desc: agyMeta.persona,
   });
 
+  const llmMeta = getAgentMeta("cli_llm", "llm", "Local LLM");
   contacts.push({
-    id: "cli_llm",
+    ...llmMeta,
     type: "llm",
-    name: "Local LLM",
-    handle: "llm",
-    avatar: "🔮",
     adapter: "llm",
     status: hub.llm ? "online" : "idle",
     tag: "CLI",
-    desc: "OpenAI-compatible local endpoint model",
+    desc: llmMeta.persona,
   });
 
   for (const custom of customContacts) {
@@ -1213,13 +1367,17 @@ function renderSlackChat() {
   renderSlackNav();
   renderSlackHeader();
   renderSlackMessages();
+  checkUnconfirmedAgentPersonas();
 }
 
 function renderSlackNav() {
   const dmList = $("#slack-dm-list");
+  const appsList = $("#slack-apps-list");
   const countEl = $("#slack-active-agent-count");
   if (!dmList) return;
+
   dmList.replaceChildren();
+  if (appsList) appsList.replaceChildren();
 
   const contacts = getSlackContacts();
   const onlineCount = contacts.filter((c) => c.status === "online").length;
@@ -1243,12 +1401,41 @@ function renderSlackNav() {
       renderSlackProfilePane(contact);
     });
 
-    dmList.appendChild(li);
+    if (contact.tag === "CLI" && appsList) {
+      appsList.appendChild(li);
+    } else {
+      dmList.appendChild(li);
+    }
   }
 
   document.querySelectorAll("#slack-channel-list .slack-nav-item").forEach((item) => {
     item.classList.toggle("active", currentChatTarget.type === "channel" && currentChatTarget.id === item.dataset.id);
   });
+}
+
+function checkUnconfirmedAgentPersonas() {
+  const contacts = getSlackContacts();
+  const unconfirmed = contacts.find((c) => c.confirmed === false);
+  if (!unconfirmed) return;
+
+  const modal = $("#modal-agent-persona");
+  if (!modal || !modal.hidden) return;
+
+  const avatarEl = $("#persona-preview-avatar");
+  const subEl = $("#persona-modal-sub");
+  const idInput = $("#persona-agent-id");
+  const handleInput = $("#persona-agent-handle");
+  const roleInput = $("#persona-agent-role");
+  const bioInput = $("#persona-agent-bio");
+
+  if (avatarEl) avatarEl.textContent = unconfirmed.avatar;
+  if (subEl) subEl.textContent = `Configure role and persona for @${unconfirmed.handle} (${unconfirmed.tag})`;
+  if (idInput) idInput.value = unconfirmed.id;
+  if (handleInput) handleInput.value = `@${unconfirmed.handle}`;
+  if (roleInput) roleInput.value = unconfirmed.role;
+  if (bioInput) bioInput.value = unconfirmed.persona;
+
+  modal.hidden = false;
 }
 
 function renderSlackHeader() {
@@ -1371,34 +1558,65 @@ function renderSlackProfilePane(agent) {
   body.innerHTML = `
     <div class="profile-avatar-large">${agent.avatar}</div>
     <div class="profile-field-group">
-      <span class="profile-field-label">Agent Handle</span>
-      <span class="profile-field-value" style="font-weight:700; color:var(--accent-indigo);">@${esc(agent.handle)}</span>
+      <span class="profile-field-label">Display Name</span>
+      <span class="profile-field-value" style="font-weight:700; color:var(--text-main); font-size:14px;">${esc(agent.name)}</span>
+    </div>
+    <div class="profile-field-group">
+      <span class="profile-field-label">Slack Handle</span>
+      <span class="profile-field-value" style="font-weight:700; color:#818cf8; font-family:var(--font-mono);">@${esc(agent.handle)}</span>
+    </div>
+    <div class="profile-field-group">
+      <span class="profile-field-label">Role / Title</span>
+      <span class="profile-field-value">${esc(agent.role || "Specialist Agent")}</span>
+    </div>
+    <div class="profile-field-group">
+      <span class="profile-field-label">Persona Bio & Directive</span>
+      <span class="profile-field-value" style="font-size:11.5px; line-height:1.4; color:var(--text-muted);">${esc(agent.persona || agent.desc)}</span>
     </div>
     <div class="profile-field-group">
       <span class="profile-field-label">Type & Source</span>
       <span class="profile-field-value">${esc(agent.tag)} (${esc(agent.type)})</span>
     </div>
     <div class="profile-field-group">
-      <span class="profile-field-label">Adapter / Target</span>
+      <span class="profile-field-label">Adapter / Model</span>
       <span class="profile-field-value"><code>${esc(agent.adapter)}</code></span>
     </div>
     ${agent.url ? `
     <div class="profile-field-group">
-      <span class="profile-field-label">Browser Session</span>
-      <span class="profile-field-value"><a href="${esc(agent.url)}" target="_blank" style="color:var(--accent-blue); text-decoration:none;">Open in Chrome ↗</a></span>
+      <span class="profile-field-label">Live Tab Session</span>
+      <span class="profile-field-value"><a href="${esc(agent.url)}" target="_blank" class="slack-chat-link">Open in Chrome ↗</a></span>
     </div>` : ""}
     <div class="profile-field-group">
-      <span class="profile-field-label">Status</span>
+      <span class="profile-field-label">Presence</span>
       <span class="profile-field-value"><span class="presence-dot ${agent.status}"></span> ${esc(agent.status.toUpperCase())}</span>
     </div>
-    <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-      <button type="button" class="primary tiny btn-profile-dm">💬 Open Direct Message</button>
+    <div style="margin-top:14px; display:flex; flex-direction:column; gap:8px;">
+      <button type="button" class="primary tiny btn-profile-dm">💬 Direct Message</button>
+      <button type="button" class="ghost tiny btn-profile-edit-persona">✏️ Edit Persona</button>
       <button type="button" class="ghost tiny btn-profile-a2ui">⛶ Open A2UI Sheet</button>
     </div>
   `;
 
   body.querySelector(".btn-profile-dm")?.addEventListener("click", () => {
     selectSlackTarget("dm", agent.id);
+  });
+  body.querySelector(".btn-profile-edit-persona")?.addEventListener("click", () => {
+    const modal = $("#modal-agent-persona");
+    const avatarEl = $("#persona-preview-avatar");
+    const subEl = $("#persona-modal-sub");
+    const idInput = $("#persona-agent-id");
+    const handleInput = $("#persona-agent-handle");
+    const roleInput = $("#persona-agent-role");
+    const bioInput = $("#persona-agent-bio");
+
+    if (avatarEl) avatarEl.textContent = agent.avatar;
+    if (subEl) subEl.textContent = `Customize persona for @${agent.handle}`;
+    if (idInput) idInput.value = agent.id;
+    if (handleInput) handleInput.value = `@${agent.handle}`;
+    if (roleInput) roleInput.value = agent.role;
+    if (bioInput) bioInput.value = agent.persona;
+
+    if (modal) modal.hidden = false;
   });
   body.querySelector(".btn-profile-a2ui")?.addEventListener("click", () => {
     const node = nodes.find((n) => {
@@ -1447,7 +1665,12 @@ async function sendSlackMessage() {
     if (mentionMatch) {
       const handle = mentionMatch[1].toLowerCase();
       promptText = mentionMatch[2] || raw;
-      agentTarget = contacts.find((c) => c.handle.toLowerCase() === handle || c.adapter.toLowerCase().includes(handle));
+      agentTarget = contacts.find((c) =>
+        c.handle.toLowerCase() === handle ||
+        c.quirky?.toLowerCase() === handle ||
+        c.category?.toLowerCase() === handle ||
+        c.adapter.toLowerCase().includes(handle)
+      );
     }
     if (!agentTarget && contacts.length > 0) {
       agentTarget = contacts[0];
@@ -1486,6 +1709,12 @@ async function sendSlackMessage() {
   list.push(agentMsg);
   renderSlackMessages();
 
+  // Inject persona directive into model prompt if defined
+  let effectivePrompt = promptText;
+  if (agentTarget.persona) {
+    effectivePrompt = `[Persona directive: You are acting as ${agentTarget.role}. ${agentTarget.persona}]\n\n${promptText}`;
+  }
+
   const runId = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   slackChatRunners.set(runId, {
     onChunk: (chunkText) => {
@@ -1518,7 +1747,7 @@ async function sendSlackMessage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         runId,
-        prompt: promptText,
+        prompt: effectivePrompt,
         target: runTarget,
       }),
     });
@@ -1535,10 +1764,288 @@ async function sendSlackMessage() {
   }
 }
 
+function setupMentionAutocomplete() {
+  const input = $("#slack-input");
+  const popover = $("#slack-mention-popover");
+  if (!input || !popover) return;
+
+  let activeIndex = 0;
+  let currentMatches = [];
+
+  const closePopover = () => {
+    popover.hidden = true;
+    currentMatches = [];
+    activeIndex = 0;
+  };
+
+  const getMentionQuery = () => {
+    const val = input.value;
+    const cursor = input.selectionStart;
+    const beforeCursor = val.slice(0, cursor);
+    const match = beforeCursor.match(/@([a-zA-Z0-9_-]*)$/);
+    if (!match) return null;
+    return {
+      query: match[1].toLowerCase(),
+      startIndex: match.index,
+      endIndex: cursor,
+    };
+  };
+
+  const renderPopover = (matches) => {
+    currentMatches = matches;
+    popover.innerHTML = "";
+    if (!matches.length) {
+      closePopover();
+      return;
+    }
+
+    matches.forEach((agent, idx) => {
+      const item = document.createElement("div");
+      item.className = `slack-autocomplete-item ${idx === activeIndex ? "active" : ""}`;
+      item.dataset.handle = agent.handle;
+
+      item.innerHTML = `
+        <span class="slack-ac-avatar">${agent.avatar}</span>
+        <div class="slack-ac-info">
+          <strong class="slack-ac-handle">@${esc(agent.handle)}</strong>
+          <span class="slack-ac-title">${esc(agent.role || agent.name)}</span>
+        </div>
+        <span class="slack-ac-badge">${esc(agent.tag)}</span>
+      `;
+
+      item.addEventListener("click", () => {
+        applySelection(agent.handle);
+      });
+
+      popover.appendChild(item);
+    });
+
+    popover.hidden = false;
+  };
+
+  const applySelection = (handle) => {
+    const info = getMentionQuery();
+    if (!info) return;
+    const val = input.value;
+    const before = val.slice(0, info.startIndex);
+    const after = val.slice(info.endIndex);
+    input.value = `${before}@${handle} ${after}`;
+    const newPos = info.startIndex + handle.length + 2;
+    input.selectionStart = newPos;
+    input.selectionEnd = newPos;
+    input.focus();
+    closePopover();
+  };
+
+  input.addEventListener("input", () => {
+    const info = getMentionQuery();
+    if (!info) {
+      closePopover();
+      return;
+    }
+    const contacts = getSlackContacts();
+    const query = info.query;
+    const filtered = contacts.filter((c) =>
+      c.handle.toLowerCase().includes(query) ||
+      c.quirky?.toLowerCase().includes(query) ||
+      c.category?.toLowerCase().includes(query) ||
+      c.name.toLowerCase().includes(query)
+    );
+    activeIndex = 0;
+    renderPopover(filtered);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (popover.hidden || !currentMatches.length) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIndex = (activeIndex + 1) % currentMatches.length;
+      updateActiveHighlight();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIndex = (activeIndex - 1 + currentMatches.length) % currentMatches.length;
+      updateActiveHighlight();
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      if (currentMatches[activeIndex]) {
+        e.preventDefault();
+        applySelection(currentMatches[activeIndex].handle);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closePopover();
+    }
+  });
+
+  const updateActiveHighlight = () => {
+    const items = popover.querySelectorAll(".slack-autocomplete-item");
+    items.forEach((item, idx) => {
+      item.classList.toggle("active", idx === activeIndex);
+      if (idx === activeIndex) item.scrollIntoView({ block: "nearest" });
+    });
+  };
+
+  document.addEventListener("click", (e) => {
+    if (!popover.contains(e.target) && e.target !== input) {
+      closePopover();
+    }
+  });
+}
+
+function setupSlackFormatBar() {
+  const input = $("#slack-input");
+  if (!input) return;
+
+  const wrapSelection = (prefix, suffix, placeholder = "text") => {
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const val = input.value;
+    const sel = val.slice(start, end) || placeholder;
+    const replacement = `${prefix}${sel}${suffix}`;
+    input.value = val.slice(0, start) + replacement + val.slice(end);
+    input.selectionStart = start + prefix.length;
+    input.selectionEnd = start + prefix.length + sel.length;
+    input.focus();
+  };
+
+  document.querySelectorAll(".slack-fmt-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const fmt = btn.dataset.fmt;
+      if (fmt === "bold") wrapSelection("**", "**", "bold text");
+      else if (fmt === "italic") wrapSelection("*", "*", "italic text");
+      else if (fmt === "strike") wrapSelection("~~", "~~", "strikethrough");
+      else if (fmt === "code") wrapSelection("`", "`", "code");
+      else if (fmt === "codeblock") wrapSelection("```\n", "\n```", "code block");
+      else if (fmt === "link") wrapSelection("[", "](https://example.com)", "link title");
+      else if (fmt === "bullet") wrapSelection("- ", "", "bullet item");
+      else if (fmt === "numlist") wrapSelection("1. ", "", "list item");
+      else if (fmt === "quote") wrapSelection("> ", "", "quote");
+    });
+  });
+}
+
+function setupAgentPersonaModal() {
+  const modal = $("#modal-agent-persona");
+  const form = $("#form-agent-persona");
+  const btnClose = $("#btn-close-persona-modal");
+  const btnAutoAll = $("#btn-persona-auto-all");
+
+  const close = () => {
+    if (modal) modal.hidden = true;
+  };
+
+  btnClose?.addEventListener("click", () => {
+    const id = $("#persona-agent-id")?.value;
+    if (id && assignedAgentMeta.has(id)) {
+      assignedAgentMeta.get(id).confirmed = true;
+      persistAgentMeta();
+    }
+    close();
+  });
+
+  btnAutoAll?.addEventListener("click", () => {
+    for (const meta of assignedAgentMeta.values()) {
+      meta.confirmed = true;
+    }
+    persistAgentMeta();
+    close();
+    toast("All agents confirmed with standard personas!");
+    renderSlackNav();
+  });
+
+  form?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = $("#persona-agent-id")?.value;
+    const role = $("#persona-agent-role")?.value?.trim();
+    const bio = $("#persona-agent-bio")?.value?.trim();
+
+    if (id && assignedAgentMeta.has(id)) {
+      const meta = assignedAgentMeta.get(id);
+      if (role) meta.role = role;
+      if (bio) meta.persona = bio;
+      meta.confirmed = true;
+      persistAgentMeta();
+      toast(`Confirmed persona for @${meta.handle}!`);
+      renderSlackNav();
+      if (currentChatTarget.id === id) renderSlackProfilePane(meta);
+    }
+    close();
+    setTimeout(() => checkUnconfirmedAgentPersonas(), 300);
+  });
+}
+
+function persistAgentMeta() {
+  const obj = {};
+  for (const [k, v] of assignedAgentMeta.entries()) {
+    obj[k] = v;
+  }
+  try {
+    localStorage.setItem("melon_agent_meta", JSON.stringify(obj));
+  } catch {}
+}
+
+function setupSlackLightbox() {
+  const modal = $("#modal-slack-lightbox");
+  const btnClose = $("#btn-close-lightbox");
+  if (!modal) return;
+
+  const close = () => {
+    modal.hidden = true;
+  };
+
+  btnClose?.addEventListener("click", close);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
+}
+
+function setupSlackComposerButtons() {
+  $("#btn-composer-mention")?.addEventListener("click", () => {
+    const input = $("#slack-input");
+    if (!input) return;
+    input.value += "@";
+    input.focus();
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  $("#btn-composer-code")?.addEventListener("click", () => {
+    const input = $("#slack-input");
+    if (!input) return;
+    input.value += "```\n\n```";
+    input.focus();
+  });
+
+  $("#btn-composer-task")?.addEventListener("click", () => {
+    const input = $("#slack-input");
+    if (!input) return;
+    input.value = `⚡ [Autonomous Task] ${input.value}`;
+    input.focus();
+  });
+
+  $("#btn-quick-switcher")?.addEventListener("click", () => {
+    const target = prompt("Quick Switch: Jump to channel or agent (e.g. #general-war-room or @sparky-claude):");
+    if (!target) return;
+    const clean = target.replace(/^[@#]/, "").toLowerCase();
+    const ch = chatChannels.find((c) => c.id === clean);
+    if (ch) {
+      selectSlackTarget("channel", ch.id);
+      return;
+    }
+    const contact = getSlackContacts().find((c) => c.handle.toLowerCase() === clean || c.quirky === clean);
+    if (contact) {
+      selectSlackTarget("dm", contact.id);
+      return;
+    }
+    toast(`Target "${target}" not found`);
+  });
+}
+
 function setupSlackChat() {
   $("#btn-slack-send")?.addEventListener("click", sendSlackMessage);
   $("#slack-input")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      const popover = $("#slack-mention-popover");
+      if (popover && !popover.hidden) return; // let autocomplete handle Enter
       e.preventDefault();
       sendSlackMessage();
     }
@@ -1617,6 +2124,11 @@ function setupSlackChat() {
   });
 
   setupAddContactModal();
+  setupMentionAutocomplete();
+  setupSlackFormatBar();
+  setupAgentPersonaModal();
+  setupSlackLightbox();
+  setupSlackComposerButtons();
 }
 
 function setupAddContactModal() {
@@ -4161,6 +4673,10 @@ function updateExtTabs(tabs) {
   for (const tab of tabs) extTabs.set(String(tab.id), tab);
   renderExtTabs();
   if (typeof updateOnboardingView === "function") updateOnboardingView();
+  if (typeof renderSlackNav === "function") {
+    renderSlackNav();
+    checkUnconfirmedAgentPersonas();
+  }
   if (selectedId && !document.activeElement?.closest?.("#inspect-fields")) renderInspector();
 }
 
@@ -5137,7 +5653,7 @@ async function boot() {
   setupUi();
   setupBus();
   connectHub();
-  switchView("office");
+  switchView("sheet");
   updateStatus();
   log("info", "melon booting");
 
