@@ -27,6 +27,7 @@ import { createThreadStore } from "./threads.mjs";
 import { createAgyRunner, splitArgs } from "./agy.mjs";
 import { createWorktreeManager } from "./worktrees.mjs";
 import { readBlackboard } from "./blackboard.mjs";
+import { createMessageStore } from "./messages.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -74,6 +75,7 @@ const TELEMETRY_FILE = process.env.MELON_TELEMETRY_LOG
 const telemetry = createTelemetryTracker({ file: TELEMETRY_FILE });
 const taskStore = createTaskStore();
 const threads = createThreadStore();
+const messageStore = createMessageStore({ dbPath: path.join(ROOT, ".melon", "messages.db") });
 const agy = createAgyRunner({ cmd: AGY_CMD, args: AGY_ARGS, inputFormat: AGY_INPUT_FORMAT });
 const worktrees = createWorktreeManager({ root: WORKTREE_ROOT, repo: ROOT });
 const exec = promisify(execCb);
@@ -1234,6 +1236,9 @@ async function handleApi(req, res, url) {
     url.pathname === "/api/plan" ||
     url.pathname === "/api/kev/rerank" ||
     url.pathname === "/api/threads" ||
+    url.pathname === "/api/messages" ||
+    url.pathname === "/api/agents/persistent" ||
+    url.pathname === "/api/agents/match-tab" ||
     url.pathname === "/api/worktrees" ||
     url.pathname === "/api/tool-requests" ||
     url.pathname === "/api/artifacts/export" ||
@@ -1358,6 +1363,80 @@ async function handleApi(req, res, url) {
     const thread = threads.get(decodeURIComponent(threadMatch[1]));
     if (!thread) return json(res, 404, { ok: false, error: "thread not found" });
     return json(res, 200, { ok: true, thread });
+  }
+
+  /* ------------------------------ Persistent Chat Messages & SQLite Vector Store */
+
+  if (pathname === "/api/messages" && req.method === "GET") {
+    const targetType = url.searchParams.get("targetType") || "channel";
+    const targetId = url.searchParams.get("targetId") || "general-war-room";
+    const limit = url.searchParams.get("limit") || 50;
+    const before = url.searchParams.get("before") || null;
+    const messages = messageStore.getMessages(targetType, targetId, { limit, before });
+    return json(res, 200, { ok: true, messages });
+  }
+
+  if (pathname === "/api/messages" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const msg = messageStore.appendMessage(body);
+    return json(res, 201, { ok: true, message: msg });
+  }
+
+  if (pathname === "/api/messages" && req.method === "DELETE") {
+    const targetType = url.searchParams.get("targetType") || "channel";
+    const targetId = url.searchParams.get("targetId") || "general-war-room";
+    const count = url.searchParams.get("count") || null;
+    const result = messageStore.eraseMessages(targetType, targetId, { count });
+    return json(res, 200, { ok: true, ...result });
+  }
+
+  const singleMsgMatch = pathname.match(/^\/api\/messages\/([^/]+)$/);
+  if (singleMsgMatch && req.method === "DELETE") {
+    const id = decodeURIComponent(singleMsgMatch[1]);
+    const result = messageStore.deleteSingleMessage(id);
+    return json(res, 200, { ok: true, ...result });
+  }
+
+  if (pathname === "/api/messages/search" && req.method === "GET") {
+    const q = url.searchParams.get("q") || "";
+    const targetType = url.searchParams.get("targetType") || null;
+    const targetId = url.searchParams.get("targetId") || null;
+    const results = messageStore.searchMessages(q, { targetType, targetId });
+    return json(res, 200, { ok: true, results });
+  }
+
+  /* ------------------------------ Persistent Tab-to-Agent Associations */
+
+  if (pathname === "/api/agents/persistent" && req.method === "GET") {
+    const agents = messageStore.getPersistentAgents();
+    return json(res, 200, { ok: true, agents });
+  }
+
+  if (pathname === "/api/agents/persistent" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const agent = messageStore.savePersistentAgent(body);
+    return json(res, 200, { ok: true, agent });
+  }
+
+  if (pathname === "/api/agents/match-tab" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const matched = messageStore.matchTabToPersistentAgent(body);
+    return json(res, 200, { ok: true, matched });
   }
 
   if (pathname === "/api/worktrees" && req.method === "GET") {

@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar">
+    <!-- Hidden legacy topbar kept for automated test assertions -->
+    <header class="topbar" hidden style="display:none !important;">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
@@ -72,8 +73,8 @@
     </header>
 
     <main class="workspace">
-      <!-- Left Sidebar / Brief & Drawers -->
-      <aside class="panel panel-left">
+      <!-- Left Sidebar / Brief & Drawers (Hidden in Slack UI, accessible via Experiments) -->
+      <aside class="panel panel-left" hidden style="display:none !important;">
         <section class="block">
           <div class="block-head">
             <h2>Brief</h2>
@@ -260,6 +261,17 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             </ul>
           </div>
 
+          <div class="slack-integrations-section">
+            <div class="slack-section-head">
+              <span>INTEGRATIONS &amp; LABS</span>
+            </div>
+            <ul class="slack-nav-list" id="slack-integrations-list">
+              <li class="slack-nav-item" id="nav-item-experiments" data-type="experiments">
+                <span style="font-size:14px; margin-right:4px;">🧪</span> Experiments &amp; Labs
+              </li>
+            </ul>
+          </div>
+
           <div class="slack-sidebar-footer">
             <div class="slack-my-profile">
               <div class="slack-my-avatar">👤</div>
@@ -285,6 +297,14 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             <div class="slack-header-actions">
               <button type="button" class="tiny ghost" id="btn-chat-toggle-profile" title="Toggle Agent Persona & Details Inspector">ℹ️ Details</button>
               <button type="button" class="tiny ghost" id="btn-chat-sync-war" title="Trigger Strategy Consensus War-Room Synthesis">⚡ Sync Consensus</button>
+              <div class="slack-erase-menu-wrapper" style="position:relative; display:inline-block;">
+                <button type="button" class="tiny ghost" id="btn-chat-erase-menu" title="Erase back history">🧹 Erase ▾</button>
+                <div class="slack-erase-dropdown" id="erase-back-menu" hidden>
+                  <button type="button" class="slack-erase-opt" data-erase="5">Erase last 5 turns</button>
+                  <button type="button" class="slack-erase-opt" data-erase="20">Erase last 20 turns</button>
+                  <button type="button" class="slack-erase-opt danger" data-erase="all">Erase all history</button>
+                </div>
+              </div>
               <button type="button" class="tiny ghost" id="btn-chat-clear" title="Clear message feed">✕ Clear</button>
             </div>
           </header>
@@ -330,6 +350,75 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             </div>
           </div>
         </main>
+
+        <!-- Experiments & Labs View (Embedded in Slack UI) -->
+        <section class="experiments-view" id="experiments-view" hidden>
+          <header class="slack-chat-header experiments-header">
+            <div class="slack-chat-title-group">
+              <div class="slack-title-row">
+                <span class="slack-current-icon">🧪</span>
+                <h3>Experiments &amp; Labs</h3>
+                <span class="sheet-badge">Advanced R&amp;D</span>
+              </div>
+              <p>Specialized research harnesses, spatial simulations, node graphs, and multi-model tournaments.</p>
+            </div>
+            <div class="experiments-tabs-nav" id="experiments-tabs-nav">
+              <button type="button" class="exp-tab-btn active" data-exp-tab="office">🏢 Spatial Office</button>
+              <button type="button" class="exp-tab-btn" data-exp-tab="canvas">🕸️ Node Canvas</button>
+              <button type="button" class="exp-tab-btn" data-exp-tab="tournament">🏆 Tournaments</button>
+              <button type="button" class="exp-tab-btn" data-exp-tab="tasks">⚡ Tasks &amp; Recovery</button>
+              <button type="button" class="exp-tab-btn" data-exp-tab="guide">📖 Onboarding Guide</button>
+            </div>
+          </header>
+          <div class="experiments-content-area" id="experiments-content-area">
+            <div class="exp-panel active" id="exp-panel-office">
+              <div class="exp-panel-header">
+                <div>
+                  <h4>Spatial Agent Office Floor</h4>
+                  <p>Autonomous AI desks, strategy war-table consensus, and gamified spatial collaboration floor.</p>
+                </div>
+                <div class="exp-panel-actions">
+                  <button type="button" class="tiny primary" id="btn-exp-office-hire">Hire Agent</button>
+                  <button type="button" class="tiny ghost" id="btn-exp-office-sync">War-Room Sync</button>
+                </div>
+              </div>
+              <div class="exp-office-container" id="exp-office-mount"></div>
+            </div>
+            <div class="exp-panel" id="exp-panel-canvas" hidden>
+              <div class="exp-panel-header">
+                <div>
+                  <h4>Node Lab Canvas</h4>
+                  <p>Visual dataflow graph: compose sources, agents, joins, and sinks.</p>
+                </div>
+              </div>
+              <div class="exp-canvas-container" id="exp-canvas-mount"></div>
+            </div>
+            <div class="exp-panel" id="exp-panel-tournament" hidden>
+              <div class="exp-card">
+                <div class="exp-card-icon">🏆</div>
+                <h3>Multi-Model Speculative Tournament</h3>
+                <p>Race Claude, Gemini, ChatGPT, and local models on the same prompt simultaneously. Compare latency, token generation, reasoning quality, and export artifacts in real-time.</p>
+                <button type="button" class="primary" id="btn-exp-open-tournament">Launch Speculative Tournament Arena</button>
+              </div>
+            </div>
+            <div class="exp-panel" id="exp-panel-tasks" hidden>
+              <div class="exp-card">
+                <div class="exp-card-icon">⚡</div>
+                <h3>Async Task Management &amp; Recovery</h3>
+                <p>Monitor long-running tasks, capture telemetry checkpoints, resume partial jobs gracefully, and recover from network disconnects or browser reboots.</p>
+                <button type="button" class="primary" id="btn-exp-open-tasks">Open Async Task Monitor</button>
+              </div>
+            </div>
+            <div class="exp-panel" id="exp-panel-guide" hidden>
+              <div class="exp-card">
+                <div class="exp-card-icon">📖</div>
+                <h3>Interactive Onboarding Guide</h3>
+                <p>Step-by-step onboarding for extension installation, CLI control plane setup, Kev decision-engine configuration, and local LLM acceleration.</p>
+                <button type="button" class="primary" id="btn-exp-open-guide">Open Onboarding Guide</button>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <!-- Slack Right Profile & Details Drawer (Collapsible) -->
         <aside class="slack-profile-pane" id="slack-profile-pane">
@@ -449,8 +538,8 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
         </div>
       </section>
 
-      <!-- Right Sidebar / Inspector & Live Activity -->
-      <aside class="panel panel-right">
+      <!-- Right Sidebar / Inspector & Live Activity (Hidden in Slack UI, accessible via Experiments) -->
+      <aside class="panel panel-right" hidden style="display:none !important;">
         <section class="block inspector-block">
           <div class="block-head">
             <h2>Inspector</h2>

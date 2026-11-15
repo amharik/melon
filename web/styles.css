@@ -491,10 +491,13 @@ select {
 /* -------------------------------------------------------------- Workspace */
 
 .workspace {
-  display: grid;
-  grid-template-columns: 290px minmax(0, 1fr) 320px;
-  height: calc(100vh - 56px);
+  display: flex !important;
+  width: 100vw;
+  height: 100vh;
   min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .panel {
@@ -970,7 +973,8 @@ details.drawer .drawer-content {
 
 .sheet-view.slack-chat-view {
   overflow: hidden;
-  height: calc(100vh - 56px);
+  height: 100vh;
+  width: 100%;
   padding: 0;
   display: flex;
   flex-direction: row;
@@ -3361,4 +3365,267 @@ details.drawer .drawer-content {
   .workspace { display: block; }
   .panel-left { border-right: 0; }
   .stage-wrap { height: 60vh; }
+}
+
+/* ------------------------------------------------------------- Erase Dropdown Menu */
+
+.slack-erase-menu-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.slack-erase-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  min-width: 170px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slack-erase-dropdown[hidden] {
+  display: none !important;
+}
+
+.slack-erase-opt {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  width: 100%;
+}
+
+.slack-erase-opt:hover {
+  background: var(--bg-hover);
+}
+
+.slack-erase-opt.danger {
+  color: #ef4444;
+}
+
+.slack-erase-opt.danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* ------------------------------------------------------------- Experiments & Labs Embedded View */
+
+.experiments-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  background: var(--canvas-bg);
+  overflow: hidden;
+}
+
+.experiments-view[hidden] {
+  display: none !important;
+}
+
+.experiments-header {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 20px;
+  background: var(--bg-surface);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.experiments-tabs-nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.exp-tab-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.exp-tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.exp-tab-btn.active {
+  background: var(--accent-primary, #6366f1);
+  color: #fff;
+  border-color: transparent;
+}
+
+.experiments-content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.exp-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.exp-panel[hidden] {
+  display: none !important;
+}
+
+.exp-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-panel-header h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--text-primary);
+}
+
+.exp-panel-header p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.exp-panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.exp-card {
+  max-width: 600px;
+  margin: 40px auto;
+  text-align: center;
+  padding: 36px 28px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.exp-card-icon {
+  font-size: 44px;
+  margin-bottom: 14px;
+}
+
+.exp-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+  color: var(--text-primary);
+}
+
+.exp-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 24px 0;
+}
+
+/* ------------------------------------------------------------- Persistent URLs in Agent Profile */
+
+.profile-urls-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.profile-urls-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.profile-urls-head label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.profile-urls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-url-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.profile-url-text {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 190px;
+}
+
+.profile-url-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.profile-url-remove:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.profile-url-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.profile-url-add-row input {
+  flex: 1;
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
 }

@@ -1235,6 +1235,51 @@ const DEFAULT_PERSONAS = {
 };
 
 const assignedAgentMeta = new Map();
+const persistentAgentsMap = new Map();
+
+async function loadPersistentAgents() {
+  try {
+    const res = await fetch("/api/agents/persistent");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.agents)) {
+        for (const a of data.agents) {
+          persistentAgentsMap.set(a.handle, a);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to load persistent agents:", err);
+  }
+}
+
+async function savePersistentAgentToServer(agent) {
+  if (!agent || !agent.handle) return;
+  try {
+    const res = await fetch("/api/agents/persistent", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        handle: agent.handle,
+        quirky: agent.quirky,
+        category: agent.category,
+        role: agent.role,
+        persona: agent.persona,
+        avatar: agent.avatar,
+        urls: agent.urls || (agent.url ? [agent.url] : []),
+        tabId: agent.tabId,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok && data.agent) {
+        persistentAgentsMap.set(data.agent.handle, data.agent);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to persist agent to server:", err);
+  }
+}
 
 function hashString(str) {
   let hash = 0;
@@ -1245,7 +1290,7 @@ function hashString(str) {
   return hash;
 }
 
-function getAgentMeta(id, rawCategory, fallbackTitle) {
+function getAgentMeta(id, rawCategory, fallbackTitle, tabUrl) {
   let savedMap = {};
   try {
     savedMap = JSON.parse(localStorage.getItem("melon_agent_meta") || "{}");
@@ -1265,22 +1310,57 @@ function getAgentMeta(id, rawCategory, fallbackTitle) {
       else if (category.includes("llm")) category = "llm";
       else category = "web";
 
-      // Fixed quirky name for built-in CLI agents, or unique from pool
-      let quirky = "";
-      if (id === "cli_opencode") quirky = "dex";
-      else if (id === "cli_agy") quirky = "atlas";
-      else if (id === "cli_llm") quirky = "sage";
-      else {
-        const usedQuirkies = new Set(Array.from(assignedAgentMeta.values()).map((m) => m.quirky));
-        quirky = QUIRKY_NAME_POOL.find((q) => !usedQuirkies.has(q));
-        if (!quirky) {
-          quirky = QUIRKY_NAME_POOL[Math.abs(hashString(id)) % QUIRKY_NAME_POOL.length];
-        }
+      // 1. Check if an existing persistent agent matches URL or category across reboots
+      let matchedPersistent = null;
+      if (tabUrl) {
+        matchedPersistent = Array.from(persistentAgentsMap.values()).find((a) =>
+          (a.urls || []).some((u) => u === tabUrl || tabUrl.startsWith(u))
+        );
+      }
+      if (!matchedPersistent && rawCategory) {
+        matchedPersistent = Array.from(persistentAgentsMap.values()).find((a) =>
+          a.category === category
+        );
       }
 
-      const defaultMeta = DEFAULT_PERSONAS[category] || DEFAULT_PERSONAS.web;
-      const handle = `${quirky}-${category}`;
-      const name = `${quirky.charAt(0).toUpperCase() + quirky.slice(1)} (${category.toUpperCase()})`;
+      let quirky = "";
+      let handle = "";
+      let name = "";
+      let role = "";
+      let persona = "";
+      let avatar = "";
+      let urls = tabUrl ? [tabUrl] : [];
+
+      if (matchedPersistent) {
+        quirky = matchedPersistent.quirky;
+        category = matchedPersistent.category;
+        handle = matchedPersistent.handle;
+        name = `${quirky.charAt(0).toUpperCase() + quirky.slice(1)} (${category.toUpperCase()})`;
+        role = matchedPersistent.role;
+        persona = matchedPersistent.persona;
+        avatar = matchedPersistent.avatar;
+        urls = matchedPersistent.urls || (tabUrl ? [tabUrl] : []);
+        if (tabUrl && !urls.includes(tabUrl)) urls.push(tabUrl);
+      } else {
+        // Fixed quirky name for built-in CLI agents, or unique from pool
+        if (id === "cli_opencode") quirky = "dex";
+        else if (id === "cli_agy") quirky = "atlas";
+        else if (id === "cli_llm") quirky = "sage";
+        else {
+          const usedQuirkies = new Set(Array.from(assignedAgentMeta.values()).map((m) => m.quirky));
+          quirky = QUIRKY_NAME_POOL.find((q) => !usedQuirkies.has(q));
+          if (!quirky) {
+            quirky = QUIRKY_NAME_POOL[Math.abs(hashString(id)) % QUIRKY_NAME_POOL.length];
+          }
+        }
+
+        const defaultMeta = DEFAULT_PERSONAS[category] || DEFAULT_PERSONAS.web;
+        handle = `${quirky}-${category}`;
+        name = `${quirky.charAt(0).toUpperCase() + quirky.slice(1)} (${category.toUpperCase()})`;
+        role = defaultMeta.role;
+        persona = defaultMeta.persona;
+        avatar = defaultMeta.avatar;
+      }
 
       const meta = {
         id,
@@ -1288,11 +1368,12 @@ function getAgentMeta(id, rawCategory, fallbackTitle) {
         category,
         handle,
         name,
-        role: defaultMeta.role,
-        persona: defaultMeta.persona,
-        avatar: defaultMeta.avatar,
+        role,
+        persona,
+        avatar,
         title: fallbackTitle || name,
-        confirmed: false,
+        confirmed: Boolean(matchedPersistent),
+        urls,
       };
 
       assignedAgentMeta.set(id, meta);
@@ -1300,6 +1381,8 @@ function getAgentMeta(id, rawCategory, fallbackTitle) {
       try {
         localStorage.setItem("melon_agent_meta", JSON.stringify(savedMap));
       } catch {}
+
+      savePersistentAgentToServer(meta);
     }
   }
 
@@ -1311,7 +1394,7 @@ function getSlackContacts() {
 
   for (const tab of extTabs.values()) {
     if (tab.supported === false) continue;
-    const meta = getAgentMeta(`tab_${tab.id}`, tab.adapter, tab.title);
+    const meta = getAgentMeta(`tab_${tab.id}`, tab.adapter, tab.title, tab.url);
 
     contacts.push({
       ...meta,
@@ -1322,6 +1405,7 @@ function getSlackContacts() {
       tag: "TAB",
       desc: meta.persona,
       url: tab.url || "",
+      urls: meta.urls || (tab.url ? [tab.url] : []),
     });
   }
 
@@ -1411,6 +1495,11 @@ function renderSlackNav() {
   document.querySelectorAll("#slack-channel-list .slack-nav-item").forEach((item) => {
     item.classList.toggle("active", currentChatTarget.type === "channel" && currentChatTarget.id === item.dataset.id);
   });
+
+  const expItem = $("#nav-item-experiments");
+  if (expItem) {
+    expItem.classList.toggle("active", currentChatTarget.type === "experiments");
+  }
 }
 
 function checkUnconfirmedAgentPersonas() {
@@ -1450,6 +1539,113 @@ function renderSlackHeader() {
   if (badgeEl) badgeEl.textContent = currentChatTarget.type === "channel" ? "Channel" : "Direct Message";
   if (descEl) descEl.textContent = currentChatTarget.desc || "";
   if (inputEl) inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
+}
+
+async function loadSlackMessages(targetType, targetId) {
+  const targetKey = `${targetType}_${targetId}`;
+  try {
+    const res = await fetch(`/api/messages?targetType=${encodeURIComponent(targetType)}&targetId=${encodeURIComponent(targetId)}&limit=100`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
+        chatMessages.set(targetKey, data.messages.map((m) => ({
+          id: m.id,
+          author: m.author,
+          avatar: m.avatar,
+          tag: m.tag,
+          time: m.time,
+          text: m.text,
+          isUser: Boolean(m.isUser),
+        })));
+        renderSlackMessages();
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to load messages from SQLite:", err);
+  }
+
+  if (!chatMessages.has(targetKey)) {
+    const seedMsg = targetType === "channel"
+      ? {
+          id: `seed_${targetId}`,
+          author: "Melon Office Bot",
+          avatar: "🍈",
+          tag: "BOT",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          text: `Welcome to **#${targetId}**! You can chat with all connected agents, or type \`@chatgpt\`, \`@gemini\`, \`@claude\`, \`@opencode\` to direct questions.`,
+          isUser: false,
+        }
+      : {
+          id: `seed_${targetId}`,
+          author: targetId,
+          avatar: "🤖",
+          tag: "AGENT",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          text: `Direct message thread with **@${targetId}**. Send a prompt to query this agent directly.`,
+          isUser: false,
+        };
+    chatMessages.set(targetKey, [seedMsg]);
+  }
+  renderSlackMessages();
+}
+
+async function persistSlackMessage(msg) {
+  if (!msg || !msg.text) return;
+  try {
+    await fetch("/api/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: msg.id,
+        targetType: currentChatTarget.type,
+        targetId: currentChatTarget.id,
+        author: msg.author,
+        avatar: msg.avatar,
+        tag: msg.tag,
+        time: msg.time,
+        text: msg.text,
+        isUser: msg.isUser,
+        createdAt: Date.now(),
+      }),
+    });
+  } catch (err) {
+    console.warn("Failed to persist message to SQLite:", err);
+  }
+}
+
+async function eraseSlackMessages(count = null) {
+  const targetType = currentChatTarget.type;
+  const targetId = currentChatTarget.id;
+  try {
+    const url = `/api/messages?targetType=${encodeURIComponent(targetType)}&targetId=${encodeURIComponent(targetId)}${count && count !== "all" ? `&count=${count}` : ""}`;
+    const res = await fetch(url, { method: "DELETE" });
+    if (res.ok) {
+      toast(count === "all" ? "Erased all message history." : `Erased last ${count} turns.`);
+    }
+  } catch (err) {
+    console.warn("Failed to erase messages:", err);
+  }
+
+  const targetKey = `${targetType}_${targetId}`;
+  chatMessages.delete(targetKey);
+  await loadSlackMessages(targetType, targetId);
+}
+
+async function deleteSlackMessage(msgId) {
+  try {
+    await fetch(`/api/messages/${encodeURIComponent(msgId)}`, { method: "DELETE" });
+    const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+    const list = chatMessages.get(targetKey) || [];
+    const idx = list.findIndex((m) => m.id === msgId);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      renderSlackMessages();
+    }
+    toast("Deleted message");
+  } catch (err) {
+    console.warn("Failed to delete message:", err);
+  }
 }
 
 function renderSlackMessages() {
@@ -1495,12 +1691,18 @@ function renderSlackMessages() {
           <span class="slack-msg-author">${esc(msg.author)}</span>
           <span class="slack-msg-tag">${esc(msg.tag || "MSG")}</span>
           <span class="slack-msg-time">${esc(msg.time)}</span>
+          <button type="button" class="btn-msg-delete" data-msg-id="${esc(msg.id)}" title="Delete message" style="margin-left:auto; opacity:0.35; font-size:11px; padding:0 4px; border:none; background:transparent; cursor:pointer;">🗑️</button>
         </div>
         <div class="slack-msg-body">
           ${msg.text ? renderMarkdown(msg.text) : (msg.streaming ? '<span class="typing-bubble"></span> Thinking...' : '')}
         </div>
       </div>
     `;
+
+    item.querySelector(".btn-msg-delete")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSlackMessage(msg.id);
+    });
 
     feed.appendChild(item);
   }
@@ -1518,6 +1720,11 @@ function updateStreamingMessageDOM(msgId, text) {
 }
 
 function selectSlackTarget(type, id) {
+  const main = $(".slack-main");
+  const exp = $("#experiments-view");
+  if (main) main.hidden = false;
+  if (exp) exp.hidden = true;
+
   if (type === "channel") {
     const ch = chatChannels.find((c) => c.id === id) || { id, title: id, desc: `Channel #${id}` };
     currentChatTarget = {
@@ -1542,7 +1749,60 @@ function selectSlackTarget(type, id) {
     }
   }
 
+  loadSlackMessages(currentChatTarget.type, currentChatTarget.id);
   renderSlackChat();
+}
+
+function selectExperimentsView(subTab = "office") {
+  currentChatTarget.type = "experiments";
+  const main = $(".slack-main");
+  const exp = $("#experiments-view");
+  const pane = $("#slack-profile-pane");
+  if (main) main.hidden = true;
+  if (exp) exp.hidden = false;
+  if (pane) pane.hidden = true;
+  switchExperimentTab(subTab);
+  renderSlackNav();
+}
+
+function switchExperimentTab(tabName) {
+  document.querySelectorAll(".exp-tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.expTab === tabName);
+  });
+  document.querySelectorAll(".exp-panel").forEach((panel) => {
+    panel.hidden = panel.id !== `exp-panel-${tabName}`;
+  });
+  if (tabName === "office") {
+    renderOfficeInExperimentPanel();
+  } else if (tabName === "canvas") {
+    renderCanvasInExperimentPanel();
+  }
+}
+
+function renderOfficeInExperimentPanel() {
+  const mount = $("#exp-office-mount");
+  const officeView = $("#office-view");
+  if (mount && officeView) {
+    officeView.hidden = false;
+    officeView.style.display = "block";
+    if (officeView.parentElement !== mount) {
+      mount.appendChild(officeView);
+    }
+    renderOfficeView();
+  }
+}
+
+function renderCanvasInExperimentPanel() {
+  const mount = $("#exp-canvas-mount");
+  const stageWrap = $("#stage-wrap");
+  if (mount && stageWrap) {
+    stageWrap.hidden = false;
+    stageWrap.style.display = "block";
+    if (stageWrap.parentElement !== mount) {
+      mount.appendChild(stageWrap);
+    }
+    renderEdges();
+  }
 }
 
 function renderSlackProfilePane(agent) {
@@ -1590,12 +1850,58 @@ function renderSlackProfilePane(agent) {
       <span class="profile-field-label">Presence</span>
       <span class="profile-field-value"><span class="presence-dot ${agent.status}"></span> ${esc(agent.status.toUpperCase())}</span>
     </div>
+    <div class="profile-urls-section">
+      <div class="profile-urls-head">
+        <label>Persistent URLs (Reboot Resilient)</label>
+        <span class="sheet-badge">${(agent.urls || []).length} bound</span>
+      </div>
+      <p style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+        Tabs matching these URLs retain @${esc(agent.handle)} identity across browser restarts.
+      </p>
+      <div class="profile-urls-list">
+        ${(agent.urls || []).map((u, i) => `
+          <div class="profile-url-item">
+            <span class="profile-url-text" title="${esc(u)}">${esc(u)}</span>
+            <button type="button" class="profile-url-remove" data-url-idx="${i}" title="Remove / Clear context URL">✕</button>
+          </div>
+        `).join("")}
+      </div>
+      <div class="profile-url-add-row">
+        <input type="text" id="input-add-agent-url" placeholder="Add URL (or clear context & advance)..." />
+        <button type="button" class="tiny primary" id="btn-add-agent-url">+ Add</button>
+      </div>
+    </div>
     <div style="margin-top:14px; display:flex; flex-direction:column; gap:8px;">
       <button type="button" class="primary tiny btn-profile-dm">💬 Direct Message</button>
       <button type="button" class="ghost tiny btn-profile-edit-persona">✏️ Edit Persona</button>
       <button type="button" class="ghost tiny btn-profile-a2ui">⛶ Open A2UI Sheet</button>
     </div>
   `;
+
+  body.querySelectorAll(".profile-url-remove").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.urlIdx);
+      if (agent.urls && agent.urls[idx] !== undefined) {
+        agent.urls.splice(idx, 1);
+        await savePersistentAgentToServer(agent);
+        renderSlackProfilePane(agent);
+        toast(`Cleared URL context from @${agent.handle}`);
+      }
+    });
+  });
+
+  body.querySelector("#btn-add-agent-url")?.addEventListener("click", async () => {
+    const input = body.querySelector("#input-add-agent-url");
+    const val = input ? input.value.trim() : "";
+    if (!val) return;
+    if (!agent.urls) agent.urls = [];
+    if (!agent.urls.includes(val)) {
+      agent.urls.push(val);
+      await savePersistentAgentToServer(agent);
+      renderSlackProfilePane(agent);
+      toast(`Bound URL to @${agent.handle}!`);
+    }
+  });
 
   body.querySelector(".btn-profile-dm")?.addEventListener("click", () => {
     selectSlackTarget("dm", agent.id);
@@ -1652,6 +1958,7 @@ async function sendSlackMessage() {
   };
   list.push(userMsg);
   renderSlackMessages();
+  persistSlackMessage(userMsg);
 
   let agentTarget = null;
   let promptText = raw;
@@ -1727,6 +2034,7 @@ async function sendSlackMessage() {
       slackChatRunners.delete(runId);
       if (typingBar) typingBar.hidden = true;
       renderSlackMessages();
+      persistSlackMessage(agentMsg);
     },
     onError: (err) => {
       agentMsg.text = `*(error: ${err})*`;
@@ -2123,12 +2431,69 @@ function setupSlackChat() {
     toast(`Created #${cleanId}!`);
   });
 
+  // Erase Back Dropdown Menu
+  const btnEraseMenu = $("#btn-chat-erase-menu");
+  const eraseDropdown = $("#erase-back-menu");
+  if (btnEraseMenu && eraseDropdown) {
+    btnEraseMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      eraseDropdown.hidden = !eraseDropdown.hidden;
+    });
+
+    document.querySelectorAll(".slack-erase-opt").forEach((optBtn) => {
+      optBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const count = optBtn.dataset.erase;
+        eraseDropdown.hidden = true;
+        eraseSlackMessages(count);
+      });
+    });
+
+    document.addEventListener("click", () => {
+      if (!eraseDropdown.hidden) eraseDropdown.hidden = true;
+    });
+  }
+
+  setupExperimentsNavigation();
   setupAddContactModal();
   setupMentionAutocomplete();
   setupSlackFormatBar();
   setupAgentPersonaModal();
   setupSlackLightbox();
   setupSlackComposerButtons();
+}
+
+function setupExperimentsNavigation() {
+  const expNav = $("#nav-item-experiments");
+  expNav?.addEventListener("click", () => {
+    selectExperimentsView("office");
+  });
+
+  document.querySelectorAll(".exp-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.expTab;
+      switchExperimentTab(tab);
+    });
+  });
+
+  $("#btn-exp-open-tournament")?.addEventListener("click", () => {
+    const m = $("#modal-tournament");
+    if (m) m.hidden = false;
+  });
+  $("#btn-exp-open-tasks")?.addEventListener("click", () => {
+    const m = $("#modal-tasks");
+    if (m) m.hidden = false;
+  });
+  $("#btn-exp-open-guide")?.addEventListener("click", () => {
+    openOnboarding();
+  });
+  $("#btn-exp-office-hire")?.addEventListener("click", () => {
+    const m = $("#modal-hire");
+    if (m) m.hidden = false;
+  });
+  $("#btn-exp-office-sync")?.addEventListener("click", () => {
+    syncWarRoomDecision();
+  });
 }
 
 function setupAddContactModal() {
@@ -5653,6 +6018,8 @@ async function boot() {
   setupUi();
   setupBus();
   connectHub();
+  loadPersistentAgents();
+  loadSlackMessages(currentChatTarget.type, currentChatTarget.id);
   switchView("sheet");
   updateStatus();
   log("info", "melon booting");
