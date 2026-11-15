@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { exec } from "node:child_process";
+import readline from "node:readline/promises";
 
 const VERSION = "0.1.0";
 
@@ -52,6 +54,10 @@ function parseCliArgs(args) {
     branch: null,
     help: false,
     version: false,
+    autoExec: false,
+    retries: 2,
+    query: "",
+    candidates: [],
   };
 
   const positional = [];
@@ -68,6 +74,10 @@ function parseCliArgs(args) {
       parsed.silent = true;
     } else if (arg === "--extract" || arg === "-e") {
       parsed.extractOnly = true;
+    } else if (arg === "--exec" || arg === "-x" || arg === "--yes" || arg === "-y") {
+      parsed.autoExec = true;
+    } else if (arg === "--retries") {
+      parsed.retries = Math.max(0, Number(args[++i]) || 2);
     } else if (arg === "--tab" || arg === "-t") {
       parsed.tab = args[++i];
     } else if (arg === "--role" || arg === "-r") {
@@ -91,6 +101,13 @@ function parseCliArgs(args) {
     parsed.command = positional[0];
     if (parsed.command === "ask") {
       parsed.prompt = positional.slice(1).join(" ");
+    } else if (parsed.command === "do" || parsed.command === "run") {
+      parsed.command = "do";
+      parsed.prompt = positional.slice(1).join(" ");
+    } else if (parsed.command === "decide" || parsed.command === "route") {
+      parsed.command = "decide";
+      parsed.query = positional[1] || "";
+      parsed.candidates = positional.slice(2);
     } else if (parsed.command === "export") {
       parsed.runId = positional[1] || "";
     } else if (parsed.command === "tasks" || parsed.command === "ps") {
@@ -404,6 +421,238 @@ async function handleAsk(opts) {
   }
 }
 
+// Helper: extract shell commands from markdown code blocks
+function extractShellCommands(text) {
+  const commands = [];
+  const codeBlockRegex = /```(?:bash|sh|zsh|shell)\n([\s\S]*?)```/gi;
+  let match;
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    const lines = match[1].trim().split("\n");
+    for (const line of lines) {
+      const clean = line.trim().replace(/^[$>]\s*/, "");
+      if (clean && !clean.startsWith("#")) {
+        commands.push(clean);
+      }
+    }
+  }
+  return commands;
+}
+
+// Helper: prompt user interactively
+async function promptUser(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(question);
+    return answer.trim();
+  } finally {
+    rl.close();
+  }
+}
+
+// Helper: execute shell command locally
+function executeCommandLocally(cmd) {
+  return new Promise((resolve) => {
+    console.log(`\n$ ${cmd}\n`);
+    const proc = exec(cmd, { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({
+        code: error ? (error.code ?? 1) : 0,
+        stdout: stdout || "",
+        stderr: stderr || "",
+      });
+    });
+    proc.stdout?.pipe(process.stdout);
+    proc.stderr?.pipe(process.stderr);
+  });
+}
+
+// Command: melon do / melon run (Autonomous execution + auto-healing loop)
+async function handleDo(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  const token = opts.token || findToken();
+
+  let prompt = opts.prompt;
+  const stdin = await readStdin();
+  if (stdin) {
+    prompt = prompt ? `${prompt}\n\n${stdin}` : stdin;
+  }
+
+  if (!prompt || !prompt.trim()) {
+    console.error(`❌ Error: prompt is required. Example: melon do "Build and test the project"`);
+    process.exit(1);
+  }
+
+  let tab;
+  try {
+    tab = await resolveTargetTab(hubUrl, opts);
+  } catch (err) {
+    console.error(`❌ ${err.message}`);
+    process.exit(1);
+  }
+
+  let retriesRemaining = opts.retries ?? 2;
+  let currentPrompt = prompt;
+
+  while (retriesRemaining >= 0) {
+    console.error(`\n🍈 [melon do] Dispatching to ${tab.adapter || tab.title || "tab"}...`);
+    const runId = "cli-do-" + crypto.randomBytes(6).toString("base64url");
+
+    const sseHeaders = { accept: "text/event-stream" };
+    if (token) sseHeaders.authorization = `Bearer ${token}`;
+
+    const sseRes = await fetch(`${hubUrl}/api/events`, { headers: sseHeaders });
+    if (!sseRes.ok || !sseRes.body) {
+      console.error(`❌ Event stream rejected with HTTP ${sseRes.status}`);
+      process.exit(1);
+    }
+
+    await requestJson(`${hubUrl}/api/runs`, {
+      method: "POST",
+      body: {
+        runId,
+        prompt: currentPrompt,
+        target: {
+          type: "extension",
+          tabId: tab.id,
+          adapter: tab.adapter || opts.adapter || "auto",
+        },
+      },
+      token,
+    });
+
+    const reader = sseRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullOutput = "";
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+
+        for (const frame of frames) {
+          for (const line of frame.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            let parsed;
+            try {
+              parsed = JSON.parse(line.slice(5).trim());
+            } catch {
+              continue;
+            }
+
+            if (parsed.type === "run.event" && parsed.runId === runId) {
+              const ev = parsed.event || {};
+              if (ev.type === "chunk" && ev.text) {
+                const delta = ev.text.slice(fullOutput.length);
+                fullOutput = ev.text;
+                process.stdout.write(delta);
+              } else if (ev.type === "done") {
+                const text = ev.text ?? fullOutput;
+                if (text.length > fullOutput.length) {
+                  process.stdout.write(text.slice(fullOutput.length));
+                }
+                fullOutput = text;
+                break;
+              } else if (ev.type === "error") {
+                console.error(`\n❌ Error: ${ev.error?.message || "Unknown error"}`);
+                process.exit(1);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`\nStream interrupted: ${err.message}`);
+    }
+
+    if (!fullOutput.endsWith("\n")) process.stdout.write("\n");
+
+    const commands = extractShellCommands(fullOutput);
+    if (!commands.length) {
+      console.log(`\n✨ Done. (No executable commands detected in response)`);
+      return;
+    }
+
+    console.log(`\n⚡ Detected ${commands.length} executable command${commands.length > 1 ? "s" : ""}:`);
+    for (const cmd of commands) {
+      console.log(`   $ ${cmd}`);
+    }
+
+    const commandToRun = commands[0];
+    let proceed = opts.autoExec;
+    if (!proceed) {
+      const answer = await promptUser(`\nExecute \`$ ${commandToRun}\`? [Y/n] `);
+      proceed = !answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes";
+    }
+
+    if (!proceed) {
+      console.log(`Command execution skipped.`);
+      return;
+    }
+
+    const result = await executeCommandLocally(commandToRun);
+    if (result.code === 0) {
+      console.log(`\n🎉 Command succeeded!`);
+      return;
+    }
+
+    if (retriesRemaining > 0) {
+      console.log(`\n⚠️  Command failed (exit code ${result.code}). Triggering auto-healing loop (${retriesRemaining} retries left)...`);
+      currentPrompt = `The previous command \`${commandToRun}\` failed with exit code ${result.code}.\n\nOutput / Error:\n${(result.stderr || result.stdout).slice(-2000)}\n\nPlease analyze this error, explain the root cause, and provide the corrected command/code.`;
+      retriesRemaining--;
+    } else {
+      console.error(`\n❌ Command failed and no auto-heal retries remaining.`);
+      process.exit(result.code || 1);
+    }
+  }
+}
+
+// Command: melon decide <query> <candidates...>
+async function handleDecide(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  const query = opts.query;
+  const candidates = opts.candidates;
+
+  if (!query || !candidates || candidates.length === 0) {
+    console.error(`❌ Usage: melon decide "<query or state>" "<candidate 1>" "<candidate 2>" ...`);
+    process.exit(1);
+  }
+
+  try {
+    const res = await requestJson(`${hubUrl}/api/kev/rerank`, {
+      method: "POST",
+      token: opts.token,
+      headers: { "content-type": "application/json" },
+      body: {
+        query,
+        candidates: candidates.map((text, idx) => ({ id: `opt-${idx + 1}`, text })),
+      },
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
+
+    console.log(`\n🧠 Decision & Reranker Result (Model: ${res.model}):\n`);
+    console.log(`Query: "${query}"\n`);
+    console.log("RANK".padEnd(6) + "PROBABILITY".padEnd(14) + "CANDIDATE");
+    console.log("―".repeat(60));
+    for (const score of res.scores || []) {
+      const cand = candidates[score.index];
+      const prob = `${(score.probability * 100).toFixed(1)}%`.padEnd(14);
+      const rank = `#${score.rank}`.padEnd(6);
+      console.log(`${rank}${prob}"${cand}"`);
+    }
+    console.log(`\nSelected winner: ${res.selected?.[0]} (Confidence: ${res.confidence ? `${(res.confidence * 100).toFixed(1)}%` : "N/A"})\n`);
+  } catch (err) {
+    console.error(`❌ Decision query failed: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 // Command: melon export <runId>
 async function handleExport(opts) {
   const hubUrl = getHubUrl(opts.hub);
@@ -676,9 +925,11 @@ function printHelp() {
 🍈 Melon CLI (v${VERSION}) - Reverse CLI-to-Web AI Oracle
 
 USAGE:
+  melon do [options] "<task>"       Autonomous task runner: runs in web, executes commands & auto-heals
   melon ask [options] "<prompt>"    Dispatch prompt to bridged browser tab & stream answer
   melon ask -e [options]            Re-extract latest response from active tab without prompting
   melon tabs [options]              List all active bridged browser tabs (ChatGPT, Claude, Gemini)
+  melon decide "<query>" <opts...>  Rerank candidates using local embedded decision engine
   melon tasks [filter] [options]    List async tasks, status & partial checkpoints (alias: melon ps)
   melon resume <taskId> [options]   Gracefully resume or recover an interrupted task
   melon abort <taskId> [options]    Abort an in-flight background task
@@ -687,22 +938,28 @@ USAGE:
   melon status [options]            Show Melon Hub runtime health and connected clients
   melon export <runId> [options]    Export code artifacts harvested from a run
 
-ASK OPTIONS:
+OPTIONS:
   -t, --tab <tabId>         Target specific browser tab ID
   -r, --role <name>         Target tab by role or model name (e.g. chatgpt, gemini, claude)
   -a, --adapter <name>      Target tab by adapter name
   -e, --extract             Extract latest response only (no new prompt sent)
+  -x, --exec, -y, --yes     Auto-execute extracted commands without asking confirmation
+  --retries <n>             Maximum auto-healing retry iterations on command failure (default: 2)
   -s, --silent              Suppress connecting and routing status on stderr
   --json                    Output structured JSON response
   --hub <url>               Melon Hub URL (default: http://127.0.0.1:8787 or $MELON_HUB_URL)
   --token <token>           Authentication token (default: reads .melon-token)
 
 EXAMPLES:
+  # Autonomous runner: runs on tab, prompts to execute code, and auto-fixes failures!
+  melon do "Run the task test suite and fix any broken tests"
+  melon do -y "Build the extension zip package"
+
   # Query the active browser tab
   melon ask "Write an async retry utility in TypeScript"
 
-  # Pipe terminal input directly to ChatGPT / Gemini
-  cat server.log | melon ask -r chatgpt "Analyze this stack trace and suggest a fix"
+  # Rerank decisions with local Kev-like model
+  melon decide "auth validation" "Postgres connection" "OAuth JWT token handler" "CSS styles"
 
   # View in-flight and recent async tasks
   melon tasks
@@ -748,6 +1005,12 @@ async function main() {
     case "ask":
       await handleAsk(opts);
       break;
+    case "do":
+      await handleDo(opts);
+      break;
+    case "decide":
+      await handleDecide(opts);
+      break;
     case "export":
       await handleExport(opts);
       break;
@@ -771,4 +1034,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor, handleErrors, handleTasks, handleResume, handleAbort };
+export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor, handleErrors, handleTasks, handleResume, handleAbort, handleDo, handleDecide, extractShellCommands };

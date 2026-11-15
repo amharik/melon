@@ -80,3 +80,20 @@ test("Kev client rejects malformed choice responses", async () => {
     /no choice probabilities/
   );
 });
+
+test("local embedded decision engine ranks candidates accurately without external server", async () => {
+  const client = createKevClient({ allowLocalFallback: true });
+  assert.equal(client.enabled, true);
+  assert.equal(client.model, "local-embedded");
+
+  const result = await client.rerank("authenticate oauth user token", [
+    { id: "database", text: "PostgreSQL connection pool and query execution" },
+    { id: "auth", text: "OAuth2 authentication handler and user token validation" },
+    { id: "css", text: "Responsive CSS grid and color styling" },
+  ], { topK: 1 });
+
+  assert.equal(result.model, "local-embedded");
+  assert.equal(result.selected[0], "auth");
+  assert.ok(result.confidence > 0.5);
+  assert.equal(result.ranked[0], "auth");
+});

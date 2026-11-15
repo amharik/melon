@@ -87,7 +87,7 @@ const hub = { online: false, llm: false, kev: false, agy: false, opencodeUrl: ""
 let currentThreadId = localStorage.getItem(THREAD_KEY) || null;
 let blackboard = { ok: false, text: "", path: null, error: null };
 const THEME_KEY = "melon.theme.v1";
-let currentView = "canvas";
+let currentView = "office";
 const sheetModes = new Map();
 
 function abortError() {
@@ -1290,6 +1290,35 @@ function renderOfficeView() {
   renderWarRoomSeats();
   renderWarRoomDecision();
   renderOfficeDesks();
+  renderOfficeWall();
+}
+
+function renderOfficeWall() {
+  const notesEl = $("#office-whiteboard-notes");
+  const countEl = $("#office-artifacts-count");
+  const quoteEl = $("#office-breakroom-quote");
+
+  if (blackboard && blackboard.text && notesEl) {
+    notesEl.textContent = blackboard.text.slice(0, 140) + (blackboard.text.length > 140 ? "…" : "");
+  }
+
+  let totalArtifacts = 0;
+  for (const node of nodes) {
+    if (node.runtime?.text) {
+      totalArtifacts += extractArtifactsFromText(node.runtime.text).length;
+    }
+  }
+  if (countEl) countEl.textContent = `${totalArtifacts} artifact${totalArtifacts === 1 ? "" : "s"}`;
+
+  const banters = [
+    "“Desks operational. Cross-model reasoning at 100% capacity.”",
+    "“Break room coffee is fresh. Ready to tackle sprint goals!”",
+    "“War table synchronized. All agent nodes attached to live tabs.”",
+    "“Zero API costs today — running on authenticated browser tabs!”",
+  ];
+  if (quoteEl && !quoteEl.dataset.custom) {
+    quoteEl.textContent = banters[Math.floor(Math.random() * banters.length)];
+  }
 }
 
 function renderWarRoomSeats() {
@@ -1394,6 +1423,9 @@ function createDeskCard(node) {
           <button type="button" class="tiny ghost btn-extract-desk" data-id="${node.id}" title="Re-extract latest response from bridged tab">⟳ Extract</button>
           <button type="button" class="tiny primary btn-continue-desk" data-id="${node.id}" title="Extract from tab and continue downstream workflow">▶ Continue</button>
         ` : ""}
+        <button type="button" class="tiny ghost btn-expand-desk" data-id="${node.id}" title="Expand full response with A2UI & code artifacts">
+          ⛶ Expand
+        </button>
         <button type="button" class="tiny ghost btn-tap-desk" data-id="${node.id}" title="Tap on shoulder (direct message / query)">
           👋 Tap
         </button>
@@ -1407,6 +1439,7 @@ function createDeskCard(node) {
     </div>
   `;
 
+  card.querySelector(".btn-expand-desk")?.addEventListener("click", () => openA2UISheet(node));
   card.querySelector(".btn-extract-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }));
   card.querySelector(".btn-continue-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }));
   card.querySelector(".btn-tap-desk")?.addEventListener("click", () => openTapModal(node));
@@ -1730,6 +1763,191 @@ function detectPeerDelegation(senderNode, responseText, command) {
     });
     break; // Bound to one delegation per turn
   }
+}
+
+/* ------------------------------------------------- Expandable A2UI Sheet Modal */
+
+function openA2UISheet(node) {
+  const modal = $("#modal-a2ui-sheet");
+  if (!modal || !node) return;
+
+  const persona = getAgentPersona(node);
+  const rec = node.runtime;
+  const rawText = rec?.text || "";
+
+  const avatarEl = $("#a2ui-sheet-avatar");
+  const titleEl = $("#a2ui-sheet-title");
+  const subEl = $("#a2ui-sheet-subtitle");
+  if (avatarEl) avatarEl.textContent = persona.avatar || "🧑‍💻";
+  if (titleEl) titleEl.textContent = `${persona.label} (@${persona.handle})`;
+  if (subEl) subEl.textContent = `${persona.adapter} · ${node.config?.prompt ? node.config.prompt.slice(0, 70) : "Autonomous Desk"}`;
+
+  const statusEl = $("#a2ui-sheet-status");
+  if (statusEl) {
+    statusEl.textContent = rec?.status || "idle";
+    statusEl.className = `sheet-badge ${rec?.status || "idle"}`;
+  }
+
+  // 1. Render Interactive A2UI View
+  const panelInteractive = $("#a2ui-tab-interactive");
+  if (panelInteractive) {
+    panelInteractive.innerHTML = rawText
+      ? renderMarkdown(rawText)
+      : '<div class="office-empty-state"><p>No output generated yet for this desk.</p></div>';
+  }
+
+  // 2. Render Markdown View
+  const panelMarkdown = $("#a2ui-tab-markdown");
+  if (panelMarkdown) {
+    panelMarkdown.innerHTML = rawText
+      ? `<pre class="result-preview" style="white-space:pre-wrap; max-height:none; font-size:12px; font-family:var(--font-mono);">${esc(rawText)}</pre>`
+      : '<div class="office-empty-state"><p>No markdown output.</p></div>';
+  }
+
+  // 3. Render Artifacts View
+  const artifacts = typeof extractArtifactsFromText === "function" ? extractArtifactsFromText(rawText) : [];
+  const artifactsCountEl = $("#a2ui-artifacts-count");
+  if (artifactsCountEl) artifactsCountEl.textContent = String(artifacts.length);
+
+  const panelArtifacts = $("#a2ui-tab-artifacts");
+  if (panelArtifacts) {
+    if (artifacts.length > 0) {
+      panelArtifacts.innerHTML = artifacts.map((art) => `
+        <div class="task-card" style="margin-bottom:12px; background:var(--bg-surface); padding:12px; border-radius:8px; border:1px solid var(--border);">
+          <div class="task-card-head" style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="font-family:var(--font-mono); font-size:12px; color:var(--accent-indigo);">📄 ${esc(art.path || art.filename || "file")}</strong>
+            <button type="button" class="tiny ghost btn-copy-art" data-copy="${esc(art.content)}">📋 Copy File</button>
+          </div>
+          <pre style="margin:8px 0 0; background:var(--canvas-bg); padding:10px; border-radius:6px; font-size:11px; max-height:220px; overflow:auto;"><code>${esc(art.content)}</code></pre>
+        </div>
+      `).join("");
+      panelArtifacts.querySelectorAll(".btn-copy-art").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          navigator.clipboard.writeText(btn.dataset.copy || "").then(() => toast("Copied artifact to clipboard!"));
+        });
+      });
+    } else {
+      panelArtifacts.innerHTML = '<div class="office-empty-state"><p>No code artifacts detected in this desk\'s response.</p></div>';
+    }
+  }
+
+  const statsEl = $("#a2ui-footer-stats");
+  if (statsEl) {
+    statsEl.textContent = `${rawText.length.toLocaleString()} characters · ${rawText.trim().split(/\s+/).filter(Boolean).length} words`;
+  }
+
+  const btnCopy = $("#btn-a2ui-copy");
+  if (btnCopy) {
+    btnCopy.onclick = () => {
+      navigator.clipboard.writeText(rawText).then(() => toast("Copied all output to clipboard!"));
+    };
+  }
+
+  const btnExport = $("#btn-a2ui-export");
+  if (btnExport) {
+    btnExport.onclick = () => {
+      if (artifacts.length > 0) {
+        fetch("/api/artifacts/export", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ runId: `desk-${node.id}`, files: artifacts }),
+        })
+          .then((r) => r.json())
+          .then((d) => toast(`Exported ${artifacts.length} files to ${d.dir}!`))
+          .catch((e) => toast(`Export error: ${e.message}`, true));
+      } else {
+        toast("No artifacts found to export.");
+      }
+    };
+  }
+
+  const btnContinue = $("#btn-a2ui-continue");
+  if (btnContinue) {
+    btnContinue.onclick = () => {
+      modal.hidden = true;
+      if (node.config?.extTabId) {
+        reextractFromTab(node.config.extTabId, node.id, { continueGraph: true });
+      } else {
+        toast("Triggering downstream continuation...");
+      }
+    };
+  }
+
+  modal.hidden = false;
+}
+
+function setupA2UISheet() {
+  const modal = $("#modal-a2ui-sheet");
+  const btnClose = $("#btn-close-a2ui");
+  const tabBtns = document.querySelectorAll(".a2ui-tab-btn");
+
+  btnClose?.addEventListener("click", () => {
+    if (modal) modal.hidden = true;
+  });
+
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.hidden = true;
+    });
+  }
+
+  tabBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      tabBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const target = btn.dataset.tab;
+      document.querySelectorAll(".a2ui-tab-panel").forEach((panel) => {
+        panel.hidden = panel.id !== `a2ui-tab-${target}`;
+      });
+    });
+  });
+}
+
+function setupOfficeCommandBar() {
+  const input = $("#office-brief-input");
+  const btnDispatch = $("#btn-office-dispatch");
+
+  const dispatch = () => {
+    const text = (input?.value || "").trim();
+    if (!text) return;
+
+    const mentionMatch = text.match(/^@([a-zA-Z0-9_-]+)\s*(.*)/);
+    if (mentionMatch) {
+      const handle = mentionMatch[1].toLowerCase();
+      const prompt = mentionMatch[2] || text;
+      const targetNode = nodes.find((n) => {
+        const persona = getAgentPersona(n);
+        return persona.handle.toLowerCase() === handle || persona.adapter.toLowerCase().includes(handle);
+      });
+
+      if (targetNode) {
+        toast(`🚀 Dispatching directly to @${handle}...`);
+        targetNode.config = targetNode.config || {};
+        targetNode.config.prompt = prompt;
+        if (targetNode.config.extTabId) {
+          runAgent(targetNode, prompt);
+        } else {
+          runWorkflow();
+        }
+        input.value = "";
+        return;
+      }
+    }
+
+    const briefArea = $("#brief");
+    if (briefArea) briefArea.value = text;
+    toast("🚀 Dispatching mission to office team!");
+    input.value = "";
+    runWorkflow();
+  };
+
+  btnDispatch?.addEventListener("click", dispatch);
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      dispatch();
+    }
+  });
 }
 
 function renderInspector() {
@@ -3773,6 +3991,8 @@ function setupUi() {
   setupTournament();
   setupOnboarding();
   setupTaskManager();
+  setupA2UISheet();
+  setupOfficeCommandBar();
 }
 
 function setupTournament() {
@@ -4456,6 +4676,7 @@ async function boot() {
   setupUi();
   setupBus();
   connectHub();
+  switchView("office");
   updateStatus();
   log("info", "melon booting");
 

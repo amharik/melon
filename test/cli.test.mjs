@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseCliArgs, formatTabRow, resolveTargetTab } from "../bin/melon.mjs";
+import { parseCliArgs, formatTabRow, resolveTargetTab, extractShellCommands } from "../bin/melon.mjs";
 
 test("cli argument parsing captures flags and commands", () => {
   const askArgs = parseCliArgs(["ask", "-t", "12345", "--silent", "Refactor the parser"]);
@@ -65,4 +65,46 @@ test("cli argument parsing handles doctor command", () => {
   const docArgs = parseCliArgs(["doctor", "--hub", "http://127.0.0.1:8787"]);
   assert.equal(docArgs.command, "doctor");
   assert.equal(docArgs.hub, "http://127.0.0.1:8787");
+});
+
+test("cli parses melon do and melon decide with flags and commands", () => {
+  const doArgs = parseCliArgs(["do", "-y", "--retries", "4", "Build and test the project"]);
+  assert.equal(doArgs.command, "do");
+  assert.equal(doArgs.autoExec, true);
+  assert.equal(doArgs.retries, 4);
+  assert.equal(doArgs.prompt, "Build and test the project");
+
+  const runAlias = parseCliArgs(["run", "-x", "Fix the failing test"]);
+  assert.equal(runAlias.command, "do");
+  assert.equal(runAlias.autoExec, true);
+  assert.equal(runAlias.prompt, "Fix the failing test");
+
+  const decideArgs = parseCliArgs(["decide", "auth user", "Postgres DB", "OAuth JWT Handler", "CSS"]);
+  assert.equal(decideArgs.command, "decide");
+  assert.equal(decideArgs.query, "auth user");
+  assert.deepEqual(decideArgs.candidates, ["Postgres DB", "OAuth JWT Handler", "CSS"]);
+});
+
+test("extractShellCommands extracts clean shell commands from markdown code blocks", () => {
+  const markdown = `
+Here is how you build and test:
+
+\`\`\`bash
+$ npm run build
+npm test -- -t tasks
+\`\`\`
+
+And you can also run:
+\`\`\`sh
+# comment to ignore
+cat package.json
+\`\`\`
+`;
+
+  const cmds = extractShellCommands(markdown);
+  assert.deepEqual(cmds, [
+    "npm run build",
+    "npm test -- -t tasks",
+    "cat package.json",
+  ]);
 });

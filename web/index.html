@@ -28,31 +28,31 @@
 
         <span class="sep"></span>
 
-        <!-- View Mode Segmented Control -->
+        <!-- View Mode Segmented Control: Office is Primary -->
         <div class="view-switch" role="tablist" aria-label="View Mode">
-          <button id="btn-canvas-view" class="view-btn active" role="tab" aria-selected="true" title="Node Graph Canvas">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6M9 6h6M18 9v6M9 18h6"/></svg>
-            Canvas
-          </button>
-          <button id="btn-sheet-view" class="view-btn" role="tab" aria-selected="false" title="Side-by-Side Agent Sheet">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/></svg>
-            Sheet View
-          </button>
-          <button id="btn-office-view" class="view-btn" role="tab" aria-selected="false" title="Spatial Agent Office Simulation">
+          <button id="btn-office-view" class="view-btn active" role="tab" aria-selected="true" title="Spatial Agent Office Floor">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M3 7v14M21 7v14M6 11h3M15 11h3M6 16h3M15 16h3M9 3h6v4H9z"/></svg>
-            Office
+            Office Floor
           </button>
           <button id="btn-tournament" class="view-btn" title="Speculative multi-model tournament across active tabs">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
             Tournament
           </button>
-          <button id="btn-smart-bind-top" class="view-btn" title="Automatically bind open AI tabs to agent nodes">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Smart-Bind
-          </button>
           <button id="btn-tasks-drawer" class="view-btn" title="Inspect background async tasks and resume interrupted operations">
             <span id="task-pulse-dot" class="pulse-dot idle"></span>
             Tasks <span id="task-badge" class="count-badge">0</span>
+          </button>
+          <button id="btn-canvas-view" class="view-btn" role="tab" aria-selected="false" title="Node Graph & Dataflow Lab (Advanced)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6M9 6h6M18 9v6M9 18h6"/></svg>
+            Node Lab
+          </button>
+          <button id="btn-sheet-view" class="view-btn" role="tab" aria-selected="false" title="Side-by-Side Agent Sheet">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9M15 21V9"/></svg>
+            Sheet View
+          </button>
+          <button id="btn-smart-bind-top" class="view-btn" title="Automatically bind open AI tabs to agent nodes">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Smart-Bind
           </button>
         </div>
 
@@ -199,8 +199,8 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
         </details>
       </aside>
 
-      <!-- Center Main: Canvas Graph Mode -->
-      <section class="stage-wrap" id="stage-wrap">
+      <!-- Center Main: Canvas Graph Mode (Secondary / Experimental Lab) -->
+      <section class="stage-wrap" id="stage-wrap" hidden>
         <div class="stage" id="stage">
           <svg id="edges" aria-hidden="true">
             <defs>
@@ -236,15 +236,15 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
         </div>
       </section>
 
-      <!-- Center Main: Spatial Agent Office Mode -->
-      <section class="office-view" id="office-view" hidden>
+      <!-- Center Main: Spatial Agent Office Mode (Primary Default) -->
+      <section class="office-view" id="office-view">
         <div class="office-head">
           <div class="office-title-group">
             <div class="office-badge-row">
-              <h2>Spatial Agent Office</h2>
+              <h2>Spatial Agent Office Floor</h2>
               <span class="office-live-badge"><span class="live-dot"></span>Simulation Active</span>
             </div>
-            <p>Spatial collaboration floor: autonomous desks, strategy war-table consensus, and @mention peer-to-peer delegation.</p>
+            <p>Autonomous AI desks, strategy war-table consensus, and gamified spatial collaboration floor.</p>
           </div>
           <div class="office-actions">
             <button id="btn-office-hire" class="tiny primary">
@@ -258,7 +258,45 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           </div>
         </div>
 
+        <!-- Office Command Bar for Instant Dispatch -->
+        <div class="office-command-bar">
+          <div class="command-input-wrap">
+            <span class="command-icon">💬</span>
+            <input type="text" id="office-brief-input" placeholder="Brief office team (e.g. '@chatgpt refactor auth service' or 'Race all models on performance test')..." />
+          </div>
+          <button id="btn-office-dispatch" class="primary">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            Dispatch
+          </button>
+        </div>
+
         <div class="office-floor">
+          <!-- Wall Zone: Whiteboard & Break Room -->
+          <div class="office-wall-zone">
+            <!-- Company Whiteboard -->
+            <div class="office-wall-board whiteboard-card">
+              <div class="wall-board-head">
+                <span class="wall-board-icon">📋</span>
+                <h4>Company Whiteboard</h4>
+                <span class="wall-board-tag" id="office-artifacts-count">0 artifacts</span>
+              </div>
+              <div class="wall-board-content" id="office-whiteboard-content">
+                <p class="whiteboard-notes" id="office-whiteboard-notes">Shared mission context from <code>.melon/blackboard.md</code>.</p>
+              </div>
+            </div>
+
+            <!-- Break Room & Water Cooler -->
+            <div class="office-wall-board breakroom-card">
+              <div class="wall-board-head">
+                <span class="wall-board-icon">☕</span>
+                <h4>Water Cooler & Break Room</h4>
+                <span class="wall-board-tag live">Passive Banter</span>
+              </div>
+              <div class="wall-board-content" id="office-breakroom-content">
+                <p class="breakroom-quote" id="office-breakroom-quote">"Desks ready and bridged. Ready to tackle mission tasks!"</p>
+              </div>
+            </div>
+          </div>
           <!-- Strategy War-Table (Decision & Synthesis Hub) -->
           <div class="office-zone war-room-zone">
             <div class="zone-head">
@@ -436,6 +474,48 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <span id="tournament-status-label">Racing models...</span>
             </div>
             <div id="tournament-grid" class="tournament-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expandable Response & A2UI Full-Screen Sheet Modal -->
+    <div class="modal-backdrop" id="modal-a2ui-sheet" hidden>
+      <div class="modal-card modal-a2ui-card" role="dialog" aria-modal="true" aria-labelledby="a2ui-sheet-title">
+        <div class="modal-head">
+          <div class="a2ui-title-group">
+            <div class="a2ui-model-badge">
+              <span id="a2ui-sheet-avatar">🧑‍💻</span>
+              <h3 id="a2ui-sheet-title">Agent Response</h3>
+            </div>
+            <p class="modal-sub" id="a2ui-sheet-subtitle">Interactive A2UI, formatted code, and harvested artifacts.</p>
+          </div>
+          <div class="a2ui-head-actions">
+            <span class="sheet-badge" id="a2ui-sheet-status">done</span>
+            <button type="button" class="tiny ghost btn-close-modal" id="btn-close-a2ui">✕</button>
+          </div>
+        </div>
+
+        <div class="a2ui-tabs-bar">
+          <button class="a2ui-tab-btn active" data-tab="interactive">📊 A2UI Interactive View</button>
+          <button class="a2ui-tab-btn" data-tab="markdown">📝 Full Markdown</button>
+          <button class="a2ui-tab-btn" data-tab="artifacts">📁 Harvested Files (<span id="a2ui-artifacts-count">0</span>)</button>
+        </div>
+
+        <div class="modal-body a2ui-sheet-body">
+          <div id="a2ui-tab-interactive" class="a2ui-tab-panel"></div>
+          <div id="a2ui-tab-markdown" class="a2ui-tab-panel" hidden></div>
+          <div id="a2ui-tab-artifacts" class="a2ui-tab-panel" hidden></div>
+        </div>
+
+        <div class="a2ui-footer">
+          <div class="a2ui-footer-stats" id="a2ui-footer-stats">
+            <span>0 chars</span>
+          </div>
+          <div class="a2ui-footer-actions">
+            <button type="button" class="tiny ghost" id="btn-a2ui-copy">📋 Copy All</button>
+            <button type="button" class="tiny ghost" id="btn-a2ui-export">💾 Export Artifacts</button>
+            <button type="button" class="tiny primary" id="btn-a2ui-continue">⚡ Continue Generation</button>
           </div>
         </div>
       </div>

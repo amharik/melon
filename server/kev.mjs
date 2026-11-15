@@ -82,11 +82,81 @@ export function scoreChoiceAnswer(candidates, answer, topK = candidates.length) 
   };
 }
 
+export function localEmbeddedRerank(query, candidates, options = {}) {
+  const state = cleanText(query, MAX_QUERY);
+  if (!state) throw httpError(400, "query is required");
+  const list = normalizeCandidates(candidates);
+
+  if (list.length === 1) {
+    return {
+      model: "local-embedded",
+      confidence: 1.0,
+      scores: [{ id: list[0].id, index: 0, probability: 1, rank: 1 }],
+      ranked: [list[0].id],
+      selected: [list[0].id],
+      usage: { local: true },
+    };
+  }
+
+  const queryTokens = new Set(
+    (state.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || []).filter((w) => w.length > 1)
+  );
+
+  const rawScores = list.map((cand) => {
+    const textLower = cand.text.toLowerCase();
+    let score = 0.1;
+
+    if (state.length > 3 && textLower.includes(state.toLowerCase())) {
+      score += 8;
+    }
+
+    const candTokens = textLower.match(/[\p{L}\p{N}_-]+/gu) || [];
+    const candSet = new Set(candTokens);
+    for (const q of queryTokens) {
+      if (candSet.has(q)) {
+        score += 2.5;
+      } else if (textLower.includes(q)) {
+        score += 1.0;
+      }
+    }
+
+    const lenNorm = Math.log(candTokens.length + 5);
+    return Math.max(0.01, score / (lenNorm || 1));
+  });
+
+  const maxScore = Math.max(...rawScores);
+  const exps = rawScores.map((s) => Math.exp(s - maxScore));
+  const sumExps = exps.reduce((a, b) => a + b, 0) || 1;
+  const probs = exps.map((e) => Math.round((e / sumExps) * 1000) / 1000);
+
+  const scores = list.map((cand, idx) => ({
+    id: cand.id,
+    index: idx,
+    probability: probs[idx],
+  }));
+
+  scores.sort((a, b) => b.probability - a.probability || a.index - b.index);
+  scores.forEach((score, rank) => {
+    score.rank = rank + 1;
+  });
+
+  const limit = Math.max(1, Math.min(list.length, Number(options.topK) || list.length));
+  return {
+    model: "local-embedded",
+    confidence: scores[0]?.probability || 0.5,
+    scores,
+    ranked: scores.map((s) => s.id),
+    selected: scores.slice(0, limit).map((s) => s.id),
+    usage: { local: true },
+  };
+}
+
 export function createKevClient({
   url = "",
   model = "kev",
   timeoutMs = 15000,
   fetchImpl = fetch,
+  allowLocalFallback = true,
 } = {}) {
   const base = String(url || "").trim().replace(/\/+$/, "");
   const endpoint = base
@@ -94,11 +164,16 @@ export function createKevClient({
       ? base
       : `${base}/v1/systemone`
     : "";
-  const enabled = !!endpoint;
-  const selectedModel = String(model || "kev").trim() || "kev";
+  const enabled = !!endpoint || allowLocalFallback;
+  const selectedModel = endpoint ? (String(model || "kev").trim() || "kev") : "local-embedded";
 
   async function rerank(query, candidates, options = {}) {
-    if (!enabled) throw httpError(503, "Kev is not configured. Set KEV_URL on the hub.");
+    if (!endpoint) {
+      if (allowLocalFallback) {
+        return localEmbeddedRerank(query, candidates, options);
+      }
+      throw httpError(503, "Kev is not configured. Set KEV_URL on the hub.");
+    }
     const state = cleanText(query, MAX_QUERY);
     if (!state) throw httpError(400, "query is required");
     const list = normalizeCandidates(candidates);
