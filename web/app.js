@@ -949,6 +949,17 @@ function renderMarkdown(raw) {
   // Basic HTML sanitization
   text = esc(text);
 
+  // Open WebUI / Vercel style collapsible thinking process (<think>...</think>)
+  text = text.replace(/(?:&lt;think&gt;|<think>)([\s\S]*?)(?:&lt;\/think&gt;|<\/think>)/gi, (_, thought) => {
+    return `<details class="ai-thought-box" open>
+      <summary class="ai-thought-summary">
+        <span class="ai-thought-icon">🧠</span>
+        <span class="ai-thought-label">Thinking Process</span>
+      </summary>
+      <div class="ai-thought-body">${thought.trim()}</div>
+    </details>`;
+  });
+
   // Headings
   text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
   text = text.replace(/^## (.*$)/gim, "<h2>$1</h2>");
@@ -1000,7 +1011,7 @@ function renderMarkdown(raw) {
   text = text.split("\n\n").map((p) => {
     p = p.trim();
     if (!p) return "";
-    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<div") || p.startsWith("<table") || p.startsWith("<ul") || p.startsWith("<blockquote") || p.startsWith("__CB_") || p.startsWith("__MEDIA_")) {
+    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<div") || p.startsWith("<table") || p.startsWith("<ul") || p.startsWith("<blockquote") || p.startsWith("<details") || p.startsWith("__CB_") || p.startsWith("__MEDIA_")) {
       return p;
     }
     return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
@@ -1865,6 +1876,319 @@ async function deleteSlackMessage(msgId) {
   }
 }
 
+/* ------------------------------------------------- Slack Message Actions & Helpers */
+
+let pendingForwardMsg = null;
+
+function resolveTabForMessage(msg) {
+  if (!msg) return null;
+  // 1. Direct tabId property on msg
+  if (msg.tabId) {
+    const tab = extTabs.find((t) => String(t.id) === String(msg.tabId));
+    if (tab) return tab;
+  }
+  // 2. Match against Slack contacts by name, handle, or tag
+  const contacts = typeof getSlackContacts === "function" ? getSlackContacts() : [];
+  const contact = contacts.find((c) =>
+    c.name === msg.author ||
+    c.id === msg.author ||
+    c.handle === msg.author ||
+    c.tag === msg.tag ||
+    (msg.author && c.name && msg.author.toLowerCase().includes(c.name.toLowerCase()))
+  );
+  if (contact?.tabId) {
+    const tab = extTabs.find((t) => String(t.id) === String(contact.tabId));
+    if (tab) return tab;
+    return { id: contact.tabId, title: contact.name, adapter: contact.adapter || "auto" };
+  }
+  // 3. Match against extTabs by adapter or title keywords
+  const authorStr = String(msg.author || "").toLowerCase();
+  const tagStr = String(msg.tag || "").toLowerCase();
+  const matchedTab = extTabs.find((t) => {
+    const title = (t.title || "").toLowerCase();
+    const adapter = (t.adapter || "").toLowerCase();
+    return authorStr.includes(adapter) ||
+      tagStr.includes(adapter) ||
+      title.includes(authorStr) ||
+      (adapter && ["chatgpt", "claude", "gemini", "mistral"].some((k) => (authorStr.includes(k) || tagStr.includes(k)) && (adapter.includes(k) || title.includes(k))));
+  });
+  if (matchedTab) return matchedTab;
+
+  // 4. In a direct message thread with a tab contact
+  if (currentChatTarget.type === "dm" && !msg.isUser) {
+    const dmContact = contacts.find((c) => c.id === currentChatTarget.id);
+    if (dmContact?.tabId) {
+      const tab = extTabs.find((t) => String(t.id) === String(dmContact.tabId));
+      if (tab) return tab;
+      return { id: dmContact.tabId, title: dmContact.name, adapter: dmContact.adapter || "auto" };
+    }
+  }
+
+  // 5. Fallback: If only 1 extension tab is connected and message is from an agent/bot
+  if (extTabs.length === 1 && !msg.isUser) {
+    return extTabs[0];
+  }
+
+  return null;
+}
+
+async function reextractMessageFromTab(msgId) {
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  const list = chatMessages.get(targetKey) || [];
+  const msg = list.find((m) => m.id === msgId);
+  if (!msg) return;
+
+  const tab = resolveTabForMessage(msg);
+  if (!tab) {
+    toast(`No active browser tab found for @${msg.author}. Open an AI tab (ChatGPT, Claude, Gemini) first.`, true);
+    return;
+  }
+
+  const msgEl = $(`#slack-msg-${msgId}`);
+  const reextractBtn = msgEl?.querySelector(".btn-msg-reextract");
+  if (reextractBtn) {
+    reextractBtn.classList.add("spinning");
+    reextractBtn.disabled = true;
+  }
+
+  toast(`Re-extracting latest response from ${tab.title || tab.adapter || msg.author}...`);
+  log("info", `Re-extracting message ${msgId} from tab ${tab.id}...`);
+
+  try {
+    const res = await fetch(`/api/tabs/${encodeURIComponent(tab.id)}/extract`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ adapter: tab.adapter || "auto" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !data.text) {
+      throw new Error(data.error || "No response text found in tab");
+    }
+
+    msg.text = data.text;
+    msg.tabId = tab.id;
+    msg.time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    // Persist updated message
+    await persistSlackMessage(msg);
+
+    // Re-render
+    renderSlackMessages();
+    toast(`Re-extracted ${data.text.length.toLocaleString()} characters from ${tab.title || msg.author}!`);
+  } catch (err) {
+    toast(`Failed to re-extract from tab: ${err.message}`, true);
+    log("error", `Re-extract error: ${err.message}`);
+  } finally {
+    if (reextractBtn) {
+      reextractBtn.classList.remove("spinning");
+      reextractBtn.disabled = false;
+    }
+  }
+}
+
+function toggleMessageReaction(msgId, emoji) {
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  const list = chatMessages.get(targetKey) || [];
+  const msg = list.find((m) => m.id === msgId);
+  if (!msg) return;
+
+  msg.reactions = msg.reactions || {};
+  if (msg.reactions[emoji]) {
+    if (msg.reactions[emoji].userReacted) {
+      msg.reactions[emoji].count -= 1;
+      msg.reactions[emoji].userReacted = false;
+      if (msg.reactions[emoji].count <= 0) {
+        delete msg.reactions[emoji];
+      }
+    } else {
+      msg.reactions[emoji].count += 1;
+      msg.reactions[emoji].userReacted = true;
+    }
+  } else {
+    msg.reactions[emoji] = { count: 1, userReacted: true };
+  }
+
+  renderSlackMessages();
+}
+
+function togglePinMessage(msgId) {
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  const list = chatMessages.get(targetKey) || [];
+  const msg = list.find((m) => m.id === msgId);
+  if (!msg) return;
+
+  msg.pinned = !msg.pinned;
+  renderSlackMessages();
+  toast(msg.pinned ? "Message pinned to conversation" : "Message unpinned");
+}
+
+function copyMessageText(msgId, markdownOnly = false) {
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  const list = chatMessages.get(targetKey) || [];
+  const msg = list.find((m) => m.id === msgId);
+  if (!msg || !msg.text) return;
+
+  const content = markdownOnly ? msg.text : msg.text.replace(/<[^>]+>/g, "");
+  navigator.clipboard.writeText(content).then(() => {
+    toast(markdownOnly ? "Copied raw markdown to clipboard!" : "Copied message to clipboard!");
+  }).catch(() => {
+    toast("Failed to copy", true);
+  });
+}
+
+function openForwardMessageModal(msgId) {
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  const list = chatMessages.get(targetKey) || [];
+  const msg = list.find((m) => m.id === msgId);
+  if (!msg) return;
+
+  pendingForwardMsg = msg;
+  const modal = $("#modal-forward-msg");
+  if (!modal) return;
+
+  const authorEl = $("#forward-preview-author");
+  const textEl = $("#forward-preview-text");
+  if (authorEl) authorEl.textContent = msg.author || "Message";
+  if (textEl) textEl.textContent = (msg.text || "").slice(0, 160) + ((msg.text || "").length > 160 ? "..." : "");
+
+  renderForwardDestinations();
+  modal.hidden = false;
+}
+
+function renderForwardDestinations(filter = "") {
+  const listEl = $("#forward-dest-list");
+  if (!listEl) return;
+  const term = filter.toLowerCase().trim();
+
+  const channels = chatChannels.filter((c) => !term || c.title.toLowerCase().includes(term) || c.id.toLowerCase().includes(term));
+  const contacts = (typeof getSlackContacts === "function" ? getSlackContacts() : []).filter((c) =>
+    !term || c.name.toLowerCase().includes(term) || c.id.toLowerCase().includes(term) || (c.role && c.role.toLowerCase().includes(term))
+  );
+
+  let html = "";
+  if (channels.length > 0) {
+    html += `<div style="font-size:10.5px; font-weight:700; color:var(--text-muted); margin:6px 0 2px; text-transform:uppercase; letter-spacing:0.04em;">Channels</div>`;
+    html += channels.map((c) => `
+      <div class="forward-dest-item" data-dest-type="channel" data-dest-id="${esc(c.id)}" data-dest-title="${esc(c.title)}">
+        <span style="font-size:14px; color:var(--accent);">#</span>
+        <strong style="color:var(--text-main);">${esc(c.title)}</strong>
+        <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">${esc(c.desc || "")}</span>
+      </div>
+    `).join("");
+  }
+
+  if (contacts.length > 0) {
+    html += `<div style="font-size:10.5px; font-weight:700; color:var(--text-muted); margin:10px 0 2px; text-transform:uppercase; letter-spacing:0.04em;">Direct Messages</div>`;
+    html += contacts.map((c) => `
+      <div class="forward-dest-item" data-dest-type="dm" data-dest-id="${esc(c.id)}" data-dest-title="${esc(c.name)}">
+        <span style="font-size:14px;">${c.avatar || "🤖"}</span>
+        <strong style="color:var(--text-main);">${esc(c.name)}</strong>
+        <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">${esc(c.role || c.tag || "")}</span>
+      </div>
+    `).join("");
+  }
+
+  if (!channels.length && !contacts.length) {
+    html = `<div style="padding:16px; text-align:center; color:var(--text-muted); font-size:12px;">No matching channels or agents found</div>`;
+  }
+
+  listEl.innerHTML = html;
+
+  listEl.querySelectorAll(".forward-dest-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const destType = item.dataset.destType;
+      const destId = item.dataset.destId;
+      const destTitle = item.dataset.destTitle;
+      executeForwardMessage(pendingForwardMsg, destType, destId, destTitle);
+      const modal = $("#modal-forward-msg");
+      if (modal) modal.hidden = true;
+    });
+  });
+}
+
+async function executeForwardMessage(msg, destType, destId, destTitle) {
+  if (!msg) return;
+  const forwardMsg = {
+    id: `msg_${Date.now()}_fwd`,
+    author: "You",
+    avatar: "👤",
+    tag: "YOU",
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    text: `↳ *Forwarded from @${msg.author}:*\n\n${msg.text}`,
+    isUser: true,
+  };
+
+  const destKey = `${destType}_${destId}`;
+  if (!chatMessages.has(destKey)) {
+    chatMessages.set(destKey, []);
+  }
+  const destList = chatMessages.get(destKey);
+  destList.push(forwardMsg);
+
+  try {
+    await fetch("/api/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: forwardMsg.id,
+        targetType: destType,
+        targetId: destId,
+        author: forwardMsg.author,
+        avatar: forwardMsg.avatar,
+        tag: forwardMsg.tag,
+        time: forwardMsg.time,
+        text: forwardMsg.text,
+        isUser: true,
+        createdAt: Date.now(),
+      }),
+    });
+  } catch (e) {
+    console.warn("Failed to persist forwarded message:", e);
+  }
+
+  toast(`Forwarded message to ${destType === "channel" ? "#" : "@"}${destTitle}`);
+  if (currentChatTarget.type === destType && currentChatTarget.id === destId) {
+    renderSlackMessages();
+  }
+}
+
+function setupForwardModal() {
+  const modal = $("#modal-forward-msg");
+  if (!modal) return;
+  const btnClose = $("#btn-close-forward");
+  const btnCancel = $("#btn-cancel-forward");
+  const btnQuote = $("#btn-forward-quote");
+  const inputSearch = $("#forward-search-input");
+
+  const closeModal = () => {
+    modal.hidden = true;
+    pendingForwardMsg = null;
+    if (inputSearch) inputSearch.value = "";
+  };
+
+  btnClose?.addEventListener("click", closeModal);
+  btnCancel?.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  inputSearch?.addEventListener("input", () => {
+    renderForwardDestinations(inputSearch.value);
+  });
+
+  btnQuote?.addEventListener("click", () => {
+    if (!pendingForwardMsg) return;
+    const composer = $("#slack-input");
+    if (composer) {
+      const quoted = pendingForwardMsg.text.split("\n").map((l) => `> ${l}`).join("\n");
+      composer.value = `${quoted}\n\n` + composer.value;
+      composer.focus();
+    }
+    closeModal();
+    toast("Quoted message in composer");
+  });
+}
+
 function renderSlackMessages() {
   const feed = $("#slack-messages-feed");
   if (!feed) return;
@@ -1898,28 +2222,175 @@ function renderSlackMessages() {
 
   for (const msg of list) {
     const item = document.createElement("div");
-    item.className = `slack-message ${msg.isUser ? "user-msg" : ""}`;
+    const isUser = Boolean(msg.isUser);
+    item.className = `slack-message openwebui-message ${isUser ? "user-msg" : "assistant-msg"} ${msg.pinned ? "is-pinned" : ""}`;
     item.id = `slack-msg-${msg.id}`;
+    item.dataset.msgId = msg.id;
+
+    const tab = !isUser ? resolveTabForMessage(msg) : null;
+    const canReextract = Boolean(tab);
+    const reactions = msg.reactions || {};
+    const reactionEntries = Object.entries(reactions);
+
+    let reactionsHtml = "";
+    if (reactionEntries.length > 0) {
+      reactionsHtml = `<div class="msg-reactions-bar">` +
+        reactionEntries.map(([emoji, r]) => {
+          const count = typeof r === "number" ? r : r.count;
+          const userReacted = typeof r === "object" ? r.userReacted : false;
+          return `<button type="button" class="reaction-chip ${userReacted ? 'active' : ''}" data-emoji="${esc(emoji)}" title="Reacted with ${esc(emoji)}">${emoji} <span class="reaction-count">${count}</span></button>`;
+        }).join("") +
+        `<button type="button" class="btn-add-reaction" title="Add reaction">+ 😀</button>` +
+        `</div>`;
+    }
+
+    const badgeLabel = isUser
+      ? "YOU"
+      : (tab ? (tab.adapter ? `${tab.adapter.toUpperCase()} TAB` : "AI TAB") : (msg.tag || "AGENT"));
 
     item.innerHTML = `
-      <div class="slack-msg-avatar">${msg.avatar || "💬"}</div>
+      <div class="slack-msg-avatar">
+        ${msg.avatar || (isUser ? "👤" : "💬")}
+        ${tab ? '<span class="avatar-online-dot" title="Active browser tab connected"></span>' : ''}
+      </div>
       <div class="slack-msg-content">
         <div class="slack-msg-header">
           <span class="slack-msg-author">${esc(msg.author)}</span>
-          <span class="slack-msg-tag">${esc(msg.tag || "MSG")}</span>
+          <span class="openwebui-badge ${isUser ? 'user-badge' : 'agent-badge'} ${tab ? 'online' : ''}">${esc(badgeLabel)}</span>
+          ${msg.pinned ? '<span class="pinned-badge">📌 Pinned</span>' : ''}
           <span class="slack-msg-time">${esc(msg.time)}</span>
-          <button type="button" class="btn-msg-delete" data-msg-id="${esc(msg.id)}" title="Delete message" style="margin-left:auto; opacity:0.35; font-size:11px; padding:0 4px; border:none; background:transparent; cursor:pointer;">🗑️</button>
         </div>
         <div class="slack-msg-body">
           ${msg.text ? renderMarkdown(msg.text) : (msg.streaming ? '<span class="typing-bubble"></span> Thinking...' : '')}
         </div>
+        ${reactionsHtml}
+      </div>
+
+      <!-- Slack / Open WebUI Floating Action Toolbar -->
+      <div class="msg-actions-bar" role="toolbar" aria-label="Message actions">
+        <button type="button" class="msg-action-btn btn-msg-react" data-msg-id="${esc(msg.id)}" title="Add reaction">😀</button>
+        ${!isUser ? `<button type="button" class="msg-action-btn btn-msg-reextract ${canReextract ? 'can-reextract' : ''}" data-msg-id="${esc(msg.id)}" title="${canReextract ? `Re-extract latest from ${esc(tab.title || tab.adapter || 'tab')}` : 'Re-extract from tab'}">⟳</button>` : ''}
+        <button type="button" class="msg-action-btn btn-msg-copy" data-msg-id="${esc(msg.id)}" title="Copy message text">📋</button>
+        <button type="button" class="msg-action-btn btn-msg-forward" data-msg-id="${esc(msg.id)}" title="Forward message">↗️</button>
+        <button type="button" class="msg-action-btn btn-msg-a2ui" data-msg-id="${esc(msg.id)}" title="Open in A2UI Expand Sheet">⛶</button>
+        <button type="button" class="msg-action-btn btn-msg-more" data-msg-id="${esc(msg.id)}" title="More options">⋯</button>
+        <button type="button" class="btn-msg-delete" data-msg-id="${esc(msg.id)}" title="Delete message" style="display:none;">🗑️</button>
+
+        <!-- Quick Reaction Picker (Hidden by default) -->
+        <div class="quick-reaction-picker" hidden>
+          <button type="button" class="quick-emoji-btn" data-emoji="👍">👍</button>
+          <button type="button" class="quick-emoji-btn" data-emoji="❤️">❤️</button>
+          <button type="button" class="quick-emoji-btn" data-emoji="🚀">🚀</button>
+          <button type="button" class="quick-emoji-btn" data-emoji="👀">👀</button>
+          <button type="button" class="quick-emoji-btn" data-emoji="🍈">🍈</button>
+          <button type="button" class="quick-emoji-btn" data-emoji="🎉">🎉</button>
+        </div>
+
+        <!-- Slack-Style Options Dropdown (Hidden by default) -->
+        <div class="msg-options-dropdown" hidden>
+          ${!isUser ? `<button type="button" class="msg-dropdown-item opt-reextract" data-msg-id="${esc(msg.id)}">⟳ Re-extract from Tab</button>` : ''}
+          <button type="button" class="msg-dropdown-item opt-copy-text" data-msg-id="${esc(msg.id)}">📋 Copy Plain Text</button>
+          <button type="button" class="msg-dropdown-item opt-copy-md" data-msg-id="${esc(msg.id)}">📝 Copy Raw Markdown</button>
+          <button type="button" class="msg-dropdown-item opt-forward" data-msg-id="${esc(msg.id)}">↗️ Forward Message...</button>
+          <button type="button" class="msg-dropdown-item opt-a2ui" data-msg-id="${esc(msg.id)}">⛶ Open A2UI Inspector</button>
+          <button type="button" class="msg-dropdown-item opt-pin" data-msg-id="${esc(msg.id)}">📌 ${msg.pinned ? "Unpin Message" : "Pin Message"}</button>
+          <div style="height:1px; background:var(--border); margin:2px 0;"></div>
+          <button type="button" class="msg-dropdown-item danger opt-delete" data-msg-id="${esc(msg.id)}">🗑️ Delete Message</button>
+        </div>
       </div>
     `;
 
-    item.querySelector(".btn-msg-delete")?.addEventListener("click", (e) => {
+    // Wire up quick reactions
+    item.querySelectorAll(".quick-emoji-btn, .reaction-chip").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleMessageReaction(msg.id, btn.dataset.emoji);
+      });
+    });
+
+    const reactionPicker = item.querySelector(".quick-reaction-picker");
+    const optionsDropdown = item.querySelector(".msg-options-dropdown");
+
+    item.querySelector(".btn-msg-react")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      if (reactionPicker) reactionPicker.hidden = !reactionPicker.hidden;
+    });
+
+    item.querySelector(".btn-add-reaction")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      if (reactionPicker) reactionPicker.hidden = !reactionPicker.hidden;
+    });
+
+    item.querySelector(".btn-msg-more")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (reactionPicker) reactionPicker.hidden = true;
+      if (optionsDropdown) optionsDropdown.hidden = !optionsDropdown.hidden;
+    });
+
+    // Re-extract from tab
+    const triggerReextract = (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      reextractMessageFromTab(msg.id);
+    };
+    item.querySelector(".btn-msg-reextract")?.addEventListener("click", triggerReextract);
+    item.querySelector(".opt-reextract")?.addEventListener("click", triggerReextract);
+
+    // Copy text
+    item.querySelector(".btn-msg-copy")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyMessageText(msg.id, false);
+      const btn = item.querySelector(".btn-msg-copy");
+      if (btn) {
+        btn.textContent = "✓";
+        setTimeout(() => { btn.textContent = "📋"; }, 1500);
+      }
+    });
+    item.querySelector(".opt-copy-text")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      copyMessageText(msg.id, false);
+    });
+    item.querySelector(".opt-copy-md")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      copyMessageText(msg.id, true);
+    });
+
+    // Forward message
+    const triggerForward = (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      openForwardMessageModal(msg.id);
+    };
+    item.querySelector(".btn-msg-forward")?.addEventListener("click", triggerForward);
+    item.querySelector(".opt-forward")?.addEventListener("click", triggerForward);
+
+    // Open in A2UI sheet
+    const triggerA2UI = (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      openA2UISheet(msg);
+    };
+    item.querySelector(".btn-msg-a2ui")?.addEventListener("click", triggerA2UI);
+    item.querySelector(".opt-a2ui")?.addEventListener("click", triggerA2UI);
+
+    // Pin message
+    item.querySelector(".opt-pin")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (optionsDropdown) optionsDropdown.hidden = true;
+      togglePinMessage(msg.id);
+    });
+
+    // Delete message
+    const triggerDelete = (e) => {
       e.stopPropagation();
       deleteSlackMessage(msg.id);
-    });
+    };
+    item.querySelector(".opt-delete")?.addEventListener("click", triggerDelete);
+    item.querySelector(".btn-msg-delete")?.addEventListener("click", triggerDelete);
 
     feed.appendChild(item);
   }
@@ -2231,6 +2702,8 @@ async function sendSlackMessage() {
     text: "",
     isUser: false,
     streaming: true,
+    tabId: agentTarget.tabId || null,
+    adapter: agentTarget.adapter || null,
   };
   list.push(agentMsg);
   renderSlackMessages();
@@ -2668,8 +3141,13 @@ function setupSlackChat() {
       });
     });
 
-    document.addEventListener("click", () => {
+    document.addEventListener("click", (e) => {
       if (!eraseDropdown.hidden) eraseDropdown.hidden = true;
+      if (!e.target.closest(".msg-actions-bar")) {
+        document.querySelectorAll(".quick-reaction-picker:not([hidden]), .msg-options-dropdown:not([hidden])").forEach((el) => {
+          el.hidden = true;
+        });
+      }
     });
   }
 
@@ -2680,6 +3158,7 @@ function setupSlackChat() {
   setupAgentPersonaModal();
   setupSlackLightbox();
   setupSlackComposerButtons();
+  setupForwardModal();
 }
 
 function setupExperimentsNavigation() {
@@ -3310,25 +3789,29 @@ function detectPeerDelegation(senderNode, responseText, command) {
 
 /* ------------------------------------------------- Expandable A2UI Sheet Modal */
 
-function openA2UISheet(node) {
+function openA2UISheet(nodeOrMsg) {
   const modal = $("#modal-a2ui-sheet");
-  if (!modal || !node) return;
+  if (!modal || !nodeOrMsg) return;
 
-  const persona = getAgentPersona(node);
-  const rec = node.runtime;
-  const rawText = rec?.text || "";
+  const isMsg = Boolean(nodeOrMsg.author || (!nodeOrMsg.kind && nodeOrMsg.id));
+  const rawText = isMsg ? (nodeOrMsg.text || "") : (nodeOrMsg.runtime?.text || "");
+  const persona = !isMsg ? getAgentPersona(nodeOrMsg) : null;
+  const avatar = isMsg ? (nodeOrMsg.avatar || "💬") : (persona?.avatar || "🧑‍💻");
+  const title = isMsg ? `${nodeOrMsg.author} (${nodeOrMsg.tag || "MSG"})` : `${persona.label} (@${persona.handle})`;
+  const sub = isMsg ? `Message turn from ${currentChatTarget?.title || "chat"} · ${nodeOrMsg.time || ""}` : `${persona.adapter} · ${nodeOrMsg.config?.prompt ? nodeOrMsg.config.prompt.slice(0, 70) : "Autonomous Desk"}`;
+  const status = isMsg ? (nodeOrMsg.isUser ? "user" : "done") : (nodeOrMsg.runtime?.status || "idle");
 
   const avatarEl = $("#a2ui-sheet-avatar");
   const titleEl = $("#a2ui-sheet-title");
   const subEl = $("#a2ui-sheet-subtitle");
-  if (avatarEl) avatarEl.textContent = persona.avatar || "🧑‍💻";
-  if (titleEl) titleEl.textContent = `${persona.label} (@${persona.handle})`;
-  if (subEl) subEl.textContent = `${persona.adapter} · ${node.config?.prompt ? node.config.prompt.slice(0, 70) : "Autonomous Desk"}`;
+  if (avatarEl) avatarEl.textContent = avatar;
+  if (titleEl) titleEl.textContent = title;
+  if (subEl) subEl.textContent = sub;
 
   const statusEl = $("#a2ui-sheet-status");
   if (statusEl) {
-    statusEl.textContent = rec?.status || "idle";
-    statusEl.className = `sheet-badge ${rec?.status || "idle"}`;
+    statusEl.textContent = status;
+    statusEl.className = `sheet-badge ${status}`;
   }
 
   // 1. Render Interactive A2UI View
@@ -3337,6 +3820,7 @@ function openA2UISheet(node) {
     panelInteractive.innerHTML = rawText
       ? renderMarkdown(rawText)
       : '<div class="office-empty-state"><p>No output generated yet for this desk.</p></div>';
+    renderAllPendingDiagrams(panelInteractive);
   }
 
   // 2. Render Markdown View

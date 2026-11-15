@@ -875,6 +875,35 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
       </div>
     </div>
 
+    <!-- Slack / Open WebUI Forward Message Modal -->
+    <div class="modal-backdrop" id="modal-forward-msg" hidden>
+      <div class="modal-card modal-forward-card" role="dialog" aria-modal="true" aria-labelledby="forward-modal-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="forward-modal-title">Forward Message</h3>
+            <p class="modal-sub">Share this message to another channel or agent DM.</p>
+          </div>
+          <button type="button" class="ghost tiny btn-close-modal" id="btn-close-forward">✕</button>
+        </div>
+        <div class="modal-body forward-modal-body">
+          <div class="forward-preview" id="forward-preview-box">
+            <span class="forward-preview-author" id="forward-preview-author">Author</span>
+            <p class="forward-preview-text" id="forward-preview-text">Message preview...</p>
+          </div>
+          <div class="forward-dest-search">
+            <input type="text" id="forward-search-input" placeholder="Search channels or agents..." />
+          </div>
+          <div class="forward-dest-list" id="forward-dest-list">
+            <!-- Populated dynamically with channels and contacts -->
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="ghost" id="btn-forward-quote">Quote in Current Composer</button>
+          <button type="button" class="ghost" id="btn-cancel-forward">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Slack Media & Extracted Graphic Lightbox Modal -->
     <div class="modal-backdrop" id="modal-slack-lightbox" hidden>
       <div class="lightbox-container">

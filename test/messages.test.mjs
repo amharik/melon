@@ -170,3 +170,46 @@ test("DOM and App expose Slack Erase-Back, Persistent URLs, and Experiments View
   assert.match(app, /function savePersistentAgentToServer/);
   assert.match(app, /profile-urls-section/);
 });
+
+test("Slack and Open WebUI message options menu, re-extraction, and forward rendering", async () => {
+  const html = await fs.readFile(path.join(ROOT, "web/index.html"), "utf8");
+  const app = await fs.readFile(path.join(ROOT, "web/app.js"), "utf8");
+  const css = await fs.readFile(path.join(ROOT, "web/styles.css"), "utf8");
+
+  // 1. Forward message modal in HTML
+  assert.match(html, /id="modal-forward-msg"/, "Expected #modal-forward-msg in index.html");
+  assert.match(html, /id="forward-search-input"/, "Expected #forward-search-input in index.html");
+  assert.match(html, /id="forward-dest-list"/, "Expected #forward-dest-list in index.html");
+  assert.match(html, /id="btn-forward-quote"/, "Expected #btn-forward-quote in index.html");
+
+  // 2. Open WebUI / Vercel chat styling and message action toolbar in CSS
+  assert.match(css, /\.openwebui-badge/, "Expected .openwebui-badge in styles.css");
+  assert.match(css, /\.msg-actions-bar/, "Expected .msg-actions-bar in styles.css");
+  assert.match(css, /\.msg-action-btn/, "Expected .msg-action-btn in styles.css");
+  assert.match(css, /\.quick-reaction-picker/, "Expected .quick-reaction-picker in styles.css");
+  assert.match(css, /\.msg-options-dropdown/, "Expected .msg-options-dropdown in styles.css");
+  assert.match(css, /\.msg-reactions-bar/, "Expected .msg-reactions-bar in styles.css");
+  assert.match(css, /\.reaction-chip/, "Expected .reaction-chip in styles.css");
+  assert.match(css, /\.ai-thought-box/, "Expected .ai-thought-box in styles.css");
+  assert.match(css, /\.avatar-online-dot/, "Expected .avatar-online-dot in styles.css");
+
+  // 3. Tab re-extraction & message options in App.js
+  assert.match(app, /function resolveTabForMessage/, "Expected resolveTabForMessage function");
+  assert.match(app, /function reextractMessageFromTab/, "Expected reextractMessageFromTab function");
+  assert.match(app, /function toggleMessageReaction/, "Expected toggleMessageReaction function");
+  assert.match(app, /function togglePinMessage/, "Expected togglePinMessage function");
+  assert.match(app, /function copyMessageText/, "Expected copyMessageText function");
+  assert.match(app, /function openForwardMessageModal/, "Expected openForwardMessageModal function");
+  assert.match(app, /function executeForwardMessage/, "Expected executeForwardMessage function");
+  assert.match(app, /function setupForwardModal/, "Expected setupForwardModal function");
+
+  // 4. Action toolbar elements inside rendered message
+  assert.match(app, /btn-msg-reextract/);
+  assert.match(app, /btn-msg-copy/);
+  assert.match(app, /btn-msg-forward/);
+  assert.match(app, /btn-msg-a2ui/);
+  assert.match(app, /btn-msg-react/);
+  assert.match(app, /msg-options-dropdown/);
+  assert.match(app, /openwebui-message/);
+  assert.match(app, /ai-thought-box/);
+});
