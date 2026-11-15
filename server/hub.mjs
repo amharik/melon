@@ -19,6 +19,7 @@ import { promisify } from "node:util";
 import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 import { extractArtifactsFromText } from "../web/shared/artifacts.js";
 import { createTelemetryTracker } from "./telemetry.mjs";
+import { createTaskStore } from "./tasks.mjs";
 import { createKevClient } from "./kev.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { packEtag, packSummary, readPackFile } from "./adapter-pack.mjs";
@@ -71,6 +72,7 @@ const TELEMETRY_FILE = process.env.MELON_TELEMETRY_LOG
   ? path.resolve(process.env.MELON_TELEMETRY_LOG)
   : path.join(ROOT, ".melon", "telemetry.jsonl");
 const telemetry = createTelemetryTracker({ file: TELEMETRY_FILE });
+const taskStore = createTaskStore();
 const threads = createThreadStore();
 const agy = createAgyRunner({ cmd: AGY_CMD, args: AGY_ARGS, inputFormat: AGY_INPUT_FORMAT });
 const worktrees = createWorktreeManager({ root: WORKTREE_ROOT, repo: ROOT });
@@ -127,6 +129,7 @@ function setRunStatus(run, status, detail = {}) {
   if (!run) return;
   run.status = status;
   if (run.threadId) threads.setStatus(run.threadId, status);
+  taskStore.update(run.id, { status, text: run.text });
   broadcast({
     type: "run.status",
     runId: run.id,
@@ -137,6 +140,10 @@ function setRunStatus(run, status, detail = {}) {
     at: Date.now(),
     ...detail,
   });
+  const currentTask = taskStore.get(run.id);
+  if (currentTask) {
+    broadcast({ type: "task.update", task: currentTask });
+  }
 }
 
 function newRun(id, target) {
@@ -169,6 +176,8 @@ function newRun(id, target) {
     },
   };
   runs.set(id, run);
+  const task = taskStore.create({ id, target, threadId });
+  broadcast({ type: "task.update", task });
   if (threadId) {
     threads.append(threadId, {
       role: "user",
@@ -220,6 +229,14 @@ function finishRun(id, event) {
     }
   }
   setRunStatus(run, status);
+  const finishedTask = taskStore.finish(id, {
+    status,
+    text: event.text ?? run.text,
+    error: event.error?.message || (event.error ? String(event.error) : null),
+  });
+  if (finishedTask) {
+    broadcast({ type: "task.finish", task: finishedTask });
+  }
   runs.delete(id);
   const finalText = String(event.text ?? run.text ?? "");
   const artifacts = extractArtifactsFromText(finalText);
@@ -244,6 +261,7 @@ function runEvent(id, event) {
   if (!run) return;
   if (event.type === "chunk") {
     run.text += event.text || "";
+    taskStore.update(id, { text: run.text, status: "streaming" });
     if (run.status !== "streaming") setRunStatus(run, "streaming");
     broadcast({ type: "run.event", runId: id, event });
     return;
@@ -1246,6 +1264,8 @@ async function handleApi(req, res, url) {
       extensionClients: extClients.size,
       tabs: aggregateTabs().length,
       runs: runs.size,
+      activeTasks: taskStore.activeCount,
+      resumableTasks: taskStore.list({ status: "resumable" }).length,
       threads: threads.list().length,
       pendingToolRequests: [...toolRequests.values()].filter((item) => item.status === "pending").length,
       worktreeRoot: WORKTREE_ROOT,
@@ -1607,6 +1627,98 @@ async function handleApi(req, res, url) {
   if (pathname === "/api/telemetry/errors" && req.method === "GET") {
     const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 20));
     return json(res, 200, { ok: true, count: telemetry.size, errors: telemetry.list(limit) });
+  }
+
+  if (pathname === "/api/tasks" && req.method === "GET") {
+    const status = url.searchParams.get("status") || "all";
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 30));
+    return json(res, 200, {
+      ok: true,
+      activeCount: taskStore.activeCount,
+      historyCount: taskStore.historyCount,
+      tasks: taskStore.list({ status, limit }),
+    });
+  }
+
+  const taskGetMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+  if (taskGetMatch && req.method === "GET") {
+    const taskId = decodeURIComponent(taskGetMatch[1]);
+    const task = taskStore.get(taskId);
+    if (!task) return json(res, 404, { ok: false, error: `task ${taskId} not found` });
+    return json(res, 200, { ok: true, task });
+  }
+
+  const taskAbortMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/abort$/);
+  if (taskAbortMatch && req.method === "POST") {
+    const taskId = decodeURIComponent(taskAbortMatch[1]);
+    const ok = abortRun(taskId);
+    const task = taskStore.get(taskId);
+    return json(res, ok || task ? 200 : 404, { ok: !!(ok || task), task });
+  }
+
+  const taskResumeMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/resume$/);
+  if (taskResumeMatch && req.method === "POST") {
+    const taskId = decodeURIComponent(taskResumeMatch[1]);
+    let body = {};
+    try {
+      body = await readBody(req);
+    } catch {}
+    const task = taskStore.get(taskId);
+    if (!task) return json(res, 404, { ok: false, error: `task ${taskId} not found` });
+    if (!task.resumable && task.status !== "error" && task.status !== "cancelled") {
+      return json(res, 400, { ok: false, error: `task ${taskId} is currently ${task.status} and cannot be resumed` });
+    }
+
+    const mode = body.mode || "auto"; // auto | extract | continue
+
+    if (task.target.type === "extension" && task.target.tabId) {
+      const tabConnected = aggregateTabs().some((t) => String(t.id) === String(task.target.tabId));
+      if ((mode === "extract" || mode === "auto") && tabConnected) {
+        try {
+          const extRes = await requestExtract(task.target.tabId, task.target.adapter || "auto");
+          if (extRes.ok && extRes.text && extRes.text.trim().length > (task.partialText || task.text || "").trim().length) {
+            taskStore.finish(taskId, { status: "done", text: extRes.text });
+            const finished = taskStore.get(taskId);
+            broadcast({ type: "task.finish", task: finished });
+            return json(res, 200, {
+              ok: true,
+              resumed: true,
+              method: "extracted",
+              task: finished,
+            });
+          }
+        } catch {}
+        if (mode === "extract") {
+          return json(res, 400, { ok: false, error: "could not extract new content from tab" });
+        }
+      }
+    }
+
+    taskStore.markResumed(taskId);
+    const resumeRunId = `${taskId}_r${task.resumeCount || 1}`;
+    const anchor = task.partialText ? task.partialText.slice(-300).trim() : "";
+    const continuationPrompt = body.prompt || (anchor
+      ? `Continue directly from where you left off. Do not repeat what was already written. The previous text ended with:\n"...${anchor}"\n\nContinue now:`
+      : task.target.prompt);
+
+    const resumedTarget = {
+      ...task.target,
+      prompt: continuationPrompt,
+    };
+
+    const run = newRun(resumeRunId, resumedTarget);
+    if (resumedTarget.type === "extension") startExtensionRun(run);
+    else if (resumedTarget.type === "opencode") startOpencodeRun(run);
+    else if (resumedTarget.type === "agy") startAgyRun(run);
+    else startLlmRun(run);
+
+    return json(res, 200, {
+      ok: true,
+      resumed: true,
+      method: "continued",
+      newRunId: resumeRunId,
+      task: taskStore.get(taskId),
+    });
   }
 
   if (pathname === "/api/events" && req.method === "GET") {

@@ -93,6 +93,14 @@ function parseCliArgs(args) {
       parsed.prompt = positional.slice(1).join(" ");
     } else if (parsed.command === "export") {
       parsed.runId = positional[1] || "";
+    } else if (parsed.command === "tasks" || parsed.command === "ps") {
+      parsed.command = "tasks";
+      parsed.filter = positional[1] || "all";
+    } else if (parsed.command === "resume") {
+      parsed.taskId = positional[1] || "";
+      parsed.prompt = positional.slice(2).join(" ");
+    } else if (parsed.command === "abort") {
+      parsed.taskId = positional[1] || "";
     }
   } else if (!parsed.help && !parsed.version) {
     parsed.command = "help";
@@ -565,6 +573,104 @@ async function handleErrors(opts) {
   }
 }
 
+// Command: melon tasks / melon ps
+async function handleTasks(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  try {
+    const filter = opts.filter || "all";
+    const data = await requestJson(`${hubUrl}/api/tasks?status=${encodeURIComponent(filter)}`, { token: opts.token });
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    const tasks = data.tasks || [];
+    if (!tasks.length) {
+      console.log(`\n📋 No tasks found (filter: ${filter}). Active: ${data.activeCount || 0}, Total: ${data.historyCount || 0}`);
+      return;
+    }
+    console.log(`\n📋 Melon Tasks (Active: ${data.activeCount || 0}, Filter: ${filter}):\n`);
+    console.log("ID".padEnd(20) + "TARGET".padEnd(16) + "STATUS".padEnd(12) + "CHARS".padStart(7) + "  " + "ELAPSED".padEnd(10) + "RESUMABLE".padEnd(11) + "PREVIEW");
+    console.log("―".repeat(95));
+    for (const t of tasks) {
+      const id = (t.id || "").slice(0, 18).padEnd(20);
+      const target = (t.target?.adapter || t.target?.type || "unknown").slice(0, 14).padEnd(16);
+      const status = (t.status || "").slice(0, 10).padEnd(12);
+      const chars = String(t.chars || 0).padStart(7);
+      const elapsed = (t.durationMs ? `${(t.durationMs / 1000).toFixed(1)}s` : "-").padEnd(10);
+      const resumable = (t.resumable ? "⚡ YES" : "-").padEnd(11);
+      const preview = (t.text || t.target?.prompt || "").replace(/\s+/g, " ").trim().slice(0, 25);
+      console.log(`${id}${target}${status}${chars}  ${elapsed}${resumable}${preview ? `"${preview}..."` : ""}`);
+    }
+    console.log("");
+  } catch (err) {
+    console.error(`❌ Failed to retrieve tasks from Melon Hub at ${hubUrl}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// Command: melon resume <taskId> [continuation prompt]
+async function handleResume(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  const taskId = opts.taskId;
+  if (!taskId) {
+    console.error("❌ Error: Task ID is required. Usage: melon resume <taskId> [optional continuation prompt]");
+    process.exit(1);
+  }
+  try {
+    const res = await requestJson(`${hubUrl}/api/tasks/${encodeURIComponent(taskId)}/resume`, {
+      method: "POST",
+      token: opts.token,
+      headers: { "content-type": "application/json" },
+      body: {
+        mode: opts.extractOnly ? "extract" : "auto",
+        prompt: opts.prompt || undefined,
+      },
+    });
+    if (opts.json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
+    if (res.method === "extracted") {
+      console.log(`\n✨ Successfully recovered task ${taskId} directly from tab! (${res.task?.chars || 0} characters)`);
+      if (res.task?.text) {
+        console.log(`\n${res.task.text}\n`);
+      }
+    } else {
+      console.log(`\n⚡ Task ${taskId} resumed via continuation!`);
+      console.log(`  New Run ID:  ${res.newRunId}`);
+      console.log(`  Target:      ${res.task?.target?.adapter || res.task?.target?.type}`);
+      console.log(`\nTip: Run \`melon tasks\` to track progress or \`melon ask -e\` to inspect output.`);
+    }
+  } catch (err) {
+    console.error(`❌ Failed to resume task ${taskId}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// Command: melon abort <taskId>
+async function handleAbort(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  const taskId = opts.taskId;
+  if (!taskId) {
+    console.error("❌ Error: Task ID is required. Usage: melon abort <taskId>");
+    process.exit(1);
+  }
+  try {
+    const res = await requestJson(`${hubUrl}/api/tasks/${encodeURIComponent(taskId)}/abort`, {
+      method: "POST",
+      token: opts.token,
+    });
+    if (opts.json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
+    console.log(`\n🛑 Task ${taskId} aborted.`);
+  } catch (err) {
+    console.error(`❌ Failed to abort task ${taskId}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 function printHelp() {
   console.log(`
 🍈 Melon CLI (v${VERSION}) - Reverse CLI-to-Web AI Oracle
@@ -573,6 +679,9 @@ USAGE:
   melon ask [options] "<prompt>"    Dispatch prompt to bridged browser tab & stream answer
   melon ask -e [options]            Re-extract latest response from active tab without prompting
   melon tabs [options]              List all active bridged browser tabs (ChatGPT, Claude, Gemini)
+  melon tasks [filter] [options]    List async tasks, status & partial checkpoints (alias: melon ps)
+  melon resume <taskId> [options]   Gracefully resume or recover an interrupted task
+  melon abort <taskId> [options]    Abort an in-flight background task
   melon doctor [options]            Run self-healing diagnostic check on local setup & tabs
   melon errors [options]            Inspect real-time telemetry, adapter errors & root causes
   melon status [options]            Show Melon Hub runtime health and connected clients
@@ -595,8 +704,12 @@ EXAMPLES:
   # Pipe terminal input directly to ChatGPT / Gemini
   cat server.log | melon ask -r chatgpt "Analyze this stack trace and suggest a fix"
 
-  # List bridged tabs
-  melon tabs
+  # View in-flight and recent async tasks
+  melon tasks
+  melon tasks resumable
+
+  # Gracefully recover or resume an interrupted task
+  melon resume run_1731675200
 
   # Re-extract the latest generated code block from tab
   melon ask -e -t 2109556133 > solution.ts
@@ -622,6 +735,15 @@ async function main() {
       break;
     case "tabs":
       await handleTabs(opts);
+      break;
+    case "tasks":
+      await handleTasks(opts);
+      break;
+    case "resume":
+      await handleResume(opts);
+      break;
+    case "abort":
+      await handleAbort(opts);
       break;
     case "ask":
       await handleAsk(opts);
@@ -649,4 +771,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor, handleErrors };
+export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor, handleErrors, handleTasks, handleResume, handleAbort };

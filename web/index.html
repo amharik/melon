@@ -50,6 +50,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Smart-Bind
           </button>
+          <button id="btn-tasks-drawer" class="view-btn" title="Inspect background async tasks and resume interrupted operations">
+            <span id="task-pulse-dot" class="pulse-dot idle"></span>
+            Tasks <span id="task-badge" class="count-badge">0</span>
+          </button>
         </div>
 
         <span class="sep"></span>
@@ -433,6 +437,31 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             </div>
             <div id="tournament-grid" class="tournament-grid"></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Async Task Manager & Graceful Resume Drawer Modal -->
+    <div class="modal-backdrop" id="modal-tasks" hidden>
+      <div class="modal-card modal-tasks-card" role="dialog" aria-modal="true" aria-labelledby="modal-tasks-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="modal-tasks-title">⚡ Async Task Manager & Recovery</h3>
+            <p class="modal-sub">In-flight background tasks, partial generation checkpoints, and 1-click graceful resume.</p>
+          </div>
+          <div class="tasks-head-actions">
+            <button type="button" class="tiny ghost" id="btn-tasks-refresh">↻ Refresh</button>
+            <button type="button" class="tiny ghost btn-close-modal" id="btn-close-tasks">✕</button>
+          </div>
+        </div>
+        <div class="tasks-filter-bar">
+          <button class="filter-btn active" data-filter="all">All (<span id="count-tasks-all">0</span>)</button>
+          <button class="filter-btn" data-filter="active">Active (<span id="count-tasks-active">0</span>)</button>
+          <button class="filter-btn" data-filter="resumable">⚡ Resumable (<span id="count-tasks-resumable">0</span>)</button>
+          <button class="filter-btn" data-filter="done">Completed (<span id="count-tasks-done">0</span>)</button>
+        </div>
+        <div class="modal-body tasks-list-container" id="tasks-list">
+          <div class="tasks-empty-state">No async tasks recorded yet. Run a prompt in the canvas or tournament.</div>
         </div>
       </div>
     </div>

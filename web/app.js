@@ -3410,6 +3410,8 @@ function connectHub() {
         const err = message.record || {};
         log("warn", `telemetry: [${err.subsystem || "hub"}] ${err.message}`);
         if (err.diagnosis) log("hint", `💡 diagnosis: ${err.diagnosis}`);
+      } else if (message.type === "task.update" || message.type === "task.finish") {
+        handleTaskEvent(message.task);
       }
     };
   } catch {}
@@ -3435,6 +3437,9 @@ async function refreshHub() {
     hub.agy = !!health.agy;
     hub.opencodeUrl = health.opencodeUrl || hub.opencodeUrl;
     hub.worktreeRoot = health.worktreeRoot || hub.worktreeRoot;
+    hub.activeTasks = health.activeTasks || 0;
+    hub.resumableTasks = health.resumableTasks || 0;
+    updateTaskIndicator(hub.activeTasks, hub.resumableTasks);
     updateExtTabs(tabs.tabs || []);
     if (Array.isArray(tools.requests)) {
       toolRequests.clear();
@@ -3767,6 +3772,7 @@ function setupUi() {
 
   setupTournament();
   setupOnboarding();
+  setupTaskManager();
 }
 
 function setupTournament() {
@@ -4160,6 +4166,251 @@ function setupOnboarding() {
 
   if (!localStorage.getItem("melon.visited")) {
     setTimeout(openOnboarding, 600);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async Task Manager & Graceful Resume
+// ---------------------------------------------------------------------------
+
+let cachedTasks = [];
+let taskFilter = "all";
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function updateTaskIndicator(activeCount = 0, resumableCount = 0) {
+  const badge = $("#task-badge");
+  const dot = $("#task-pulse-dot");
+  if (badge) badge.textContent = String(activeCount + resumableCount);
+  if (dot) {
+    if (activeCount > 0) {
+      dot.className = "pulse-dot active";
+    } else if (resumableCount > 0) {
+      dot.className = "pulse-dot resumable";
+    } else {
+      dot.className = "pulse-dot idle";
+    }
+  }
+}
+
+function handleTaskEvent(task) {
+  if (!task) return;
+  const idx = cachedTasks.findIndex((t) => t.id === task.id);
+  if (idx >= 0) {
+    cachedTasks[idx] = task;
+  } else {
+    cachedTasks.unshift(task);
+  }
+  const activeCount = cachedTasks.filter(
+    (t) => t.status === "thinking" || t.status === "streaming" || t.status === "queued",
+  ).length;
+  const resumableCount = cachedTasks.filter((t) => t.resumable).length;
+  updateTaskIndicator(activeCount, resumableCount);
+
+  const modal = $("#modal-tasks");
+  if (modal && !modal.hidden) {
+    renderTasksList();
+  }
+}
+
+async function fetchTasks() {
+  try {
+    const res = await fetch(`/api/tasks?status=all&limit=50`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    cachedTasks = data.tasks || [];
+    const activeCount = data.activeCount || 0;
+    const resumableCount = cachedTasks.filter((t) => t.resumable).length;
+    updateTaskIndicator(activeCount, resumableCount);
+    renderTasksList();
+  } catch {}
+}
+
+function renderTasksList() {
+  const container = $("#tasks-list");
+  if (!container) return;
+
+  const countAll = $("#count-tasks-all");
+  const countActive = $("#count-tasks-active");
+  const countResumable = $("#count-tasks-resumable");
+  const countDone = $("#count-tasks-done");
+
+  const all = cachedTasks;
+  const active = all.filter(
+    (t) => t.status === "thinking" || t.status === "streaming" || t.status === "queued",
+  );
+  const resumable = all.filter((t) => t.resumable);
+  const done = all.filter((t) => t.status === "done");
+
+  if (countAll) countAll.textContent = String(all.length);
+  if (countActive) countActive.textContent = String(active.length);
+  if (countResumable) countResumable.textContent = String(resumable.length);
+  if (countDone) countDone.textContent = String(done.length);
+
+  let filtered = all;
+  if (taskFilter === "active") filtered = active;
+  else if (taskFilter === "resumable") filtered = resumable;
+  else if (taskFilter === "done") filtered = done;
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="tasks-empty-state">No tasks matching filter "${escapeHtml(taskFilter)}".</div>`;
+    return;
+  }
+
+  container.innerHTML = "";
+  for (const t of filtered) {
+    const card = document.createElement("div");
+    card.className = `task-card ${t.resumable ? "is-resumable" : ""} ${
+      t.status === "streaming" || t.status === "thinking" ? "is-active" : ""
+    }`;
+
+    const elapsed = t.durationMs ? `${(t.durationMs / 1000).toFixed(1)}s` : "0s";
+    const chars = t.chars || (t.text ? t.text.length : 0);
+    const targetName = t.target?.adapter || t.target?.type || "tab";
+    const promptPreview = (t.target?.prompt || "").slice(0, 80);
+    const textPreview = (t.partialText || t.text || "").trim();
+
+    card.innerHTML = `
+      <div class="task-card-head">
+        <div class="task-id-badge">
+          <span class="task-target-tag">${escapeHtml(targetName)}</span>
+          <span>${escapeHtml(t.id)}</span>
+        </div>
+        <span class="task-status-pill ${escapeHtml(t.status)}">${escapeHtml(t.status)}</span>
+      </div>
+      ${promptPreview ? `<div class="task-prompt-line"><strong>Prompt:</strong> ${escapeHtml(promptPreview)}</div>` : ""}
+      <div class="task-meta-row">
+        <span>⏱ ${elapsed}</span>
+        <span>📝 ${chars.toLocaleString()} chars</span>
+        ${t.resumeCount ? `<span>⚡ Resumed ${t.resumeCount}x</span>` : ""}
+        ${t.error ? `<span style="color:#f87171">⚠️ ${escapeHtml(t.error)}</span>` : ""}
+      </div>
+      ${textPreview ? `<div class="task-preview-box">${escapeHtml(textPreview.slice(-250))}</div>` : ""}
+      <div class="task-card-actions">
+        ${
+          t.resumable
+            ? `<button type="button" class="tiny primary btn-task-resume" data-id="${escapeHtml(
+                t.id,
+              )}">⚡ Resume / Recover</button>`
+            : ""
+        }
+        ${
+          t.status === "streaming" || t.status === "thinking"
+            ? `<button type="button" class="tiny danger btn-task-abort" data-id="${escapeHtml(
+                t.id,
+              )}">⏹ Abort</button>`
+            : ""
+        }
+        ${
+          t.text
+            ? `<button type="button" class="tiny ghost btn-task-copy" data-id="${escapeHtml(
+                t.id,
+              )}">📋 Copy Output</button>`
+            : ""
+        }
+      </div>
+    `;
+
+    const btnResume = card.querySelector(".btn-task-resume");
+    if (btnResume) {
+      btnResume.addEventListener("click", () => resumeTask(t.id));
+    }
+    const btnAbort = card.querySelector(".btn-task-abort");
+    if (btnAbort) {
+      btnAbort.addEventListener("click", () => abortTask(t.id));
+    }
+    const btnCopy = card.querySelector(".btn-task-copy");
+    if (btnCopy) {
+      btnCopy.addEventListener("click", () => {
+        navigator.clipboard.writeText(t.text || "").then(() => toast("Copied task output to clipboard!"));
+      });
+    }
+
+    container.appendChild(card);
+  }
+}
+
+async function resumeTask(taskId) {
+  toast(`⚡ Resuming task ${taskId}...`);
+  try {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "auto" }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.method === "extracted") {
+        toast(`✨ Recovered ${data.task?.chars || 0} chars directly from tab!`);
+      } else {
+        toast(`⚡ Launched continuation run ${data.newRunId}!`);
+      }
+      fetchTasks();
+    } else {
+      toast(`Failed to resume: ${data.error}`, true);
+    }
+  } catch (err) {
+    toast(`Resume error: ${err.message}`, true);
+  }
+}
+
+async function abortTask(taskId) {
+  try {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/abort`, { method: "POST" });
+    const data = await res.json();
+    if (data.ok) {
+      toast(`Aborted task ${taskId}`);
+      fetchTasks();
+    }
+  } catch (err) {
+    toast(`Abort error: ${err.message}`, true);
+  }
+}
+
+function setupTaskManager() {
+  const modal = $("#modal-tasks");
+  const btnOpen = $("#btn-tasks-drawer");
+  const btnClose = $("#btn-close-tasks");
+  const btnRefresh = $("#btn-tasks-refresh");
+  const filterBtns = document.querySelectorAll(".tasks-filter-bar .filter-btn");
+
+  if (btnOpen) {
+    btnOpen.addEventListener("click", () => {
+      if (modal) modal.hidden = false;
+      fetchTasks();
+    });
+  }
+
+  if (btnClose) {
+    btnClose.addEventListener("click", () => {
+      if (modal) modal.hidden = true;
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => fetchTasks());
+  }
+
+  filterBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      filterBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      taskFilter = btn.dataset.filter || "all";
+      renderTasksList();
+    });
+  });
+
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.hidden = true;
+    });
   }
 }
 
