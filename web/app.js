@@ -1119,132 +1119,579 @@ function relevantSheetNodes() {
   return nodes.filter((n) => n.kind === "agent" || n.kind === "sink" || n.kind === "join");
 }
 
-function renderSheetView() {
-  const grid = $("#sheet-grid");
-  if (!grid) return;
-  grid.replaceChildren();
+/* ------------------------------------------------- Slack-Style Team Messenger */
 
-  const activeNodes = relevantSheetNodes();
-  if (activeNodes.length === 0) {
-    grid.innerHTML = `<div class="sheet-card" style="grid-column: 1 / -1; align-items: center; justify-content: center; padding: 48px 24px; text-align: center;">
-      <p style="color: var(--text-muted); margin: 0 0 14px; font-size: 13px;">No agents or decision nodes in workflow.</p>
-      <button class="primary tiny" id="btn-sheet-add-example">Load Example Office</button>
-    </div>`;
-    $("#btn-sheet-add-example")?.addEventListener("click", () => $("#btn-example").click());
-    return;
-  }
+let currentChatTarget = {
+  type: "channel",
+  id: "general-war-room",
+  title: "general-war-room",
+  icon: "#",
+  desc: "Central office channel: all tab models and CLI agents collaborate here.",
+};
 
-  for (const node of activeNodes) {
-    const card = createSheetCard(node);
-    grid.append(card);
-  }
+let chatChannels = [
+  { id: "general-war-room", title: "general-war-room", desc: "Central office channel: all tab models and CLI agents collaborate here." },
+  { id: "code-review", title: "code-review", desc: "Code quality checks, diff analysis, and architecture patterns." },
+  { id: "architecture", title: "architecture", desc: "High-level design decisions, RFCs, and API boundaries." },
+  { id: "qa-testing", title: "qa-testing", desc: "Automated test suites, reproduction steps, and edge-cases." },
+];
 
-  grid.querySelectorAll(".btn-copy-code").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const code = btn.dataset.copy;
-      navigator.clipboard.writeText(code).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = orig), 1500);
-      });
+const chatMessages = new Map();
+let customContacts = [];
+
+function getSlackContacts() {
+  const contacts = [];
+
+  for (const tab of extTabs.values()) {
+    if (tab.supported === false) continue;
+    const adapter = (tab.adapter || "auto").toLowerCase();
+    let avatar = "🌐";
+    if (adapter.includes("chatgpt")) avatar = "🧠";
+    else if (adapter.includes("gemini")) avatar = "⚡";
+    else if (adapter.includes("claude")) avatar = "🤖";
+    else if (adapter.includes("mistral")) avatar = "🦊";
+
+    contacts.push({
+      id: `tab_${tab.id}`,
+      type: "tab",
+      tabId: tab.id,
+      adapter: tab.adapter || "auto",
+      name: tab.title ? tab.title.slice(0, 22) : `Tab ${tab.id}`,
+      handle: adapter === "auto" ? `tab-${tab.id}` : adapter,
+      avatar,
+      status: tab.attached !== false ? "online" : "idle",
+      tag: "TAB",
+      desc: `Bridged Browser Tab: ${tab.url || "Authenticated session"}`,
+      url: tab.url || "",
     });
+  }
+
+  contacts.push({
+    id: "cli_opencode",
+    type: "opencode",
+    name: "Opencode CLI",
+    handle: "opencode",
+    avatar: "💻",
+    adapter: "opencode",
+    status: hub.opencodeUrl ? "online" : "idle",
+    tag: "CLI",
+    desc: `Local Opencode HTTP + SSE server at ${hub.opencodeUrl || "127.0.0.1:4096"}`,
+  });
+
+  contacts.push({
+    id: "cli_agy",
+    type: "agy",
+    name: "Agy CLI Agent",
+    handle: "agy",
+    avatar: "🚀",
+    adapter: "agy",
+    status: hub.agy ? "online" : "idle",
+    tag: "CLI",
+    desc: "Autonomous Subagent CLI runner (stream-json)",
+  });
+
+  contacts.push({
+    id: "cli_llm",
+    type: "llm",
+    name: "Local LLM",
+    handle: "llm",
+    avatar: "🔮",
+    adapter: "llm",
+    status: hub.llm ? "online" : "idle",
+    tag: "CLI",
+    desc: "OpenAI-compatible local endpoint model",
+  });
+
+  for (const custom of customContacts) {
+    contacts.push(custom);
+  }
+
+  return contacts;
+}
+
+function renderSlackChat() {
+  renderSlackNav();
+  renderSlackHeader();
+  renderSlackMessages();
+}
+
+function renderSlackNav() {
+  const dmList = $("#slack-dm-list");
+  const countEl = $("#slack-active-agent-count");
+  if (!dmList) return;
+  dmList.replaceChildren();
+
+  const contacts = getSlackContacts();
+  const onlineCount = contacts.filter((c) => c.status === "online").length;
+  if (countEl) countEl.textContent = `${onlineCount} agent${onlineCount === 1 ? "" : "s"} online`;
+
+  for (const contact of contacts) {
+    const li = document.createElement("li");
+    li.className = `slack-nav-item ${currentChatTarget.type === "dm" && currentChatTarget.id === contact.id ? "active" : ""}`;
+    li.dataset.type = "dm";
+    li.dataset.id = contact.id;
+
+    li.innerHTML = `
+      <span class="presence-dot ${contact.status}"></span>
+      <span style="font-size:14px; margin-right:2px;">${contact.avatar}</span>
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:130px;">@${esc(contact.handle)}</span>
+      <span class="agent-type-tag ${contact.tag.toLowerCase()}">${esc(contact.tag)}</span>
+    `;
+
+    li.addEventListener("click", () => {
+      selectSlackTarget("dm", contact.id);
+      renderSlackProfilePane(contact);
+    });
+
+    dmList.appendChild(li);
+  }
+
+  document.querySelectorAll("#slack-channel-list .slack-nav-item").forEach((item) => {
+    item.classList.toggle("active", currentChatTarget.type === "channel" && currentChatTarget.id === item.dataset.id);
   });
 }
 
-function createSheetCard(node) {
-  const card = document.createElement("div");
-  card.className = "sheet-card";
-  card.dataset.id = node.id;
-  if (node.runtime?.status === "running") card.classList.add("running");
-  if (node.runtime?.status === "error") card.classList.add("error");
+function renderSlackHeader() {
+  const iconEl = $("#slack-current-icon");
+  const titleEl = $("#slack-current-title");
+  const badgeEl = $("#slack-current-badge");
+  const descEl = $("#slack-current-desc");
+  const inputEl = $("#slack-input");
 
-  const mode = sheetModes.get(node.id) || "rendered";
-  const rec = node.runtime;
-  const rawText = rec?.text || "";
-  const charCount = rawText.length;
-  const wordCount = rawText ? rawText.trim().split(/\s+/).length : 0;
-  const status = rec?.status || "idle";
-  const adapter = adapterLabel(node);
+  if (iconEl) iconEl.textContent = currentChatTarget.icon || (currentChatTarget.type === "channel" ? "#" : "@");
+  if (titleEl) titleEl.textContent = currentChatTarget.title;
+  if (badgeEl) badgeEl.textContent = currentChatTarget.type === "channel" ? "Channel" : "Direct Message";
+  if (descEl) descEl.textContent = currentChatTarget.desc || "";
+  if (inputEl) inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
+}
 
-  let dotColor = "var(--accent-emerald)";
-  if (node.kind === "sink") dotColor = "var(--text-muted)";
-  else if (node.kind === "join") dotColor = "var(--accent-blue)";
+function renderSlackMessages() {
+  const feed = $("#slack-messages-feed");
+  if (!feed) return;
 
-  card.innerHTML = `
-    <div class="sheet-card-head">
-      <div class="sheet-agent-info">
-        <span class="sheet-dot" style="background:${dotColor}"></span>
-        <span class="sheet-agent-title" title="${esc(node.label || node.id)}">${esc(node.label || node.id)}</span>
-        <span class="sheet-agent-adapter">${esc(adapter)}</span>
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  if (!chatMessages.has(targetKey)) {
+    const seedMsg = currentChatTarget.type === "channel"
+      ? {
+          id: `seed_${currentChatTarget.id}`,
+          author: "Melon Office Bot",
+          avatar: "🍈",
+          tag: "BOT",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          text: `Welcome to **#${currentChatTarget.title}**! You can chat with all connected agents, or type \`@chatgpt\`, \`@gemini\`, \`@claude\`, \`@opencode\` to direct questions.`,
+          isUser: false,
+        }
+      : {
+          id: `seed_${currentChatTarget.id}`,
+          author: currentChatTarget.title,
+          avatar: currentChatTarget.icon || "🤖",
+          tag: "AGENT",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          text: `Direct message thread with **@${currentChatTarget.title}**. Send a prompt to query this agent directly.`,
+          isUser: false,
+        };
+    chatMessages.set(targetKey, [seedMsg]);
+  }
+
+  const list = chatMessages.get(targetKey) || [];
+  feed.innerHTML = "";
+
+  for (const msg of list) {
+    const item = document.createElement("div");
+    item.className = `slack-message ${msg.isUser ? "user-msg" : ""}`;
+    item.id = `slack-msg-${msg.id}`;
+
+    item.innerHTML = `
+      <div class="slack-msg-avatar">${msg.avatar || "💬"}</div>
+      <div class="slack-msg-content">
+        <div class="slack-msg-header">
+          <span class="slack-msg-author">${esc(msg.author)}</span>
+          <span class="slack-msg-tag">${esc(msg.tag || "MSG")}</span>
+          <span class="slack-msg-time">${esc(msg.time)}</span>
+        </div>
+        <div class="slack-msg-body">
+          ${msg.text ? renderMarkdown(msg.text) : (msg.streaming ? '<span class="typing-bubble"></span> Thinking...' : '')}
+        </div>
       </div>
-      <span class="sheet-badge ${status}">${status}</span>
+    `;
+
+    feed.appendChild(item);
+  }
+
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function updateStreamingMessageDOM(msgId, text) {
+  const el = $(`#slack-msg-${msgId} .slack-msg-body`);
+  if (el) {
+    el.innerHTML = renderMarkdown(text);
+    const feed = $("#slack-messages-feed");
+    if (feed) feed.scrollTop = feed.scrollHeight;
+  }
+}
+
+function selectSlackTarget(type, id) {
+  if (type === "channel") {
+    const ch = chatChannels.find((c) => c.id === id) || { id, title: id, desc: `Channel #${id}` };
+    currentChatTarget = {
+      type: "channel",
+      id: ch.id,
+      title: ch.title,
+      icon: "#",
+      desc: ch.desc,
+    };
+  } else {
+    const contacts = getSlackContacts();
+    const contact = contacts.find((c) => c.id === id);
+    if (contact) {
+      currentChatTarget = {
+        type: "dm",
+        id: contact.id,
+        title: contact.handle,
+        icon: contact.avatar,
+        desc: contact.desc,
+        contact,
+      };
+    }
+  }
+
+  renderSlackChat();
+}
+
+function renderSlackProfilePane(agent) {
+  const pane = $("#slack-profile-pane");
+  const body = $("#slack-profile-body");
+  if (!pane || !body) return;
+
+  if (!agent) {
+    agent = currentChatTarget.contact || getSlackContacts()[0];
+  }
+  if (!agent) return;
+
+  body.innerHTML = `
+    <div class="profile-avatar-large">${agent.avatar}</div>
+    <div class="profile-field-group">
+      <span class="profile-field-label">Agent Handle</span>
+      <span class="profile-field-value" style="font-weight:700; color:var(--accent-indigo);">@${esc(agent.handle)}</span>
     </div>
-    <div class="sheet-card-bar">
-      <span>${charCount.toLocaleString()} chars · ${wordCount} words${rec?.taint === "untrusted" ? " · <strong style='color:var(--accent-amber)'>TAINTED</strong>" : ""}</span>
-      <div class="tools">
-        <button type="button" class="tiny ghost btn-toggle-mode" data-id="${node.id}">
-          ${mode === "rendered" ? "Raw" : "Rendered"}
-        </button>
-        <button type="button" class="tiny ghost btn-copy-card" data-id="${node.id}" title="Copy output">Copy</button>
-        <button type="button" class="tiny ghost btn-rerun-card" data-id="${node.id}" title="Rerun agent">Rerun</button>
-      </div>
+    <div class="profile-field-group">
+      <span class="profile-field-label">Type & Source</span>
+      <span class="profile-field-value">${esc(agent.tag)} (${esc(agent.type)})</span>
     </div>
-    <div class="sheet-card-body" id="sheet-body-${node.id}">
-      ${mode === "rendered" ? (rawText ? renderMarkdown(rawText) : "") : `<pre class="result-preview" style="max-height:none; height:100%;">${esc(rawText)}</pre>`}
+    <div class="profile-field-group">
+      <span class="profile-field-label">Adapter / Target</span>
+      <span class="profile-field-value"><code>${esc(agent.adapter)}</code></span>
+    </div>
+    ${agent.url ? `
+    <div class="profile-field-group">
+      <span class="profile-field-label">Browser Session</span>
+      <span class="profile-field-value"><a href="${esc(agent.url)}" target="_blank" style="color:var(--accent-blue); text-decoration:none;">Open in Chrome ↗</a></span>
+    </div>` : ""}
+    <div class="profile-field-group">
+      <span class="profile-field-label">Status</span>
+      <span class="profile-field-value"><span class="presence-dot ${agent.status}"></span> ${esc(agent.status.toUpperCase())}</span>
+    </div>
+    <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+      <button type="button" class="primary tiny btn-profile-dm">💬 Open Direct Message</button>
+      <button type="button" class="ghost tiny btn-profile-a2ui">⛶ Open A2UI Sheet</button>
     </div>
   `;
 
-  card.querySelector(".btn-toggle-mode").addEventListener("click", () => {
-    const nextMode = mode === "rendered" ? "raw" : "rendered";
-    sheetModes.set(node.id, nextMode);
-    updateSheetCard(node);
+  body.querySelector(".btn-profile-dm")?.addEventListener("click", () => {
+    selectSlackTarget("dm", agent.id);
   });
-  card.querySelector(".btn-copy-card").addEventListener("click", () => {
-    if (!rawText) return;
-    navigator.clipboard.writeText(rawText).then(() => toast(`Copied output of ${node.label || node.id}`));
-  });
-  card.querySelector(".btn-rerun-card").addEventListener("click", () => {
-    rerunNode(node, { downstream: false });
+  body.querySelector(".btn-profile-a2ui")?.addEventListener("click", () => {
+    const node = nodes.find((n) => {
+      const p = getAgentPersona(n);
+      return p.handle.toLowerCase() === agent.handle.toLowerCase();
+    });
+    if (node) openA2UISheet(node);
+    else toast("No run output available yet for this agent.");
   });
 
-  return card;
+  pane.hidden = false;
 }
 
-function updateSheetCard(node) {
-  if (currentView !== "sheet") return;
-  const card = $(`#sheet-grid .sheet-card[data-id="${node.id}"]`);
-  if (!card) {
-    renderSheetView();
-    return;
-  }
-  const rec = node.runtime;
-  const status = rec?.status || "idle";
-  card.classList.toggle("running", status === "running");
-  card.classList.toggle("error", status === "error");
+async function sendSlackMessage() {
+  const input = $("#slack-input");
+  if (!input) return;
+  const raw = input.value.trim();
+  if (!raw) return;
+  input.value = "";
 
-  const badge = card.querySelector(".sheet-badge");
-  if (badge) {
-    badge.className = `sheet-badge ${status}`;
-    badge.textContent = status;
-  }
+  const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+  if (!chatMessages.has(targetKey)) chatMessages.set(targetKey, []);
+  const list = chatMessages.get(targetKey);
 
-  const rawText = rec?.text || "";
-  const charCount = rawText.length;
-  const wordCount = rawText ? rawText.trim().split(/\s+/).length : 0;
-  const barSpan = card.querySelector(".sheet-card-bar span");
-  if (barSpan) {
-    barSpan.innerHTML = `${charCount.toLocaleString()} chars · ${wordCount} words${rec?.taint === "untrusted" ? " · <strong style='color:var(--accent-amber)'>TAINTED</strong>" : ""}`;
-  }
+  const userMsg = {
+    id: `msg_${Date.now()}_u`,
+    author: "You",
+    avatar: "👤",
+    tag: "HUMAN",
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    text: raw,
+    isUser: true,
+  };
+  list.push(userMsg);
+  renderSlackMessages();
 
-  const mode = sheetModes.get(node.id) || "rendered";
-  const body = card.querySelector(".sheet-card-body");
-  if (body) {
-    if (mode === "rendered") {
-      body.innerHTML = rawText ? renderMarkdown(rawText) : "";
-    } else {
-      body.innerHTML = `<pre class="result-preview" style="max-height:none; height:100%;">${esc(rawText)}</pre>`;
+  let agentTarget = null;
+  let promptText = raw;
+
+  if (currentChatTarget.type === "dm") {
+    const contacts = getSlackContacts();
+    agentTarget = contacts.find((c) => c.id === currentChatTarget.id);
+  } else {
+    const mentionMatch = raw.match(/^@([a-zA-Z0-9_-]+)\s*(.*)/);
+    const contacts = getSlackContacts();
+    if (mentionMatch) {
+      const handle = mentionMatch[1].toLowerCase();
+      promptText = mentionMatch[2] || raw;
+      agentTarget = contacts.find((c) => c.handle.toLowerCase() === handle || c.adapter.toLowerCase().includes(handle));
+    }
+    if (!agentTarget && contacts.length > 0) {
+      agentTarget = contacts[0];
     }
   }
+
+  if (!agentTarget) {
+    list.push({
+      id: `msg_${Date.now()}_sys`,
+      author: "System",
+      avatar: "🍈",
+      tag: "SYS",
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      text: "No online agents available to respond. Open an AI tab (ChatGPT, Claude, Gemini) or configure a CLI agent.",
+      isUser: false,
+    });
+    renderSlackMessages();
+    return;
+  }
+
+  const typingBar = $("#slack-typing-bar");
+  const typingText = $("#slack-typing-text");
+  if (typingBar) typingBar.hidden = false;
+  if (typingText) typingText.textContent = `${agentTarget.name} is typing...`;
+
+  const agentMsg = {
+    id: `msg_${Date.now()}_a`,
+    author: agentTarget.name,
+    avatar: agentTarget.avatar,
+    tag: agentTarget.tag,
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    text: "",
+    isUser: false,
+    streaming: true,
+  };
+  list.push(agentMsg);
+  renderSlackMessages();
+
+  const runId = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  slackChatRunners.set(runId, {
+    onChunk: (chunkText) => {
+      agentMsg.text = chunkText;
+      updateStreamingMessageDOM(agentMsg.id, chunkText);
+    },
+    onDone: (finalText) => {
+      agentMsg.text = finalText;
+      agentMsg.streaming = false;
+      slackChatRunners.delete(runId);
+      if (typingBar) typingBar.hidden = true;
+      renderSlackMessages();
+    },
+    onError: (err) => {
+      agentMsg.text = `*(error: ${err})*`;
+      agentMsg.streaming = false;
+      slackChatRunners.delete(runId);
+      if (typingBar) typingBar.hidden = true;
+      renderSlackMessages();
+    },
+  });
+
+  const runTarget = agentTarget.type === "tab"
+    ? { type: "extension", tabId: agentTarget.tabId, adapter: agentTarget.adapter || "auto" }
+    : { type: agentTarget.type };
+
+  try {
+    const res = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId,
+        prompt: promptText,
+        target: runTarget,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+  } catch (err) {
+    agentMsg.text = `*(failed to dispatch to agent: ${err.message})*`;
+    agentMsg.streaming = false;
+    slackChatRunners.delete(runId);
+    if (typingBar) typingBar.hidden = true;
+    renderSlackMessages();
+  }
+}
+
+function setupSlackChat() {
+  $("#btn-slack-send")?.addEventListener("click", sendSlackMessage);
+  $("#slack-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendSlackMessage();
+    }
+  });
+
+  $("#btn-chat-toggle-profile")?.addEventListener("click", () => {
+    const pane = $("#slack-profile-pane");
+    if (pane) {
+      pane.hidden = !pane.hidden;
+      if (!pane.hidden) renderSlackProfilePane();
+    }
+  });
+
+  $("#btn-close-profile-pane")?.addEventListener("click", () => {
+    const pane = $("#slack-profile-pane");
+    if (pane) pane.hidden = true;
+  });
+
+  $("#btn-chat-sync-war")?.addEventListener("click", () => {
+    toast("⚡ Syncing war-room findings to team chat...");
+    const sink = nodes.find((n) => n.kind === "sink" || n.kind === "join");
+    if (sink?.runtime?.text) {
+      const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+      if (!chatMessages.has(targetKey)) chatMessages.set(targetKey, []);
+      chatMessages.get(targetKey).push({
+        id: `war_${Date.now()}`,
+        author: "Strategy War Room",
+        avatar: "🏛️",
+        tag: "WAR-TABLE",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        text: sink.runtime.text,
+        isUser: false,
+      });
+      renderSlackMessages();
+    } else {
+      toast("No consensus findings generated yet. Run workflow first.");
+    }
+  });
+
+  $("#btn-chat-clear")?.addEventListener("click", () => {
+    const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
+    chatMessages.delete(targetKey);
+    renderSlackMessages();
+  });
+
+  // Channel navigation clicks
+  document.querySelectorAll("#slack-channel-list .slack-nav-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      selectSlackTarget("channel", item.dataset.id);
+    });
+  });
+
+  // Add Channel button
+  $("#btn-add-channel")?.addEventListener("click", () => {
+    const name = prompt("Enter new channel name (e.g. dev-discussions):");
+    if (!name) return;
+    const cleanId = name.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!cleanId) return;
+    if (chatChannels.some((c) => c.id === cleanId)) {
+      toast("Channel already exists");
+      return;
+    }
+    chatChannels.push({ id: cleanId, title: cleanId, desc: `Channel #${cleanId}` });
+    const ul = $("#slack-channel-list");
+    if (ul) {
+      const li = document.createElement("li");
+      li.className = "slack-nav-item";
+      li.dataset.type = "channel";
+      li.dataset.id = cleanId;
+      li.innerHTML = `<span class="channel-hash">#</span> ${esc(cleanId)}`;
+      li.addEventListener("click", () => selectSlackTarget("channel", cleanId));
+      ul.appendChild(li);
+    }
+    selectSlackTarget("channel", cleanId);
+    toast(`Created #${cleanId}!`);
+  });
+
+  setupAddContactModal();
+}
+
+function setupAddContactModal() {
+  const modal = $("#modal-add-contact");
+  const btnOpen = $("#btn-add-contact");
+  const btnClose = $("#btn-close-contact");
+  const btnCancel = $("#btn-cancel-contact");
+  const form = $("#form-add-contact");
+  const typeSelect = $("#contact-type");
+  const tabGroup = $("#group-contact-tab");
+  const tabSelect = $("#contact-tab-select");
+
+  btnOpen?.addEventListener("click", () => {
+    if (tabSelect) {
+      tabSelect.innerHTML = "";
+      for (const tab of extTabs.values()) {
+        const opt = document.createElement("option");
+        opt.value = tab.id;
+        opt.textContent = `${tab.title.slice(0, 36)} (${tab.adapter || "auto"})`;
+        tabSelect.appendChild(opt);
+      }
+    }
+    if (modal) modal.hidden = false;
+  });
+
+  const close = () => {
+    if (modal) modal.hidden = true;
+  };
+
+  btnClose?.addEventListener("click", close);
+  btnCancel?.addEventListener("click", close);
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) close();
+    });
+  }
+
+  typeSelect?.addEventListener("change", () => {
+    if (tabGroup) tabGroup.hidden = typeSelect.value !== "tab";
+  });
+
+  form?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("#contact-name")?.value.trim();
+    const type = typeSelect?.value || "tab";
+    const tabId = tabSelect?.value;
+    const roleDesc = $("#contact-role-desc")?.value.trim();
+
+    if (!name) return;
+    const cleanHandle = name.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+
+    const newContact = {
+      id: `custom_${Date.now()}`,
+      type,
+      name,
+      handle: cleanHandle,
+      avatar: type === "tab" ? "🌐" : type === "opencode" ? "💻" : type === "agy" ? "🚀" : "🔮",
+      adapter: type === "tab" ? "auto" : type,
+      status: "online",
+      tag: type === "tab" ? "TAB" : "CLI",
+      desc: roleDesc || `${name} agent`,
+      tabId: type === "tab" ? tabId : null,
+    };
+
+    customContacts.push(newContact);
+    close();
+    renderSlackNav();
+    selectSlackTarget("dm", newContact.id);
+    renderSlackProfilePane(newContact);
+    toast(`Added @${cleanHandle} to contacts!`);
+  });
+}
+
+function renderSheetView() {
+  renderSlackChat();
 }
 
 function copyAllSheetOutputs() {
@@ -3008,8 +3455,21 @@ function startHubRun(target, prompt, onChunk) {
 }
 
 const tournamentRunners = new Map();
+const slackChatRunners = new Map();
 
 function handleHubRunEvent(message) {
+  if (slackChatRunners.has(String(message.runId))) {
+    const runner = slackChatRunners.get(String(message.runId));
+    const event = message.event || {};
+    if (event.type === "chunk") {
+      runner.onChunk(event.text || "");
+    } else if (event.type === "done") {
+      runner.onDone(event.text || "");
+    } else if (event.type === "error") {
+      runner.onError(event.error?.message || "agent error");
+    }
+    return;
+  }
   if (tournamentRunners.has(String(message.runId))) {
     const runner = tournamentRunners.get(String(message.runId));
     const event = message.event || {};
@@ -3993,6 +4453,7 @@ function setupUi() {
   setupTaskManager();
   setupA2UISheet();
   setupOfficeCommandBar();
+  setupSlackChat();
 }
 
 function setupTournament() {
