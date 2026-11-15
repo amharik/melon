@@ -203,9 +203,15 @@
       return textOf(root);
     }
 
+    const isRichItself =
+      root.tagName &&
+      /^(table|img|svg|canvas|pre|code|ul|ol|blockquote|h[1-6])$/i.test(root.tagName);
     const hasRichElements =
-      root.querySelector &&
-      root.querySelector("table, img, svg, canvas, pre, code, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .katex, [data-tex]");
+      isRichItself ||
+      Boolean(
+        root.querySelector &&
+        root.querySelector("table, img, svg, canvas, pre, code, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .katex, [data-tex]")
+      );
     if (!hasRichElements && (!root.childNodes || root.childNodes.length <= 1)) {
       const fallback = textOf(root);
       if (fallback) return fallback;
@@ -296,7 +302,30 @@
             }
           }
         }
+        if (!lang) {
+          lang = codeEl.getAttribute?.("data-language") ||
+                 node.getAttribute?.("data-language") ||
+                 node.getAttribute?.("data-code-language") ||
+                 "";
+        }
+        if (!lang) {
+          const headerSpan = node.parentElement?.querySelector?.("span, div");
+          const headerText = (headerSpan?.textContent || "").trim().toLowerCase();
+          if (["mermaid", "svg", "plantuml", "dot", "python", "javascript", "json", "yaml", "html", "bash", "sql"].includes(headerText)) {
+            lang = headerText;
+          }
+        }
         const rawCode = codeEl.innerText || codeEl.textContent || "";
+        if (!lang) {
+          const trimmedCode = rawCode.trim();
+          if (/^(graph\s+[A-Z]{2}|flowchart\s+[A-Z]{2}|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|architecture|block-beta|C4Context|C4Container|C4Component)\b/i.test(trimmedCode)) {
+            lang = "mermaid";
+          } else if (trimmedCode.startsWith("<svg") && trimmedCode.includes("</svg>")) {
+            lang = "svg";
+          } else if (trimmedCode.startsWith("@startuml") || trimmedCode.startsWith("@startdot")) {
+            lang = "plantuml";
+          }
+        }
         return `\n\n\`\`\`${lang}\n${rawCode.replace(/\n$/, "")}\n\`\`\`\n\n`;
       }
 
@@ -339,21 +368,34 @@
         try {
           const w = node.clientWidth || parseFloat(node.getAttribute?.("width") || "0");
           const h = node.clientHeight || parseFloat(node.getAttribute?.("height") || "0");
-          const paths = node.querySelectorAll?.("path, circle, rect, polygon, line, text")?.length || 0;
-          const isIllustration =
-            (w >= 36 && h >= 36) ||
-            paths >= 3 ||
+          const paths = node.querySelectorAll?.("path, circle, rect, polygon, line, text, polyline, ellipse")?.length || 0;
+          const isButtonIcon = Boolean(node.closest?.("button, [role='button'], .btn, .copy-button, [aria-label*='Copy']"));
+          const isMermaid = Boolean(
+            node.id?.includes("mermaid") ||
             node.classList?.contains("mermaid") ||
-            node.closest?.(".chart-container, .diagram, .artifact");
+            node.closest?.('[class*="mermaid"], [id*="mermaid"], .chart-container, .diagram, .artifact, [data-testid*="diagram"]')
+          );
+          const hasTextLabels = (node.querySelectorAll?.("text, tspan")?.length || 0) > 0;
+          const isIllustration =
+            !isButtonIcon && (
+              isMermaid ||
+              hasTextLabels ||
+              (w >= 36 && h >= 36) ||
+              paths >= 3 ||
+              node.hasAttribute?.("viewBox")
+            );
 
           if (isIllustration && typeof XMLSerializer !== "undefined") {
             const clone = node.cloneNode(true);
             if (!clone.getAttribute("xmlns")) {
               clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
             }
+            if (!clone.getAttribute("viewBox") && w > 0 && h > 0) {
+              clone.setAttribute("viewBox", `0 0 ${w} ${h}`);
+            }
             const serialized = new XMLSerializer().serializeToString(clone);
             const encoded = encodeURIComponent(serialized);
-            return `\n\n![Diagram](data:image/svg+xml;utf8,${encoded})\n\n`;
+            return `\n\n![Architecture Diagram](data:image/svg+xml;utf8,${encoded})\n\n`;
           }
         } catch {}
         return "";

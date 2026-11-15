@@ -10,6 +10,13 @@ import {
 } from "./shared/protocol.js";
 import { buildResponse, roleLabel, streamText } from "./shared/simulator.js";
 import { extractArtifactsFromText } from "./shared/artifacts.js";
+import {
+  isMermaidCode,
+  isBoxDiagram,
+  isSvgCode,
+  renderBuiltInSvgDiagram,
+  createDiagramCardHtml,
+} from "./shared/diagrams.js";
 
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
@@ -942,11 +949,48 @@ function renderMarkdown(raw) {
   // Basic HTML sanitization
   text = esc(text);
 
-  // Restore code blocks with rich header and copy button
+  // Restore code blocks with rich header, copy button, and architecture diagram support
   text = text.replace(/__CB_(\d+)__/g, (_, idx) => {
     const cb = codeBlocks[Number(idx)];
     if (!cb) return "";
     const cleanCode = esc(cb.code.trim());
+    const rawCode = cb.code.trim();
+    const lang = (cb.lang || "").toLowerCase();
+
+    // 1. Mermaid Architecture Diagram
+    if (lang === "mermaid" || isMermaidCode(rawCode)) {
+      const diagId = `m_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+      return createDiagramCardHtml({
+        id: diagId,
+        type: "mermaid",
+        title: "Architecture Diagram",
+        rawCode,
+      });
+    }
+
+    // 2. SVG Architecture Diagram
+    if (lang === "svg" || isSvgCode(rawCode)) {
+      const diagId = `svg_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+      return createDiagramCardHtml({
+        id: diagId,
+        type: "svg",
+        title: "Architecture Diagram (SVG)",
+        rawCode,
+        inlineSvg: rawCode,
+      });
+    }
+
+    // 3. Monospace Box-Drawing Architecture Diagram
+    if (isBoxDiagram(rawCode)) {
+      const diagId = `box_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+      return createDiagramCardHtml({
+        id: diagId,
+        type: "box",
+        title: "Architecture Diagram (Monospace)",
+        rawCode,
+      });
+    }
+
     return `<div class="md-code-block" style="margin:8px 0; border:1px solid var(--glass-border); border-radius:8px; overflow:hidden;">
       <div class="md-code-header">
         <span style="font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase;">${esc(cb.lang)}</span>
@@ -960,10 +1004,35 @@ function renderMarkdown(raw) {
   text = text.replace(/__MEDIA_(\d+)__/g, (_, idx) => {
     const m = mediaBlocks[Number(idx)];
     if (!m) return "";
+
+    // If it is an extracted SVG architecture diagram data URI
+    if (m.src.startsWith("data:image/svg+xml")) {
+      let rawSvg = "";
+      try {
+        if (m.src.includes("utf8,")) {
+          rawSvg = decodeURIComponent(m.src.split("utf8,")[1]);
+        } else if (m.src.includes("base64,")) {
+          rawSvg = atob(m.src.split("base64,")[1]);
+        }
+      } catch (err) {
+        console.warn("Failed to decode SVG data URI:", err);
+      }
+      if (rawSvg && rawSvg.includes("<svg")) {
+        const diagId = `svg_media_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+        return createDiagramCardHtml({
+          id: diagId,
+          type: "svg",
+          title: m.alt || "Architecture Diagram",
+          rawCode: rawSvg,
+          inlineSvg: rawSvg,
+        });
+      }
+    }
+
     const safeSrc = m.src.replace(/"/g, "&quot;");
     const safeAlt = esc(m.alt);
     return `<div class="slack-media-card">
-      <img class="slack-media-img" src="${safeSrc}" alt="${safeAlt}" loading="lazy" onclick="window.openSlackMediaModal('${safeSrc}', '${safeAlt}')" />
+      <img class="slack-media-img" src="${safeSrc}" alt="${safeAlt}" loading="lazy" data-modal-src="${safeSrc}" data-modal-cap="${safeAlt}" />
       <div class="slack-media-caption">📷 ${safeAlt}</div>
     </div>`;
   });
@@ -1026,6 +1095,157 @@ function renderMarkdown(raw) {
   }).join("\n");
 
   return `<div class="md-body">${text}</div>`;
+}
+
+async function renderAllPendingDiagrams(root = document) {
+  const cards = root.querySelectorAll(".arch-diagram-card");
+  if (!cards.length) return;
+
+  for (const card of cards) {
+    const diagId = card.dataset.diagramId;
+    const type = card.dataset.diagramType;
+    const body = card.querySelector(".arch-diagram-body");
+    const metaScript = card.querySelector(".diagram-meta");
+    let meta = {};
+    try {
+      meta = metaScript ? JSON.parse(metaScript.textContent) : {};
+    } catch {}
+
+    const rawCode = meta.rawCode || "";
+
+    // 1. Render Mermaid diagram
+    if (type === "mermaid" && body && body.querySelector(".arch-diagram-loading")) {
+      let rendered = false;
+      if (window.mermaid && typeof window.mermaid.render === "function") {
+        try {
+          const uniqueSvgId = `m_svg_${diagId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+          const res = await window.mermaid.render(uniqueSvgId, rawCode);
+          if (res && res.svg) {
+            body.innerHTML = res.svg;
+            rendered = true;
+          }
+        } catch (err) {
+          console.warn("Mermaid.js render failed, falling back to built-in SVG:", err);
+        }
+      }
+      if (!rendered) {
+        body.innerHTML = renderBuiltInSvgDiagram(rawCode);
+      }
+    }
+
+    // 2. Render Monospace Box Diagram
+    if (type === "box" && body && body.querySelector(".arch-diagram-loading")) {
+      body.innerHTML = `<pre class="ascii-diagram-block" style="margin:0; width:100%; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; color:#38bdf8; background:#090d16; padding:16px; border-radius:6px; overflow:auto; font-size:12px; line-height:1.25;"><code>${esc(rawCode)}</code></pre>`;
+    }
+  }
+
+  setupDiagramInteractions(root);
+}
+
+function setupDiagramInteractions(root = document) {
+  root.querySelectorAll(".arch-diagram-card").forEach((card) => {
+    if (card.dataset.interactionsBound) return;
+    card.dataset.interactionsBound = "true";
+
+    const body = card.querySelector(".arch-diagram-body");
+    const source = card.querySelector(".arch-diagram-source");
+    const metaScript = card.querySelector(".diagram-meta");
+    let meta = {};
+    try {
+      meta = metaScript ? JSON.parse(metaScript.textContent) : {};
+    } catch {}
+
+    let currentZoom = 1;
+
+    // Toggle Diagram / Code View
+    card.querySelector(".btn-diag-toggle")?.addEventListener("click", () => {
+      if (source && body) {
+        source.hidden = !source.hidden;
+        body.hidden = !source.hidden ? true : false;
+      }
+    });
+
+    // Zoom In
+    card.querySelector(".btn-diag-zoom-in")?.addEventListener("click", () => {
+      const target = body?.querySelector("svg") || body?.querySelector("pre");
+      if (target) {
+        currentZoom = Math.min(currentZoom * 1.25, 3.5);
+        target.style.transform = `scale(${currentZoom.toFixed(2)})`;
+      }
+    });
+
+    // Zoom Out
+    card.querySelector(".btn-diag-zoom-out")?.addEventListener("click", () => {
+      const target = body?.querySelector("svg") || body?.querySelector("pre");
+      if (target) {
+        currentZoom = Math.max(currentZoom * 0.8, 0.4);
+        target.style.transform = `scale(${currentZoom.toFixed(2)})`;
+      }
+    });
+
+    // Reset Zoom
+    card.querySelector(".btn-diag-zoom-reset")?.addEventListener("click", () => {
+      const target = body?.querySelector("svg") || body?.querySelector("pre");
+      if (target) {
+        currentZoom = 1;
+        target.style.transform = "scale(1)";
+      }
+    });
+
+    // Copy SVG
+    card.querySelector(".btn-diag-copy-svg")?.addEventListener("click", () => {
+      const svg = body?.querySelector("svg");
+      if (svg) {
+        navigator.clipboard.writeText(svg.outerHTML).then(() => toast("Copied Diagram SVG to clipboard"));
+      } else {
+        toast("No SVG available", true);
+      }
+    });
+
+    // Fullscreen Expand Modal
+    card.querySelector(".btn-diag-expand")?.addEventListener("click", () => {
+      const svg = body?.querySelector("svg");
+      const modal = $("#modal-slack-lightbox");
+      const img = $("#lightbox-image");
+      const svgWrap = $("#lightbox-svg-container");
+      const cap = $("#lightbox-caption");
+
+      if (modal && svgWrap) {
+        if (svg) {
+          svgWrap.innerHTML = svg.outerHTML;
+          svgWrap.hidden = false;
+          if (img) img.hidden = true;
+        } else if (meta.rawCode) {
+          svgWrap.innerHTML = `<pre style="color:#38bdf8; font-family:monospace; padding:20px; font-size:13px; max-height:75vh; overflow:auto;"><code>${esc(meta.rawCode)}</code></pre>`;
+          svgWrap.hidden = false;
+          if (img) img.hidden = true;
+        }
+        if (cap) cap.textContent = meta.title || "Architecture Diagram Preview";
+        modal.hidden = false;
+      }
+    });
+  });
+
+  // Media image click to lightbox
+  root.querySelectorAll(".slack-media-img").forEach((img) => {
+    if (img.dataset.lightboxBound) return;
+    img.dataset.lightboxBound = "true";
+    img.addEventListener("click", () => {
+      const src = img.dataset.modalSrc || img.src;
+      const alt = img.dataset.modalCap || img.alt;
+      const modal = $("#modal-slack-lightbox");
+      const lImg = $("#lightbox-image");
+      const svgWrap = $("#lightbox-svg-container");
+      const cap = $("#lightbox-caption");
+      if (modal && lImg) {
+        lImg.src = src;
+        lImg.hidden = false;
+        if (svgWrap) svgWrap.hidden = true;
+        if (cap) cap.textContent = alt || "Extracted Graphic Preview";
+        modal.hidden = false;
+      }
+    });
+  });
 }
 
 window.openSlackMediaModal = function(src, caption) {
@@ -1708,6 +1928,7 @@ function renderSlackMessages() {
   }
 
   feed.scrollTop = feed.scrollHeight;
+  renderAllPendingDiagrams(feed);
 }
 
 function updateStreamingMessageDOM(msgId, text) {
@@ -1716,6 +1937,7 @@ function updateStreamingMessageDOM(msgId, text) {
     el.innerHTML = renderMarkdown(text);
     const feed = $("#slack-messages-feed");
     if (feed) feed.scrollTop = feed.scrollHeight;
+    renderAllPendingDiagrams(el);
   }
 }
 
@@ -6020,6 +6242,25 @@ async function boot() {
   connectHub();
   loadPersistentAgents();
   loadSlackMessages(currentChatTarget.type, currentChatTarget.id);
+
+  if (typeof window !== "undefined" && window.mermaid) {
+    try {
+      window.mermaid.initialize({
+        startOnLoad: false,
+        theme: "dark",
+        securityLevel: "loose",
+        themeVariables: {
+          darkMode: true,
+          background: "transparent",
+          mainBkg: "#1e293b",
+          nodeBorder: "#6366f1",
+          lineColor: "#818cf8",
+          textColor: "#f8fafc",
+        },
+      });
+    } catch {}
+  }
+
   switchView("sheet");
   updateStatus();
   log("info", "melon booting");

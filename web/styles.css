@@ -3629,3 +3629,114 @@ details.drawer .drawer-content {
   background: var(--bg-surface);
   color: var(--text-primary);
 }
+
+/* ------------------------------------------------------------- Architecture Diagram Cards */
+
+.arch-diagram-card {
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+
+.arch-diagram-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arch-diagram-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arch-diagram-icon {
+  font-size: 16px;
+}
+
+.arch-diagram-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.arch-diagram-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.arch-diagram-actions button {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.arch-diagram-body {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+  min-height: 160px;
+  max-height: 580px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 18px 18px;
+}
+
+.arch-diagram-body svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: center center;
+}
+
+.arch-diagram-loading {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+}
+
+.arch-diagram-source {
+  border-top: 1px solid var(--border);
+  background: #090d16;
+}
+
+.arch-diagram-source pre {
+  margin: 0;
+  padding: 12px 16px;
+  max-height: 280px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+/* Lightbox SVG view */
+.lightbox-svg-wrap {
+  width: 100%;
+  height: 80vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 20px 20px;
+}
+
+.lightbox-svg-wrap svg {
+  max-width: 95%;
+  max-height: 95%;
+  height: auto;
+}
