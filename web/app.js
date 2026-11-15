@@ -9,6 +9,7 @@ import {
   logTime,
 } from "./shared/protocol.js";
 import { buildResponse, roleLabel, streamText } from "./shared/simulator.js";
+import { extractArtifactsFromText } from "./shared/artifacts.js";
 
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
@@ -1845,6 +1846,19 @@ function renderInspector() {
     ? `<img class="result-image" src="${esc(rec.url)}" alt="Agent result" />`
     : `<pre class="result-preview">${esc((rec?.text || "").slice(-5000)) || "No output yet."}</pre>`;
 
+  const harvestedArtifacts = rec?.text ? extractArtifactsFromText(rec.text) : [];
+  const artifactsHtml = harvestedArtifacts.length > 0 ? `
+    <div class="field" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; padding: 10px; margin-top: 8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <label style="color:#34d399; font-weight:700; margin:0;">📦 Harvested Artifacts (${harvestedArtifacts.length})</label>
+        <button type="button" id="f-export-artifacts" class="primary" style="font-size:10.5px; padding:3px 8px; font-weight:600;">💾 Export to Project</button>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+        ${harvestedArtifacts.map(a => `<span class="badge" style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-size:11px;" title="${esc(a.size)} chars">📄 ${esc(a.filename)}</span>`).join("")}
+      </div>
+    </div>
+  ` : "";
+
   fields.innerHTML = `
     <div class="field"><label>Label</label><input id="f-label" value="${esc(node.label)}" /></div>
     <div class="field"><label>Kind</label><input value="${esc(node.kind)}" disabled /></div>
@@ -1920,6 +1934,7 @@ function renderInspector() {
           : "No output for this workflow version yet."
       }</div>
       ${resultPreview}
+      ${artifactsHtml}
     </div>
     <div class="field">
       <label>Output versions</label>
@@ -1927,6 +1942,24 @@ function renderInspector() {
       <pre id="f-history-preview" class="result-preview" hidden></pre>
     </div>
   `;
+
+  $("#f-export-artifacts", fields)?.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/api/artifacts/export", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: rec?.runId || `node-${node.id}`, files: harvestedArtifacts }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`💾 Exported ${data.filesWritten.length} files to ${data.dir}`);
+      } else {
+        toast(`Export failed: ${data.error}`, true);
+      }
+    } catch (err) {
+      toast(`Export failed: ${err.message}`, true);
+    }
+  });
 
   $("#f-label", fields).addEventListener("input", (event) => {
     node.label = event.target.value;
@@ -2756,7 +2789,21 @@ function startHubRun(target, prompt, onChunk) {
   };
 }
 
+const tournamentRunners = new Map();
+
 function handleHubRunEvent(message) {
+  if (tournamentRunners.has(String(message.runId))) {
+    const runner = tournamentRunners.get(String(message.runId));
+    const event = message.event || {};
+    if (event.type === "chunk") {
+      runner.onChunk(event.text || "");
+    } else if (event.type === "done") {
+      runner.onDone(event.text || "");
+    } else if (event.type === "error") {
+      runner.onError(event.error?.message || "agent error");
+    }
+    return;
+  }
   const entry = pendingHubRuns.get(String(message.runId));
   if (!entry) return;
   const event = message.event || {};
@@ -3604,13 +3651,17 @@ function setupUi() {
   const closeModals = () => {
     const hireModal = $("#modal-hire");
     const tapModal = $("#modal-tap");
+    const tourneyModal = $("#modal-tournament");
     if (hireModal) hireModal.hidden = true;
     if (tapModal) tapModal.hidden = true;
+    if (tourneyModal) tourneyModal.hidden = true;
   };
   $("#btn-close-hire")?.addEventListener("click", closeModals);
   $("#btn-cancel-hire")?.addEventListener("click", closeModals);
   $("#btn-close-tap")?.addEventListener("click", closeModals);
   $("#btn-cancel-tap")?.addEventListener("click", closeModals);
+  $("#btn-close-tournament")?.addEventListener("click", closeModals);
+  $("#btn-cancel-tournament")?.addEventListener("click", closeModals);
   $$(".modal-backdrop").forEach((backdrop) => {
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) closeModals();
@@ -3698,6 +3749,260 @@ function setupUi() {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
       emitBrief();
+    }
+  });
+
+  setupTournament();
+}
+
+function setupTournament() {
+  const modal = $("#modal-tournament");
+  const btnOpen = $("#btn-tournament");
+  const btnClose = $("#btn-close-tournament");
+  const btnCancel = $("#btn-cancel-tournament");
+  const btnStart = $("#btn-start-tournament");
+  const promptInput = $("#tournament-prompt");
+  const contestantsContainer = $("#tournament-contestants");
+  const resultsContainer = $("#tournament-results");
+  const gridContainer = $("#tournament-grid");
+  const statusLabel = $("#tournament-status-label");
+
+  if (!modal || !btnOpen) return;
+
+  const populateContestants = () => {
+    const items = [];
+    for (const tab of extTabs.values()) {
+      const title = (tab.title || "Untitled Tab").slice(0, 32);
+      const adapter = tab.adapter || "auto";
+      items.push(`
+        <label class="tournament-contestant-item">
+          <input type="checkbox" name="contestant" value="tab:${tab.id}" data-name="${esc(title)} (${esc(adapter)})" data-tab-id="${esc(tab.id)}" data-adapter="${esc(adapter)}" checked />
+          🌐 <span>${esc(title)}</span> <code style="color:var(--accent-indigo);">${esc(adapter)}</code>
+        </label>
+      `);
+    }
+    items.push(`
+      <label class="tournament-contestant-item">
+        <input type="checkbox" name="contestant" value="sim:claude" data-name="Claude (Simulator)" data-role="claude" checked />
+        ⚡ <span>Claude (Sim)</span>
+      </label>
+      <label class="tournament-contestant-item">
+        <input type="checkbox" name="contestant" value="sim:gemini" data-name="Gemini (Simulator)" data-role="gemini" checked />
+        ⚡ <span>Gemini (Sim)</span>
+      </label>
+    `);
+    contestantsContainer.innerHTML = items.join("");
+  };
+
+  btnOpen.addEventListener("click", () => {
+    modal.hidden = false;
+    resultsContainer.hidden = true;
+    gridContainer.innerHTML = "";
+    populateContestants();
+    if (!promptInput.value.trim()) {
+      promptInput.value = $("#brief")?.value?.trim() || "";
+    }
+    promptInput.focus();
+  });
+
+  const closeModal = () => {
+    modal.hidden = true;
+  };
+
+  btnStart?.addEventListener("click", async () => {
+    const prompt = promptInput.value.trim();
+    if (!prompt) {
+      toast("Please enter a challenge or prompt", true);
+      promptInput.focus();
+      return;
+    }
+
+    const checkedInputs = Array.from(contestantsContainer.querySelectorAll('input[type="checkbox"]:checked'));
+    if (!checkedInputs.length) {
+      toast("Please select at least one contestant model", true);
+      return;
+    }
+
+    resultsContainer.hidden = false;
+    gridContainer.innerHTML = "";
+    statusLabel.textContent = `🏁 Racing ${checkedInputs.length} models simultaneously...`;
+
+    const contestants = checkedInputs.map((input, idx) => {
+      const colId = `tourney-col-${idx}`;
+      const name = input.dataset.name;
+      const val = input.value;
+      const isTab = val.startsWith("tab:");
+      const tabId = input.dataset.tabId;
+      const adapter = input.dataset.adapter;
+      const role = input.dataset.role;
+
+      const colEl = document.createElement("div");
+      colEl.className = "tournament-col";
+      colEl.id = colId;
+      colEl.innerHTML = `
+        <div class="tournament-col-head">
+          <span class="tournament-col-title">${esc(name)}</span>
+          <span class="badge" id="${colId}-status">Running...</span>
+        </div>
+        <div class="tournament-metrics">
+          <span>TTFT: <strong id="${colId}-ttft">...</strong></span>
+          <span>Time: <strong id="${colId}-time">...</strong></span>
+          <span>Chars: <strong id="${colId}-chars">0</strong></span>
+          <span>Files: <strong id="${colId}-files">0</strong></span>
+        </div>
+        <pre class="tournament-output" id="${colId}-output"></pre>
+        <div class="tournament-actions" id="${colId}-actions" hidden>
+          <button type="button" class="tiny primary btn-crown" id="${colId}-crown">⭐ Crown Winner &amp; Use</button>
+          <button type="button" class="tiny ghost btn-export-art" id="${colId}-export">💾 Export Files</button>
+        </div>
+      `;
+      gridContainer.appendChild(colEl);
+
+      return {
+        colId,
+        name,
+        isTab,
+        tabId,
+        adapter,
+        role,
+        text: "",
+        startedAt: performance.now(),
+        ttft: null,
+        duration: null,
+        artifacts: [],
+      };
+    });
+
+    for (const contestant of contestants) {
+      const colId = contestant.colId;
+      const outEl = $(`#${colId}-output`);
+      const ttftEl = $(`#${colId}-ttft`);
+      const timeEl = $(`#${colId}-time`);
+      const charsEl = $(`#${colId}-chars`);
+      const filesEl = $(`#${colId}-files`);
+      const statusEl = $(`#${colId}-status`);
+      const actionsEl = $(`#${colId}-actions`);
+      const crownBtn = $(`#${colId}-crown`);
+      const exportBtn = $(`#${colId}-export`);
+
+      const updateStats = (done = false) => {
+        const now = performance.now();
+        const elapsed = Math.round(now - contestant.startedAt);
+        timeEl.textContent = `${elapsed}ms`;
+        charsEl.textContent = contestant.text.length.toLocaleString();
+        const arts = extractArtifactsFromText(contestant.text);
+        contestant.artifacts = arts;
+        filesEl.textContent = String(arts.length);
+
+        if (done) {
+          contestant.duration = elapsed;
+          statusEl.textContent = "Done";
+          statusEl.className = "badge good";
+          actionsEl.hidden = false;
+        }
+      };
+
+      crownBtn.addEventListener("click", () => {
+        $$(".tournament-col").forEach((c) => c.classList.remove("winner"));
+        $(`#${colId}`).classList.add("winner");
+        navigator.clipboard.writeText(contestant.text).catch(() => {});
+
+        if (selectedId) {
+          const targetNode = nodeById(selectedId);
+          if (targetNode) {
+            if (!targetNode.runtime) targetNode.runtime = startNodeRecord(targetNode, { status: "done", format: "markdown" });
+            targetNode.runtime.text = contestant.text;
+            targetNode.runtime.status = "done";
+            updateNodeRecordView(targetNode);
+            renderAll();
+          }
+        }
+        toast(`🏆 Winner selected: ${contestant.name} (${contestant.text.length.toLocaleString()} chars)`);
+        closeModal();
+      });
+
+      exportBtn.addEventListener("click", async () => {
+        if (!contestant.artifacts.length) {
+          toast("No code files or artifacts detected in output", true);
+          return;
+        }
+        try {
+          const res = await fetch("/api/artifacts/export", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ runId: `tournament-${Date.now()}`, files: contestant.artifacts }),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            toast(`💾 Exported ${data.filesWritten.length} files to ${data.dir}`);
+          } else {
+            toast(`Export failed: ${data.error}`, true);
+          }
+        } catch (err) {
+          toast(`Export failed: ${err.message}`, true);
+        }
+      });
+
+      if (contestant.isTab) {
+        const runId = "tourney-" + uid("r");
+        tournamentRunners.set(runId, {
+          onChunk: (text) => {
+            if (!contestant.ttft) {
+              contestant.ttft = Math.round(performance.now() - contestant.startedAt);
+              ttftEl.textContent = `${contestant.ttft}ms`;
+            }
+            contestant.text = text;
+            outEl.textContent = text;
+            outEl.scrollTop = outEl.scrollHeight;
+            updateStats(false);
+          },
+          onDone: (text) => {
+            contestant.text = text || contestant.text;
+            outEl.textContent = contestant.text;
+            updateStats(true);
+            tournamentRunners.delete(runId);
+          },
+          onError: (errMsg) => {
+            statusEl.textContent = "Error";
+            statusEl.className = "badge bad";
+            outEl.textContent += `\n[Error: ${errMsg}]`;
+            tournamentRunners.delete(runId);
+          },
+        });
+
+        fetch("/api/runs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            runId,
+            prompt,
+            target: { type: "extension", tabId: contestant.tabId, adapter: contestant.adapter || "auto" },
+          }),
+        }).catch((err) => {
+          statusEl.textContent = "Error";
+          statusEl.className = "badge bad";
+          outEl.textContent = `Dispatch error: ${err.message}`;
+        });
+      } else {
+        const simulated = buildResponse(contestant.role, prompt);
+        streamText(
+          simulated,
+          (chunk, full) => {
+            if (!contestant.ttft) {
+              contestant.ttft = Math.round(performance.now() - contestant.startedAt);
+              ttftEl.textContent = `${contestant.ttft}ms`;
+            }
+            contestant.text = full;
+            outEl.textContent = full;
+            outEl.scrollTop = outEl.scrollHeight;
+            updateStats(false);
+          },
+          () => {
+            updateStats(true);
+          },
+          25,
+        );
+      }
     }
   });
 }

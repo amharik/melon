@@ -42,6 +42,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M3 7v14M21 7v14M6 11h3M15 11h3M6 16h3M15 16h3M9 3h6v4H9z"/></svg>
             Office
           </button>
+          <button id="btn-tournament" class="view-btn" title="Speculative multi-model tournament across active tabs">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+            Tournament
+          </button>
         </div>
 
         <span class="sep"></span>
@@ -389,6 +393,41 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
             <button type="submit" class="primary" id="btn-confirm-tap">Tap & Ask</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Multi-Model Speculative Tournament Modal Dialog -->
+    <div class="modal-backdrop" id="modal-tournament" hidden>
+      <div class="modal-card modal-tournament-card" role="dialog" aria-modal="true" aria-labelledby="modal-tournament-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="modal-tournament-title">🏆 Speculative Multi-Model Tournament</h3>
+            <p class="modal-sub">Race frontier models on the same prompt simultaneously. Compare latency, reasoning, and artifacts in real-time.</p>
+          </div>
+          <button type="button" class="tiny ghost btn-close-modal" id="btn-close-tournament">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label for="tournament-prompt">Challenge / Prompt</label>
+            <textarea id="tournament-prompt" rows="3" placeholder="Enter coding challenge, architectural problem, or prompt to race across models..." required></textarea>
+          </div>
+          <div class="form-row">
+            <label>Select Contestant Models / Tabs</label>
+            <div id="tournament-contestants" class="tournament-contestants-list">
+              <!-- Dynamically populated with active bridged tabs & simulators -->
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="ghost" id="btn-cancel-tournament">Cancel</button>
+            <button type="button" class="primary" id="btn-start-tournament">🏁 Start Race</button>
+          </div>
+          <div id="tournament-results" hidden>
+            <div class="tournament-results-head">
+              <span id="tournament-status-label">Racing models...</span>
+            </div>
+            <div id="tournament-grid" class="tournament-grid"></div>
+          </div>
+        </div>
       </div>
     </div>
 

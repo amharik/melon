@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
+import { extractArtifactsFromText } from "../web/shared/artifacts.js";
 import { createKevClient } from "./kev.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { packEtag, packSummary, readPackFile } from "./adapter-pack.mjs";
@@ -90,6 +91,7 @@ const plans = new Map();
 const toolRequests = new Map();
 const screenshotRequests = new Map();
 const extractRequests = new Map();
+const runArtifacts = new Map();
 let adapterPackCache = { mtimeMs: 0, envelope: null, etag: null, error: null };
 
 // ---------------------------------------------------------------------------
@@ -205,13 +207,20 @@ function finishRun(id, event) {
   }
   setRunStatus(run, status);
   runs.delete(id);
+  const finalText = String(event.text ?? run.text ?? "");
+  const artifacts = extractArtifactsFromText(finalText);
+  if (artifacts.length > 0) {
+    runArtifacts.set(id, artifacts);
+    broadcast({ type: "run.artifacts", runId: id, artifacts, count: artifacts.length });
+  }
   audit.write({
     event: "run.end",
     ...run.audit,
     status,
     durationMs: Date.now() - run.createdAt,
-    chars: String(event.text ?? run.text ?? "").length,
+    chars: finalText.length,
     timedOut: !!event.timedOut,
+    artifacts: artifacts.length,
   });
   broadcast({ type: "run.event", runId: id, event });
 }
@@ -638,13 +647,19 @@ function handleExtMessage(client, raw) {
     return;
   }
   if (message.type === "extract.result" && message.requestId) {
+    const text = String(message.text || "");
+    const artifacts = extractArtifactsFromText(text);
+    if (message.tabId) {
+      runArtifacts.set(`tab-${message.tabId}-latest`, artifacts);
+    }
     const req = extractRequests.get(String(message.requestId));
     if (req) {
       clearTimeout(req.timer);
       extractRequests.delete(String(message.requestId));
       req.resolve({
         ok: !!message.ok,
-        text: String(message.text || ""),
+        text,
+        artifacts,
         tabId: message.tabId ?? req.tabId,
         error: message.error || null,
       });
@@ -654,7 +669,8 @@ function handleExtMessage(client, raw) {
       requestId: String(message.requestId),
       tabId: message.tabId ?? null,
       ok: !!message.ok,
-      text: message.text || "",
+      text,
+      artifacts,
       error: message.error || null,
     });
     return;
@@ -1188,6 +1204,7 @@ async function handleApi(req, res, url) {
     url.pathname === "/api/threads" ||
     url.pathname === "/api/worktrees" ||
     url.pathname === "/api/tool-requests" ||
+    url.pathname === "/api/artifacts/export" ||
     /^\/api\/tool-requests\/[^/]+\/decision$/.test(url.pathname);
   if (needsJson && req.method === "POST" && !String(req.headers["content-type"] || "").startsWith("application/json")) {
     return json(res, 415, { ok: false, error: "content-type must be application/json" });
@@ -1195,7 +1212,7 @@ async function handleApi(req, res, url) {
 
   const pathname = url.pathname;
 
-  if (pathname === "/api/health" && req.method === "GET") {
+  if ((pathname === "/api/health" || pathname === "/api/status") && req.method === "GET") {
     return json(res, 200, {
       ok: true,
       version: VERSION,
@@ -1505,6 +1522,54 @@ async function handleApi(req, res, url) {
   if (cancelMatch && req.method === "POST") {
     const ok = abortRun(decodeURIComponent(cancelMatch[1]));
     return json(res, ok ? 200 : 404, { ok });
+  }
+
+  const artifactsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/artifacts$/);
+  if (artifactsMatch && req.method === "GET") {
+    const runId = decodeURIComponent(artifactsMatch[1]);
+    const list = runArtifacts.get(runId) || [];
+    return json(res, 200, { ok: true, runId, artifacts: list });
+  }
+
+  if (pathname === "/api/artifacts/export" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: err.message });
+    }
+    const runId = body.runId || "";
+    let files = Array.isArray(body.files) && body.files.length > 0 ? body.files : (runId ? runArtifacts.get(runId) : null);
+    if (!files || files.length === 0) {
+      return json(res, 400, { ok: false, error: "no artifacts found to export" });
+    }
+    const outDir = path.resolve(body.dir || path.join(ROOT, ".melon", "artifacts", runId || "export"));
+    fs.mkdirSync(outDir, { recursive: true });
+    const filesWritten = [];
+    for (const f of files) {
+      const relPath = f.filename || f.path;
+      if (!relPath) continue;
+      const safeRel = relPath.replace(/^(\.\.[\/\\])+/, "");
+      const absPath = path.resolve(outDir, safeRel);
+      if (!absPath.startsWith(outDir)) continue;
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, f.content || "", "utf8");
+      filesWritten.push(safeRel);
+    }
+    let gitBranchCreated = null;
+    if (body.branch) {
+      try {
+        await exec(`git branch "${body.branch}" 2>/dev/null || true`, { cwd: ROOT });
+        gitBranchCreated = body.branch;
+      } catch {}
+    }
+    return json(res, 200, {
+      ok: true,
+      runId,
+      dir: outDir,
+      filesWritten,
+      branch: gitBranchCreated,
+    });
   }
 
   if (pathname === "/api/events" && req.method === "GET") {
