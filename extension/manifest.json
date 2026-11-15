@@ -48,6 +48,12 @@
     "https://*.hf.co/*",
     "https://*.huggingface.co/*"
   ],
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1:*/*",
+      "http://localhost:*/*"
+    ]
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://huggingface.co https://*.hf.co https://*.huggingface.co"
   }

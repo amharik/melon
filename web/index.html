@@ -46,6 +46,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
             Tournament
           </button>
+          <button id="btn-smart-bind-top" class="view-btn" title="Automatically bind open AI tabs to agent nodes">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Smart-Bind
+          </button>
         </div>
 
         <span class="sep"></span>
@@ -56,6 +60,8 @@
             ••• Actions
           </button>
           <div id="more-menu" class="menu-dropdown" hidden>
+            <button id="btn-smart-bind">⚡ Smart-Bind Tabs</button>
+            <button id="btn-getting-started">★ Getting Started Guide</button>
             <button id="btn-pause">⏸ Pause Queue</button>
             <button id="btn-resume">▶ Resume Queue</button>
             <button id="btn-example">★ Load Example</button>
@@ -426,6 +432,61 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <span id="tournament-status-label">Racing models...</span>
             </div>
             <div id="tournament-grid" class="tournament-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Getting Started / Onboarding Wizard Modal Dialog -->
+    <div class="modal-backdrop" id="modal-onboarding" hidden>
+      <div class="modal-card modal-onboarding-card" role="dialog" aria-modal="true" aria-labelledby="modal-onboarding-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="modal-onboarding-title">🍈 Welcome to Melon: 30-Second Setup</h3>
+            <p class="modal-sub">Turn your open browser tabs into an autonomous multi-agent office.</p>
+          </div>
+          <button type="button" class="tiny ghost btn-close-modal" id="btn-close-onboarding">✕</button>
+        </div>
+        <div class="modal-body onboarding-steps">
+          <!-- Step 1: Extension Bridge -->
+          <div class="onboarding-step" id="onboard-step-1">
+            <div class="step-num">1</div>
+            <div class="step-content">
+              <h4>Browser Extension Bridge</h4>
+              <p>The bridge types and reads responses from your authenticated chat tabs without API keys.</p>
+              <div class="step-status" id="onboard-ext-status">
+                <span class="badge" id="badge-ext-status">Checking extension...</span>
+                <button type="button" class="tiny primary" id="btn-onboard-pair">⚡ Auto-Pair Extension</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Open AI Tabs -->
+          <div class="onboarding-step" id="onboard-step-2">
+            <div class="step-num">2</div>
+            <div class="step-content">
+              <h4>Open Your Frontier Chat Tabs</h4>
+              <p>Keep your favorite models open in separate tabs. Melon detects them in real time:</p>
+              <div class="step-buttons">
+                <button type="button" class="tiny ghost" id="btn-launch-chatgpt">🌐 Open ChatGPT</button>
+                <button type="button" class="tiny ghost" id="btn-launch-claude">🌐 Open Claude</button>
+                <button type="button" class="tiny ghost" id="btn-launch-gemini">🌐 Open Gemini</button>
+              </div>
+              <div class="detected-tabs-summary" id="onboard-detected-tabs">No AI tabs detected yet.</div>
+            </div>
+          </div>
+
+          <!-- Step 3: Run First Speculative Tournament -->
+          <div class="onboarding-step" id="onboard-step-3">
+            <div class="step-num">3</div>
+            <div class="step-content">
+              <h4>Launch Your First Multi-Model Tournament</h4>
+              <p>Race ChatGPT, Claude, and Gemini on the same prompt and pick the winner.</p>
+              <div class="step-action">
+                <button type="button" class="primary" id="btn-onboard-launch-tourney">🏆 Open Speculative Tournament</button>
+                <button type="button" class="ghost" id="btn-onboard-dismiss">Enter Canvas</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

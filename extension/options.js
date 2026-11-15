@@ -93,7 +93,10 @@ async function load() {
   populateModels(settings.aiModelId);
   renderModelDetails();
   if (!settings.token) {
-    setStatus("No token yet. Start the hub, then paste its token.");
+    const paired = await autoPair(true);
+    if (!paired) {
+      setStatus("No token yet. Click '⚡ Auto-Pair with Hub' or paste token.");
+    }
   } else if (!consentInput.checked) {
     setStatus("Accept the bridge consent to run real tabs.");
   }
@@ -147,6 +150,30 @@ async function test() {
       `Cannot reach ${hubUrl}: ${String(err.message || err)}\nIs the hub running on that port?`,
       "bad"
     );
+  }
+}
+
+async function autoPair(silent = false) {
+  const hubUrl = normalizeHub(hubInput.value);
+  if (!silent) setStatus("Auto-detecting local Melon Hub...", "");
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(`${hubUrl}/api/pairing-token`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok || !data.token) throw new Error(data.error || "Token unavailable");
+    tokenInput.value = data.token;
+    consentInput.checked = true;
+    await save();
+    setStatus("⚡ Successfully auto-paired with local Melon Hub!", "good");
+    return true;
+  } catch (err) {
+    if (!silent) {
+      setStatus(`Auto-pair failed: ${err.message}. Make sure the hub is running on ${hubUrl}.`, "bad");
+    }
+    return false;
   }
 }
 
@@ -306,6 +333,7 @@ async function unloadModel() {
 }
 
 $("save").addEventListener("click", save);
+$("auto-pair")?.addEventListener("click", () => autoPair(false));
 $("test").addEventListener("click", test);
 $("open").addEventListener("click", () => {
   chrome.tabs.create({ url: normalizeHub(hubInput.value) + "/" });

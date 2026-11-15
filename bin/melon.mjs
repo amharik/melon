@@ -432,6 +432,102 @@ async function handleExport(opts) {
   }
 }
 
+// Command: melon doctor
+async function handleDoctor(opts) {
+  const hubUrl = getHubUrl(opts.hub);
+  console.log(`\n🍈 Melon Environment Diagnostic Doctor (v${VERSION})\n`);
+
+  let issues = 0;
+
+  // 1. Node runtime
+  const nodeVer = process.versions.node;
+  const major = parseInt(nodeVer.split(".")[0], 10);
+  if (major >= 20) {
+    console.log(`  [✔] Node.js Runtime:        v${nodeVer} (Supported)`);
+  } else {
+    console.log(`  [✗] Node.js Runtime:        v${nodeVer} (Node 20+ required!)`);
+    issues++;
+  }
+
+  // 2. WASM Core
+  let wasmPath = path.resolve(process.cwd(), "web", "wasm", "melon_core.wasm");
+  if (!fs.existsSync(wasmPath)) {
+    wasmPath = path.resolve(process.cwd(), "..", "web", "wasm", "melon_core.wasm");
+  }
+  if (fs.existsSync(wasmPath)) {
+    const stat = fs.statSync(wasmPath);
+    console.log(`  [✔] WASM Core ABI:          melon_core.wasm (${Math.round(stat.size / 1024)} KB)`);
+  } else {
+    console.log(`  [✗] WASM Core ABI:          web/wasm/melon_core.wasm not found`);
+    issues++;
+  }
+
+  // 3. Local Hub Server
+  let health = null;
+  try {
+    health = await requestJson(`${hubUrl}/api/health`, { token: opts.token });
+    console.log(`  [✔] Local Hub Server:       Online at ${hubUrl} (v${health.version}, uptime: ${health.uptime}s)`);
+  } catch (err) {
+    console.log(`  [✗] Local Hub Server:       Offline at ${hubUrl} (${err.message})`);
+    console.log(`      ↳ Start the hub with:   node server/hub.mjs`);
+    issues++;
+  }
+
+  // 4. Token Check
+  const token = opts.token || findToken();
+  if (token) {
+    console.log(`  [✔] Hub Security Token:     Active (${token.slice(0, 4)}…${token.slice(-3)})`);
+  } else {
+    console.log(`  [!] Hub Security Token:     No .melon-token file detected`);
+    issues++;
+  }
+
+  // 5. Extension Clients
+  if (health) {
+    const clients = health.extensionClients || 0;
+    if (clients > 0) {
+      console.log(`  [✔] Extension Bridge:       Connected (${clients} active client)`);
+    } else {
+      console.log(`  [!] Extension Bridge:       0 extension clients connected`);
+      console.log(`      ↳ Pair extension:       Open extension options & click '⚡ Auto-Pair with Hub'`);
+      issues++;
+    }
+  }
+
+  // 6. Bridged Tabs
+  if (health) {
+    try {
+      const data = await requestJson(`${hubUrl}/api/tabs`, { token: opts.token });
+      const tabs = data.tabs || [];
+      if (tabs.length > 0) {
+        console.log(`  [✔] Bridged AI Tabs:        ${tabs.length} open tab${tabs.length > 1 ? "s" : ""}`);
+        for (const t of tabs) {
+          const ready = t.health?.fields?.composer?.ok ? "ready" : "attached";
+          console.log(`      • [${ready}] ${t.title ? t.title.slice(0, 35) : "Untitled"} (${t.adapter || "auto"})`);
+        }
+      } else {
+        console.log(`  [!] Bridged AI Tabs:        0 open AI tabs detected`);
+        console.log(`      ↳ Open tabs:            Open ChatGPT (https://chatgpt.com) or Claude (https://claude.ai)`);
+        issues++;
+      }
+    } catch (err) {
+      console.log(`  [!] Bridged AI Tabs:        Could not retrieve tabs (${err.message})`);
+    }
+  }
+
+  // 7. Worktree Isolation
+  if (health && health.worktreeRoot) {
+    console.log(`  [✔] Worktrees Root:         ${health.worktreeRoot}`);
+  }
+
+  console.log("");
+  if (issues === 0) {
+    console.log(`  🎉 All systems operational! Ready to run graphs, tournaments, or \`melon ask\`.\n`);
+  } else {
+    console.log(`  ⚠️  ${issues} item${issues > 1 ? "s" : ""} need attention. Follow the tips above to get 100% operational.\n`);
+  }
+}
+
 function printHelp() {
   console.log(`
 🍈 Melon CLI (v${VERSION}) - Reverse CLI-to-Web AI Oracle
@@ -440,6 +536,7 @@ USAGE:
   melon ask [options] "<prompt>"    Dispatch prompt to bridged browser tab & stream answer
   melon ask -e [options]            Re-extract latest response from active tab without prompting
   melon tabs [options]              List all active bridged browser tabs (ChatGPT, Claude, Gemini)
+  melon doctor [options]            Run self-healing diagnostic check on local setup & tabs
   melon status [options]            Show Melon Hub runtime health and connected clients
   melon export <runId> [options]    Export code artifacts harvested from a run
 
@@ -494,6 +591,9 @@ async function main() {
     case "export":
       await handleExport(opts);
       break;
+    case "doctor":
+      await handleDoctor(opts);
+      break;
     default:
       console.error(`Unknown command: "${opts.command}". Run \`melon --help\` for usage.`);
       process.exit(1);
@@ -508,4 +608,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { parseCliArgs, formatTabRow, resolveTargetTab };
+export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor };

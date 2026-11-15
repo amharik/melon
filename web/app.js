@@ -3473,6 +3473,7 @@ function updateExtTabs(tabs) {
   extTabs.clear();
   for (const tab of tabs) extTabs.set(String(tab.id), tab);
   renderExtTabs();
+  if (typeof updateOnboardingView === "function") updateOnboardingView();
   if (selectedId && !document.activeElement?.closest?.("#inspect-fields")) renderInspector();
 }
 
@@ -3652,9 +3653,11 @@ function setupUi() {
     const hireModal = $("#modal-hire");
     const tapModal = $("#modal-tap");
     const tourneyModal = $("#modal-tournament");
+    const onboardModal = $("#modal-onboarding");
     if (hireModal) hireModal.hidden = true;
     if (tapModal) tapModal.hidden = true;
     if (tourneyModal) tourneyModal.hidden = true;
+    if (onboardModal) onboardModal.hidden = true;
   };
   $("#btn-close-hire")?.addEventListener("click", closeModals);
   $("#btn-cancel-hire")?.addEventListener("click", closeModals);
@@ -3662,6 +3665,8 @@ function setupUi() {
   $("#btn-cancel-tap")?.addEventListener("click", closeModals);
   $("#btn-close-tournament")?.addEventListener("click", closeModals);
   $("#btn-cancel-tournament")?.addEventListener("click", closeModals);
+  $("#btn-close-onboarding")?.addEventListener("click", closeModals);
+  $("#btn-onboard-dismiss")?.addEventListener("click", closeModals);
   $$(".modal-backdrop").forEach((backdrop) => {
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) closeModals();
@@ -3752,7 +3757,12 @@ function setupUi() {
     }
   });
 
+  $("#btn-smart-bind")?.addEventListener("click", () => smartBindTabs(true));
+  $("#btn-smart-bind-top")?.addEventListener("click", () => smartBindTabs(true));
+  $("#btn-getting-started")?.addEventListener("click", () => openOnboarding());
+
   setupTournament();
+  setupOnboarding();
 }
 
 function setupTournament() {
@@ -4005,6 +4015,148 @@ function setupTournament() {
       }
     }
   });
+}
+
+function smartBindTabs(interactive = true) {
+  if (!extTabs.size) {
+    if (interactive) toast("No bridged tabs connected to bind", true);
+    return 0;
+  }
+
+  const supportedTabs = [...extTabs.values()].filter((t) => t.supported !== false && t.adapter);
+  if (!supportedTabs.length) {
+    if (interactive) toast("No supported AI tabs open (open ChatGPT, Claude, or Gemini)", true);
+    return 0;
+  }
+
+  const agentNodes = nodes.filter((n) => n.kind === "agent");
+  if (!agentNodes.length) return 0;
+
+  let boundCount = 0;
+  const usedTabIds = new Set(agentNodes.map((n) => String(n.config?.extTabId || "")).filter(Boolean));
+
+  for (const node of agentNodes) {
+    if (node.config?.extTabId && extTabs.has(String(node.config.extTabId))) {
+      continue;
+    }
+
+    const label = (node.label || "").toLowerCase();
+    const inst = (node.config?.instructions || "").toLowerCase();
+    const adapter = (node.config?.adapter || "").toLowerCase();
+
+    let candidate = supportedTabs.find((t) => {
+      if (usedTabIds.has(String(t.id))) return false;
+      const tabAdapter = (t.adapter || "").toLowerCase();
+      const tabTitle = (t.title || "").toLowerCase();
+      if (label.includes("gpt") || inst.includes("gpt") || adapter.includes("chatgpt")) return tabAdapter === "chatgpt";
+      if (label.includes("gemini") || inst.includes("gemini") || adapter.includes("gemini")) return tabAdapter === "gemini";
+      if (label.includes("claude") || inst.includes("claude") || adapter.includes("claude")) return tabAdapter === "claude";
+      return tabAdapter.includes(label) || tabTitle.includes(label);
+    });
+
+    if (!candidate) {
+      candidate = supportedTabs.find((t) => !usedTabIds.has(String(t.id)));
+    }
+
+    if (candidate) {
+      usedTabIds.add(String(candidate.id));
+      node.config.adapter = "ext";
+      node.config.extTabId = candidate.id;
+      updateNodeMeta(node);
+      boundCount++;
+      log("hub", `Smart-bound ${node.label} to ${candidate.title.slice(0, 30)} (${candidate.adapter})`);
+    }
+  }
+
+  if (boundCount > 0) {
+    bumpWorkflowVersion("smart-bind tabs");
+    renderNodes();
+    renderEdges();
+    if (selectedId) renderInspector();
+    if (typeof updateOfficeDeskCards === "function") updateOfficeDeskCards();
+    if (interactive) toast(`⚡ Smart-bound ${boundCount} agent node${boundCount > 1 ? "s" : ""} to live tabs!`);
+  } else if (interactive) {
+    toast("All agent nodes are already bound to active tabs");
+  }
+
+  return boundCount;
+}
+
+function openOnboarding() {
+  const modal = $("#modal-onboarding");
+  if (!modal) return;
+  modal.hidden = false;
+  updateOnboardingView();
+}
+
+function updateOnboardingView() {
+  const badgeExt = $("#badge-ext-status");
+  const btnPair = $("#btn-onboard-pair");
+  const tabsSummary = $("#onboard-detected-tabs");
+
+  if (!badgeExt || !tabsSummary) return;
+
+  if (extTabs.size > 0 || hub.online) {
+    badgeExt.textContent = "Extension Connected ✔";
+    badgeExt.className = "badge good";
+    if (btnPair) btnPair.hidden = true;
+  } else {
+    badgeExt.textContent = "Extension Not Connected";
+    badgeExt.className = "badge bad";
+    if (btnPair) btnPair.hidden = false;
+  }
+
+  const supported = [...extTabs.values()].filter((t) => t.supported !== false && t.adapter);
+  if (supported.length > 0) {
+    tabsSummary.textContent = `✔ ${supported.length} AI tab${supported.length > 1 ? "s" : ""} detected: ${supported.map((t) => `${t.adapter} (${t.title.slice(0, 22)})`).join(", ")}`;
+    tabsSummary.style.color = "#34d399";
+  } else {
+    tabsSummary.textContent = "No supported AI tabs detected yet. Click a button above to open one.";
+    tabsSummary.style.color = "var(--text-muted)";
+  }
+}
+
+function setupOnboarding() {
+  const modal = $("#modal-onboarding");
+  const btnClose = $("#btn-close-onboarding");
+  const btnDismiss = $("#btn-onboard-dismiss");
+  const btnPair = $("#btn-onboard-pair");
+  const btnLaunchChatGPT = $("#btn-launch-chatgpt");
+  const btnLaunchClaude = $("#btn-launch-claude");
+  const btnLaunchGemini = $("#btn-launch-gemini");
+  const btnLaunchTourney = $("#btn-onboard-launch-tourney");
+
+  const close = () => {
+    if (modal) modal.hidden = true;
+    localStorage.setItem("melon.visited", "true");
+  };
+
+  btnClose?.addEventListener("click", close);
+  btnDismiss?.addEventListener("click", close);
+
+  btnLaunchChatGPT?.addEventListener("click", () => window.open("https://chatgpt.com", "_blank"));
+  btnLaunchClaude?.addEventListener("click", () => window.open("https://claude.ai", "_blank"));
+  btnLaunchGemini?.addEventListener("click", () => window.open("https://gemini.google.com", "_blank"));
+
+  btnPair?.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/api/pairing-token");
+      const data = await res.json();
+      if (data.ok && data.token) {
+        navigator.clipboard.writeText(data.token).catch(() => {});
+        toast("Token copied to clipboard! Open chrome-extension options to paste, or click Auto-Pair in options.");
+      }
+    } catch {}
+  });
+
+  btnLaunchTourney?.addEventListener("click", () => {
+    close();
+    $("#btn-tournament")?.click();
+  });
+
+  if (!localStorage.getItem("melon.visited")) {
+    setTimeout(openOnboarding, 600);
+  }
 }
 
 async function boot() {

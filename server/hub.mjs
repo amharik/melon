@@ -1237,6 +1237,10 @@ async function handleApi(req, res, url) {
     });
   }
 
+  if (pathname === "/api/pairing-token" && req.method === "GET") {
+    return json(res, 200, { ok: true, token: TOKEN });
+  }
+
   if (pathname === "/api/config" && req.method === "GET") {
     return json(res, 200, {
       hub: true,

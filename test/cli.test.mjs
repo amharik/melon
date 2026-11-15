@@ -60,3 +60,9 @@ test("resolveTargetTab matches by tabId, role/adapter, or falls back to first", 
   const defaultFirst = mockTabs[0];
   assert.equal(defaultFirst.id, "101");
 });
+
+test("cli argument parsing handles doctor command", () => {
+  const docArgs = parseCliArgs(["doctor", "--hub", "http://127.0.0.1:8787"]);
+  assert.equal(docArgs.command, "doctor");
+  assert.equal(docArgs.hub, "http://127.0.0.1:8787");
+});
