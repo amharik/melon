@@ -949,94 +949,6 @@ function renderMarkdown(raw) {
   // Basic HTML sanitization
   text = esc(text);
 
-  // Restore code blocks with rich header, copy button, and architecture diagram support
-  text = text.replace(/__CB_(\d+)__/g, (_, idx) => {
-    const cb = codeBlocks[Number(idx)];
-    if (!cb) return "";
-    const cleanCode = esc(cb.code.trim());
-    const rawCode = cb.code.trim();
-    const lang = (cb.lang || "").toLowerCase();
-
-    // 1. Mermaid Architecture Diagram
-    if (lang === "mermaid" || isMermaidCode(rawCode)) {
-      const diagId = `m_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-      return createDiagramCardHtml({
-        id: diagId,
-        type: "mermaid",
-        title: "Architecture Diagram",
-        rawCode,
-      });
-    }
-
-    // 2. SVG Architecture Diagram
-    if (lang === "svg" || isSvgCode(rawCode)) {
-      const diagId = `svg_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-      return createDiagramCardHtml({
-        id: diagId,
-        type: "svg",
-        title: "Architecture Diagram (SVG)",
-        rawCode,
-        inlineSvg: rawCode,
-      });
-    }
-
-    // 3. Monospace Box-Drawing Architecture Diagram
-    if (isBoxDiagram(rawCode)) {
-      const diagId = `box_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-      return createDiagramCardHtml({
-        id: diagId,
-        type: "box",
-        title: "Architecture Diagram (Monospace)",
-        rawCode,
-      });
-    }
-
-    return `<div class="md-code-block" style="margin:8px 0; border:1px solid var(--glass-border); border-radius:8px; overflow:hidden;">
-      <div class="md-code-header">
-        <span style="font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase;">${esc(cb.lang)}</span>
-        <button type="button" class="tiny ghost btn-copy-code" data-copy="${cleanCode}">Copy</button>
-      </div>
-      <pre style="margin:0; border:0; border-radius:0; max-height:260px; overflow:auto;"><code>${cleanCode}</code></pre>
-    </div>`;
-  });
-
-  // Restore extracted media / images / illustrations
-  text = text.replace(/__MEDIA_(\d+)__/g, (_, idx) => {
-    const m = mediaBlocks[Number(idx)];
-    if (!m) return "";
-
-    // If it is an extracted SVG architecture diagram data URI
-    if (m.src.startsWith("data:image/svg+xml")) {
-      let rawSvg = "";
-      try {
-        if (m.src.includes("utf8,")) {
-          rawSvg = decodeURIComponent(m.src.split("utf8,")[1]);
-        } else if (m.src.includes("base64,")) {
-          rawSvg = atob(m.src.split("base64,")[1]);
-        }
-      } catch (err) {
-        console.warn("Failed to decode SVG data URI:", err);
-      }
-      if (rawSvg && rawSvg.includes("<svg")) {
-        const diagId = `svg_media_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-        return createDiagramCardHtml({
-          id: diagId,
-          type: "svg",
-          title: m.alt || "Architecture Diagram",
-          rawCode: rawSvg,
-          inlineSvg: rawSvg,
-        });
-      }
-    }
-
-    const safeSrc = m.src.replace(/"/g, "&quot;");
-    const safeAlt = esc(m.alt);
-    return `<div class="slack-media-card">
-      <img class="slack-media-img" src="${safeSrc}" alt="${safeAlt}" loading="lazy" data-modal-src="${safeSrc}" data-modal-cap="${safeAlt}" />
-      <div class="slack-media-caption">📷 ${safeAlt}</div>
-    </div>`;
-  });
-
   // Headings
   text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
   text = text.replace(/^## (.*$)/gim, "<h2>$1</h2>");
@@ -1088,11 +1000,96 @@ function renderMarkdown(raw) {
   text = text.split("\n\n").map((p) => {
     p = p.trim();
     if (!p) return "";
-    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<div") || p.startsWith("<table") || p.startsWith("<ul") || p.startsWith("<blockquote")) {
+    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<div") || p.startsWith("<table") || p.startsWith("<ul") || p.startsWith("<blockquote") || p.startsWith("__CB_") || p.startsWith("__MEDIA_")) {
       return p;
     }
     return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
   }).join("\n");
+
+  // Restore code blocks with rich header, copy button, and architecture diagram support
+  text = text.replace(/__CB_(\d+)__/g, (_, idx) => {
+    const cb = codeBlocks[Number(idx)];
+    if (!cb) return "";
+    const cleanCode = esc(cb.code.trim());
+    const rawCode = cb.code.trim();
+    const lang = (cb.lang || "").toLowerCase();
+
+    // 1. Mermaid Architecture Diagram
+    if (lang === "mermaid" || isMermaidCode(rawCode)) {
+      const diagId = `m_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+      return createDiagramCardHtml({
+        id: diagId,
+        type: "mermaid",
+        rawCode,
+      });
+    }
+
+    // 2. SVG Architecture Diagram
+    if (lang === "svg" || isSvgCode(rawCode)) {
+      const diagId = `svg_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+      return createDiagramCardHtml({
+        id: diagId,
+        type: "svg",
+        rawCode,
+        inlineSvg: rawCode,
+      });
+    }
+
+    // 3. Monospace Box-Drawing Architecture Diagram
+    if (isBoxDiagram(rawCode)) {
+      const diagId = `box_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+      return createDiagramCardHtml({
+        id: diagId,
+        type: "box",
+        rawCode,
+      });
+    }
+
+    return `<div class="md-code-block" style="margin:8px 0; border:1px solid var(--glass-border); border-radius:8px; overflow:hidden;">
+      <div class="md-code-header">
+        <span style="font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase;">${esc(cb.lang)}</span>
+        <button type="button" class="tiny ghost btn-copy-code" data-copy="${cleanCode}">Copy</button>
+      </div>
+      <pre style="margin:0; border:0; border-radius:0; max-height:260px; overflow:auto;"><code>${cleanCode}</code></pre>
+    </div>`;
+  });
+
+  // Restore extracted media / images / illustrations
+  text = text.replace(/__MEDIA_(\d+)__/g, (_, idx) => {
+    const m = mediaBlocks[Number(idx)];
+    if (!m) return "";
+
+    // If it is an extracted SVG architecture diagram data URI
+    if (m.src.startsWith("data:image/svg+xml")) {
+      let rawSvg = "";
+      try {
+        if (m.src.includes("utf8,")) {
+          rawSvg = decodeURIComponent(m.src.split("utf8,")[1]);
+        } else if (m.src.includes("base64,")) {
+          rawSvg = atob(m.src.split("base64,")[1]);
+        }
+      } catch (err) {
+        console.warn("Failed to decode SVG data URI:", err);
+      }
+      if (rawSvg && rawSvg.includes("<svg")) {
+        const diagId = `svg_media_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+        return createDiagramCardHtml({
+          id: diagId,
+          type: "svg",
+          title: m.alt && m.alt !== "Architecture Diagram" && m.alt !== "Extracted Graphic" ? m.alt : "",
+          rawCode: rawSvg,
+          inlineSvg: rawSvg,
+        });
+      }
+    }
+
+    const safeSrc = m.src.replace(/"/g, "&quot;");
+    const safeAlt = esc(m.alt);
+    return `<div class="slack-media-card">
+      <img class="slack-media-img" src="${safeSrc}" alt="${safeAlt}" loading="lazy" data-modal-src="${safeSrc}" data-modal-cap="${safeAlt}" />
+      <div class="slack-media-caption">📷 ${safeAlt}</div>
+    </div>`;
+  });
 
   return `<div class="md-body">${text}</div>`;
 }

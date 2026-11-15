@@ -393,9 +393,13 @@
             if (!clone.getAttribute("viewBox") && w > 0 && h > 0) {
               clone.setAttribute("viewBox", `0 0 ${w} ${h}`);
             }
+            const label = (node.getAttribute?.("aria-label") ||
+              node.querySelector?.("title")?.textContent ||
+              node.getAttribute?.("data-title") ||
+              (isMermaid ? "Mermaid Diagram" : "Vector Diagram")).replace(/[\r\n\[\]]/g, " ").trim();
             const serialized = new XMLSerializer().serializeToString(clone);
             const encoded = encodeURIComponent(serialized);
-            return `\n\n![Architecture Diagram](data:image/svg+xml;utf8,${encoded})\n\n`;
+            return `\n\n![${label}](data:image/svg+xml;utf8,${encoded})\n\n`;
           }
         } catch {}
         return "";

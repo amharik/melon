@@ -31,17 +31,94 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function sanitizeSvgXml(svgText) {
+export function extractDiagramTitle(code, fallback = "Diagram") {
+  if (!code) return fallback;
+  const str = String(code).trim();
+
+  // 1. Check for YAML frontmatter title: --- \n title: ... \n ---
+  const frontmatterMatch = str.match(/^---\s*[\r\n]+[\s\S]*?title:\s*([^\r\n]+)[\s\S]*?---/i);
+  if (frontmatterMatch) {
+    return frontmatterMatch[1].replace(/["']/g, "").trim();
+  }
+
+  // 2. Check for Mermaid 'title ...' directive
+  const titleDirective = str.match(/^\s*title\s*[:\s]\s*([^\r\n]+)/im);
+  if (titleDirective) {
+    return titleDirective[1].replace(/["']/g, "").trim();
+  }
+
+  // 3. Check for SVG <title>...</title>
+  const svgTitleMatch = str.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  if (svgTitleMatch) {
+    const t = svgTitleMatch[1].replace(/<[^>]+>/g, "").trim();
+    if (t) return t;
+  }
+
+  // 4. Check for SVG aria-label
+  const ariaMatch = str.match(/aria-label\s*=\s*["']([^"']+)["']/i);
+  if (ariaMatch) {
+    const a = ariaMatch[1].trim();
+    if (a && a.length > 2) return a;
+  }
+
+  // 5. Check for subgraph Title
+  const subgraphMatch = str.match(/subgraph\s+(?:["']([^"']+)["']|([a-zA-Z0-9_-]+))/i);
+  if (subgraphMatch) {
+    const sg = (subgraphMatch[1] || subgraphMatch[2]).trim();
+    if (sg && !/^(root|main|g\d+)$/i.test(sg)) return sg;
+  }
+
+  // 6. Detect specific diagram type
+  const firstLine = str.split("\n")[0].trim().toLowerCase();
+  if (firstLine.startsWith("sequencediagram")) return "Sequence Diagram";
+  if (firstLine.startsWith("classdiagram")) return "Class Diagram";
+  if (firstLine.startsWith("erdiagram")) return "Entity Relationship Diagram";
+  if (firstLine.startsWith("statediagram")) return "State Diagram";
+  if (firstLine.startsWith("gitgraph")) return "Git Branch Graph";
+  if (firstLine.startsWith("gantt")) return "Gantt Chart";
+  if (firstLine.startsWith("pie")) return "Pie Chart";
+  if (firstLine.startsWith("flowchart") || firstLine.startsWith("graph")) {
+    return "Architecture Flowchart";
+  }
+
+  if (isSvgCode(str)) return "Vector Diagram";
+  if (isBoxDiagram(str)) return "Monospace Architecture Diagram";
+
+  return fallback;
+}
+
+export function sanitizeSvgXml(svgText) {
   if (!svgText) return "";
   let clean = svgText.trim();
+  // Strip XML declarations or DOCTYPEs
+  clean = clean.replace(/<\?xml[^>]*\?>/gi, "");
+  clean = clean.replace(/<!DOCTYPE[^>]*>/gi, "");
   // Remove script tags and inline event handlers for security
   clean = clean.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
   clean = clean.replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, "");
   clean = clean.replace(/\son[a-z]+\s*=\s*[^>\s]+/gi, "");
+
   // Ensure xmlns is present
   if (!clean.includes('xmlns="http://www.w3.org/2000/svg"')) {
     clean = clean.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
   }
+
+  // Synthesize viewBox from width/height if missing
+  if (!/viewBox\s*=/i.test(clean)) {
+    const wMatch = clean.match(/width\s*=\s*["']?(\d+(?:\.\d+)?)/i);
+    const hMatch = clean.match(/height\s*=\s*["']?(\d+(?:\.\d+)?)/i);
+    if (wMatch && hMatch) {
+      const w = wMatch[1];
+      const h = hMatch[1];
+      clean = clean.replace(/<svg\b/i, `<svg viewBox="0 0 ${w} ${h}"`);
+    }
+  }
+
+  // Ensure responsive style attributes
+  if (!/style\s*=/i.test(clean)) {
+    clean = clean.replace(/<svg\b/i, '<svg style="width:100%; height:auto; display:block; max-height:560px;"');
+  }
+
   return clean;
 }
 
@@ -455,14 +532,15 @@ function renderBuiltInSequenceDiagram(lines, { width = 800, isDarkMode = true } 
 export function createDiagramCardHtml({
   id,
   type = "mermaid",
-  title = "Architecture Diagram",
+  title = "",
   rawCode = "",
   inlineSvg = "",
 }) {
+  const dynamicTitle = title || extractDiagramTitle(rawCode || inlineSvg, type === "svg" ? "Vector Diagram" : "Architecture Diagram");
   const cleanCode = escapeHtml(rawCode);
-  const cleanTitle = escapeHtml(title);
-  const badgeLabel = type === "svg" ? "SVG Vector" : type === "box" ? "Monospace Diagram" : "Mermaid";
-  const icon = type === "box" ? "📐" : "🏛️";
+  const cleanTitle = escapeHtml(dynamicTitle);
+  const badgeLabel = type === "svg" ? "SVG" : type === "box" ? "Monospace" : "Mermaid";
+  const icon = type === "box" ? "📐" : type === "svg" ? "🖼️" : "🏛️";
 
   return `
     <div class="arch-diagram-card ${type}-card" id="diagram-card-${id}" data-diagram-id="${id}" data-diagram-type="${type}">
@@ -489,7 +567,7 @@ export function createDiagramCardHtml({
       <div class="arch-diagram-source" id="diagram-source-${id}" hidden>
         <pre><code>${cleanCode}</code></pre>
       </div>` : ""}
-      <script type="application/json" class="diagram-meta">${JSON.stringify({ id, type, title, rawCode })}</script>
+      <script type="application/json" class="diagram-meta">${JSON.stringify({ id, type, title: dynamicTitle, rawCode })}</script>
     </div>
   `;
 }

@@ -187,7 +187,18 @@ test("extension domToRichMarkdown extracts unlabelled Mermaid blocks and SVG dia
   };
 
   const extractedSvg = A.domToRichMarkdown(svgEl);
-  assert.match(extractedSvg, /!\[Architecture Diagram\]\(data:image\/svg\+xml;utf8,/);
+  assert.match(extractedSvg, /!\[Vector Diagram\]\(data:image\/svg\+xml;utf8,/);
+
+  // 3. SVG with explicit title tag
+  const svgWithTitle = {
+    ...svgEl,
+    querySelector(sel) {
+      if (sel === "title") return { textContent: "Cloud Deployment Flow" };
+      return null;
+    },
+  };
+  const extractedWithTitle = A.domToRichMarkdown(svgWithTitle);
+  assert.match(extractedWithTitle, /!\[Cloud Deployment Flow\]\(data:image\/svg\+xml;utf8,/);
 });
 
 test("web/app.js, index.html, and styles.css wire Mermaid and architecture diagram cards", async () => {
