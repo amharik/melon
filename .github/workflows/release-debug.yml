@@ -1,0 +1,305 @@
+name: Release Debug Multiplatform
+
+on:
+  push:
+    tags:
+      - 'v*debug*'
+      - 'v*beta*'
+      - 'v*alpha*'
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g. v0.1.0-debug.1)'
+        required: true
+        default: 'v0.1.0-debug.1'
+      is_prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: macOS (${{ matrix.target.name }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - triple: x86_64-apple-darwin
+            name: intel
+          - triple: aarch64-apple-darwin
+            name: silicon
+          - triple: universal-apple-darwin
+            name: universal
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin,wasm32-unknown-unknown
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build WASM Core
+        run: |
+          cargo build --manifest-path core-runtime/Cargo.toml --target wasm32-unknown-unknown --release
+          mkdir -p web/wasm
+          cp core-runtime/target/wasm32-unknown-unknown/release/melon_core.wasm web/wasm/melon_core.wasm
+
+      - name: Build macOS Debug Bundle
+        run: |
+          npx tauri build --debug --target ${{ matrix.target.triple }} --no-sign
+
+      - name: Package macOS Artifacts
+        run: |
+          mkdir -p dist/packages
+          TARGET_DIR="src-tauri/target/${{ matrix.target.triple }}/debug/bundle"
+          if [ -d "$TARGET_DIR/dmg" ]; then
+            cp "$TARGET_DIR/dmg/"*.dmg dist/packages/melon-macos-${{ matrix.target.name }}-debug.dmg 2>/dev/null || true
+          fi
+          if [ -d "$TARGET_DIR/macos" ]; then
+            tar -czf dist/packages/melon-macos-${{ matrix.target.name }}-debug.app.tar.gz -C "$TARGET_DIR/macos" melon.app 2>/dev/null || true
+          fi
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.target.name }}
+          path: dist/packages/*
+
+  build-ios:
+    name: iPhone (iOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,wasm32-unknown-unknown
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build WASM Core
+        run: |
+          cargo build --manifest-path core-runtime/Cargo.toml --target wasm32-unknown-unknown --release
+          mkdir -p web/wasm
+          cp core-runtime/target/wasm32-unknown-unknown/release/melon_core.wasm web/wasm/melon_core.wasm
+
+      - name: Build iOS Debug Bundle
+        run: |
+          npx tauri ios init --ci || true
+          npx tauri ios build --debug --no-sign || true
+
+      - name: Package iOS Artifacts
+        run: |
+          mkdir -p dist/packages
+          if [ -d "src-tauri/gen/apple/build" ]; then
+            tar -czf dist/packages/melon-ios-debug.tar.gz -C src-tauri/gen/apple/build . 2>/dev/null || true
+          fi
+          # Also package the iOS simulator app bundle if built
+          find src-tauri/gen/apple -name "*.app" -exec tar -czf dist/packages/melon-ios-simulator-debug.app.tar.gz -C "{}/.." "$(basename "{}")" \; 2>/dev/null || true
+
+      - name: Upload iOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-debug
+          path: dist/packages/*
+        continue-on-error: true
+
+  build-android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android,wasm32-unknown-unknown
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk || true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build WASM Core
+        run: |
+          cargo build --manifest-path core-runtime/Cargo.toml --target wasm32-unknown-unknown --release
+          mkdir -p web/wasm
+          cp core-runtime/target/wasm32-unknown-unknown/release/melon_core.wasm web/wasm/melon_core.wasm
+
+      - name: Build Android Debug APK
+        run: |
+          npx tauri android init --ci || true
+          npx tauri android build --debug --apk || true
+
+      - name: Package Android Artifacts
+        run: |
+          mkdir -p dist/packages
+          find src-tauri/gen/android -name "*.apk" -exec cp "{}" dist/packages/melon-android-debug.apk \; 2>/dev/null || true
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug
+          path: dist/packages/*
+        continue-on-error: true
+
+  build-windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build WASM Core
+        run: |
+          cargo build --manifest-path core-runtime/Cargo.toml --target wasm32-unknown-unknown --release
+          New-Item -ItemType Directory -Force -Path web/wasm
+          Copy-Item core-runtime/target/wasm32-unknown-unknown/release/melon_core.wasm web/wasm/melon_core.wasm
+
+      - name: Build Windows Debug Bundle
+        run: |
+          npx tauri build --debug --target x86_64-pc-windows-msvc --no-sign
+
+      - name: Package Windows Artifacts
+        shell: bash
+        run: |
+          mkdir -p dist/packages
+          TARGET_DIR="src-tauri/target/x86_64-pc-windows-msvc/debug/bundle"
+          find "$TARGET_DIR" -type f \( -name "*.msi" -o -name "*setup*.exe" -o -name "*.exe" \) -exec cp "{}" dist/packages/ \; 2>/dev/null || true
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist/packages/*
+
+  build-linux:
+    name: Linux (deb & rpm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,wasm32-unknown-unknown
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev rpm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build WASM Core
+        run: |
+          cargo build --manifest-path core-runtime/Cargo.toml --target wasm32-unknown-unknown --release
+          mkdir -p web/wasm
+          cp core-runtime/target/wasm32-unknown-unknown/release/melon_core.wasm web/wasm/melon_core.wasm
+
+      - name: Build Linux deb & rpm
+        run: |
+          npx tauri build --debug --bundles deb,rpm,appimage --no-sign
+
+      - name: Package Linux Artifacts
+        run: |
+          mkdir -p dist/packages
+          TARGET_DIR="src-tauri/target/x86_64-unknown-linux-gnu/debug/bundle"
+          find "$TARGET_DIR" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp "{}" dist/packages/ \; 2>/dev/null || true
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: dist/packages/*
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-ios, build-android, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/all-artifacts
+
+      - name: Organize release assets and generate checksums
+        run: |
+          mkdir -p dist/release-assets
+          find dist/all-artifacts -type f -exec cp -v {} dist/release-assets/ \;
+          cd dist/release-assets
+          sha256sum * > SHA256SUMS.txt 2>/dev/null || shasum -a 256 * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Determine tag name
+        id: vars
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.ref_name }}" ]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v0.1.0-debug" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: "Melon Desktop Debug Release (${{ steps.vars.outputs.tag }})"
+          prerelease: true
+          draft: false
+          generate_release_notes: true
+          files: |
+            dist/release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

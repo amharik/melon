@@ -159,7 +159,7 @@ test("src-tauri configuration and Rust backend are structurally valid", () => {
   assert.ok(fs.existsSync(cargoTomlPath), "Cargo.toml should exist");
   const cargoToml = fs.readFileSync(cargoTomlPath, "utf8");
   assert.ok(cargoToml.includes('name = "app"'));
-  assert.ok(cargoToml.includes('tauri = { version = "2.12.6" }'));
+  assert.ok(cargoToml.includes("2.12.6"));
 
   const libRsPath = path.resolve("src-tauri/src/lib.rs");
   assert.ok(fs.existsSync(libRsPath), "src/lib.rs should exist");

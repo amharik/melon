@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "melon",
   "version": "0.1.0",
-  "identifier": "com.melon.app",
+  "identifier": "io.melon.desktop",
   "build": {
     "frontendDist": "../web"
   },
