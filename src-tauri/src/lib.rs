@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Default)]
 pub struct AppState {
     pub agent_windows: Mutex<HashMap<String, String>>,
+    pub agent_messages: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -63,8 +64,10 @@ mod commands {
 
         let parsed_url = Url::parse(&config.url).map_err(|e| e.to_string())?;
         let is_vis = config.visible.unwrap_or(false);
+        let app_handle = app.clone();
+        let agent_id = config.id.clone();
 
-        let _win = WebviewWindowBuilder::new(
+        let builder = WebviewWindowBuilder::new(
             &app,
             &config.id,
             WebviewUrl::External(parsed_url),
@@ -72,8 +75,35 @@ mod commands {
         .title(&config.title)
         .inner_size(1024.0, 768.0)
         .visible(is_vis)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .on_navigation(move |nav_url| {
+            if nav_url.scheme() == "melon-bridge" {
+                let id = nav_url.host_str().unwrap_or(&agent_id).to_string();
+                let query = nav_url.query().unwrap_or("");
+                let payload = if let Some(stripped) = query.strip_prefix("data=") {
+                    stripped.to_string()
+                } else {
+                    query.to_string()
+                };
+
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    if let Ok(mut msgs) = state.agent_messages.lock() {
+                        msgs.insert(id.clone(), payload.clone());
+                    }
+                }
+
+                let _ = app_handle.emit(
+                    "agent-message",
+                    serde_json::json!({
+                        "id": id,
+                        "payload": payload
+                    }),
+                );
+
+                return false;
+            }
+            true
+        });
+        let _win = builder.build().map_err(|e| e.to_string())?;
 
         wins.insert(config.id.clone(), config.url.clone());
         Ok(true)
@@ -137,6 +167,28 @@ mod commands {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+
+    #[tauri::command]
+    pub fn get_agent_message(
+        state: tauri::State<'_, AppState>,
+        id: String,
+    ) -> Option<String> {
+        let msgs = state.agent_messages.lock().ok()?;
+        msgs.get(&id).cloned()
+    }
+
+    #[tauri::command]
+    pub fn clear_agent_message(
+        state: tauri::State<'_, AppState>,
+        id: String,
+    ) -> bool {
+        if let Ok(mut msgs) = state.agent_messages.lock() {
+            msgs.remove(&id);
+            true
+        } else {
+            false
         }
     }
 
@@ -235,6 +287,8 @@ pub fn run() {
             commands::get_agent_window_title,
             commands::is_agent_window_open,
             commands::close_agent_window,
+            commands::get_agent_message,
+            commands::clear_agent_message,
             commands::run_cli_agent
         ])
         .setup(|app| {

@@ -12,10 +12,14 @@ import {
   getAgentWindowTitle,
   isAgentWindowOpen,
   closeAgentWindow,
+  getAgentMessage,
+  clearAgentMessage,
   runCliAgent,
+  buildAuthCheckScript,
   buildPromptInjectionScript,
   buildResponseExtractScript,
   WEB_AGENT_DEFAULTS,
+  apiUrl,
 } from "../web/shared/tauri_bridge.js";
 
 test("Tauri desktop bridge detects non-Tauri browser environments safely", () => {
@@ -267,4 +271,77 @@ test("DOM markup and CSS expose sidebar collapse, AI service selection, and auth
   assert.ok(appJs.includes("melon.slack_sidebar_collapsed"));
   assert.ok(appJs.includes("btn-open-auth-window"));
   assert.ok(appJs.includes("btn-profile-open-auth"));
+});
+
+test("Tauri bridge manages custom IPC agent messages and auth probe script", async () => {
+  const calls = [];
+  const fakeTauri = {
+    core: {
+      invoke: async (cmd, args) => {
+        calls.push({ cmd, args });
+        if (cmd === "get_agent_message") return JSON.stringify({ authed: true });
+        if (cmd === "clear_agent_message") return true;
+        return null;
+      },
+    },
+  };
+
+  globalThis.window = { __TAURI__: fakeTauri };
+  try {
+    const msg = await getAgentMessage("chatgpt");
+    assert.deepEqual(msg, { authed: true });
+
+    const cleared = await clearAgentMessage("chatgpt");
+    assert.equal(cleared, true);
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].cmd, "get_agent_message");
+    assert.equal(calls[0].args.id, "chatgpt");
+    assert.equal(calls[1].cmd, "clear_agent_message");
+    assert.equal(calls[1].args.id, "chatgpt");
+
+    const authScript = buildAuthCheckScript("chatgpt");
+    assert.ok(authScript.includes("melon-bridge://"));
+    assert.ok(authScript.includes("chatgpt"));
+    assert.ok(authScript.includes("#prompt-textarea"));
+    assert.ok(authScript.includes("login-button"));
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test("Rust lib.rs contains melon-bridge IPC and message handlers", () => {
+  const libRs = fs.readFileSync(path.resolve("src-tauri/src/lib.rs"), "utf8");
+  assert.ok(libRs.includes("get_agent_message"));
+  assert.ok(libRs.includes("clear_agent_message"));
+  assert.ok(libRs.includes("melon-bridge"));
+  assert.ok(libRs.includes("agent_messages"));
+});
+
+test("CSS styles contain active/needs-auth states for buttons and presence dots", () => {
+  const css = fs.readFileSync(path.resolve("web/styles.css"), "utf8");
+  assert.ok(css.includes(".btn-chat-authorize.authed"));
+  assert.ok(css.includes(".btn-chat-authorize.needs-auth"));
+  assert.ok(css.includes(".presence-dot.online.authed"));
+  assert.ok(css.includes(".presence-dot.idle.unauthed"));
+});
+
+test("apiUrl maps relative paths to localhost:4096 in Tauri environment", () => {
+  // In normal browser
+  assert.equal(apiUrl("/api/runs"), "/api/runs");
+
+  // In Tauri desktop environment
+  globalThis.window = {
+    __TAURI__: { core: { invoke: () => {} } },
+    location: {
+      origin: "http://tauri.localhost",
+      protocol: "http:",
+    },
+  };
+  try {
+    assert.equal(apiUrl("/api/runs"), "http://127.0.0.1:4096/api/runs");
+    assert.equal(apiUrl("api/messages"), "http://127.0.0.1:4096/api/messages");
+  } finally {
+    delete globalThis.window;
+  }
 });

@@ -50,6 +50,19 @@ export function isTauri() {
   );
 }
 
+export function apiUrl(path) {
+  if (
+    isTauri() &&
+    typeof window !== "undefined" &&
+    (window.location?.origin?.includes("tauri.localhost") ||
+      window.location?.protocol === "tauri:" ||
+      window.location?.protocol === "asset:")
+  ) {
+    return `http://127.0.0.1:4096${path.startsWith("/") ? path : `/${path}`}`;
+  }
+  return path;
+}
+
 export async function tauriInvoke(cmd, args = {}) {
   if (!isTauri()) return null;
   const invokeFn =
@@ -131,6 +144,35 @@ export async function closeAgentWindow(id) {
   }
 }
 
+export async function getAgentMessage(id) {
+  if (!isTauri()) return null;
+  try {
+    const raw = await tauriInvoke("get_agent_message", { id });
+    if (!raw) return null;
+    if (typeof raw === "object") return raw;
+    try {
+      return JSON.parse(decodeURIComponent(raw));
+    } catch {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw;
+      }
+    }
+  } catch (err) {
+    return null;
+  }
+}
+
+export async function clearAgentMessage(id) {
+  if (!isTauri()) return false;
+  try {
+    return await tauriInvoke("clear_agent_message", { id });
+  } catch {
+    return false;
+  }
+}
+
 export async function runCliAgent(
   { runId, agentName, command, args = [], prompt, cwd = null },
   { onChunk, onDone, onError },
@@ -182,13 +224,63 @@ export async function runCliAgent(
 }
 
 /**
+ * Builds the DOM probe script to check if an agent is authenticated
+ */
+export function buildAuthCheckScript(serviceId = "chatgpt") {
+  return `(function() {
+    try {
+      const serviceId = ${JSON.stringify(serviceId)};
+      const composerSelectors = [
+        '#prompt-textarea',
+        'rich-textarea div[contenteditable="true"]',
+        'div[contenteditable="true"].ProseMirror',
+        'div[contenteditable="true"]',
+        'textarea'
+      ];
+      let hasComposer = false;
+      for (const sel of composerSelectors) {
+        const el = document.querySelector(sel);
+        if (el && (el.offsetParent !== null || el.getClientRects().length > 0)) {
+          hasComposer = true;
+          break;
+        }
+      }
+
+      const loginSelectors = [
+        '[data-testid="login-button"]',
+        'a[href*="login"]',
+        'a[href*="signin"]',
+        'a[href*="accounts.google.com"]',
+        'button[aria-label*="Sign in" i]',
+        'button[aria-label*="Log in" i]'
+      ];
+      const hasLogin = Boolean(document.querySelector(loginSelectors.join(',')));
+      const authenticated = hasComposer && !hasLogin;
+      const state = { ok: true, type: "auth_check", authenticated, hasComposer, hasLogin, serviceId };
+      try {
+        window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+      } catch(e) {}
+      document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+      return state;
+    } catch(err) {
+      const state = { ok: false, type: "auth_check", authenticated: false, error: String(err) };
+      try {
+        window.location.assign("melon-bridge://" + ${JSON.stringify(serviceId)} + "?data=" + encodeURIComponent(JSON.stringify(state)));
+      } catch(e) {}
+      return state;
+    }
+  })();`;
+}
+
+/**
  * Builds the DOM prompt injection script for external webviews
  */
-export function buildPromptInjectionScript(prompt, runId) {
+export function buildPromptInjectionScript(prompt, runId, serviceId = "chatgpt") {
   return `(function() {
     try {
       const promptText = ${JSON.stringify(prompt)};
       const runId = ${JSON.stringify(runId)};
+      const serviceId = ${JSON.stringify(serviceId)};
 
       // 1. Check for composer elements
       const composerSelectors = [
@@ -214,7 +306,10 @@ export function buildPromptInjectionScript(prompt, runId) {
       );
 
       if (!composer) {
-        const state = { ok: false, status: "needs_auth", hasLogin: Boolean(loginCheck), runId };
+        const state = { ok: false, status: "needs_auth", hasLogin: Boolean(loginCheck), runId, serviceId };
+        try {
+          window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+        } catch(e) {}
         document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
         return state;
       }
@@ -270,11 +365,17 @@ export function buildPromptInjectionScript(prompt, runId) {
         if (form) form.requestSubmit();
       }
 
-      const state = { ok: true, status: "sent", runId };
+      const state = { ok: true, status: "sent", runId, serviceId };
+      try {
+        window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+      } catch(e) {}
       document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
       return state;
     } catch(err) {
-      const state = { ok: false, error: String(err), runId };
+      const state = { ok: false, error: String(err), runId, serviceId };
+      try {
+        window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+      } catch(e) {}
       document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
       return state;
     }
@@ -284,10 +385,11 @@ export function buildPromptInjectionScript(prompt, runId) {
 /**
  * Builds the response extraction script
  */
-export function buildResponseExtractScript(runId) {
+export function buildResponseExtractScript(runId, serviceId = "chatgpt") {
   return `(function() {
     try {
       const runId = ${JSON.stringify(runId)};
+      const serviceId = ${JSON.stringify(serviceId)};
       const responseSelectors = [
         '[data-message-author-role="assistant"] .markdown',
         '[data-message-author-role="assistant"]',
@@ -312,7 +414,10 @@ export function buildResponseExtractScript(runId) {
       }
 
       if (!el) {
-        const state = { ok: false, status: "waiting", runId };
+        const state = { ok: false, status: "waiting", runId, serviceId };
+        try {
+          window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+        } catch(e) {}
         document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
         return state;
       }
@@ -322,11 +427,17 @@ export function buildResponseExtractScript(runId) {
       ));
 
       const text = el.innerText || el.textContent || "";
-      const state = { ok: true, status: "extracted", text, streaming: isStreaming, runId };
+      const state = { ok: true, status: "extracted", text, streaming: isStreaming, runId, serviceId };
+      try {
+        window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+      } catch(e) {}
       document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
       return state;
     } catch(err) {
-      const state = { ok: false, error: String(err), runId };
+      const state = { ok: false, error: String(err), runId, serviceId };
+      try {
+        window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
+      } catch(e) {}
       document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
       return state;
     }

@@ -21,11 +21,89 @@ import {
   getAgentWindowTitle,
   isAgentWindowOpen,
   closeAgentWindow,
+  getAgentMessage,
+  clearAgentMessage,
   runCliAgent,
+  buildAuthCheckScript,
   buildPromptInjectionScript,
   buildResponseExtractScript,
   WEB_AGENT_DEFAULTS,
+  apiUrl,
 } from "./shared/tauri_bridge.js";
+
+export { apiUrl };
+
+if (typeof window !== "undefined" && typeof window.fetch === "function") {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    if (typeof input === "string" && input.startsWith("/api/")) {
+      return originalFetch(apiUrl(input), init);
+    }
+    return originalFetch(input, init);
+  };
+}
+
+const agentAuthStates = new Map();
+
+async function checkWebAgentAuth(serviceId) {
+  if (!isTauri()) return;
+  try {
+    const isOpen = await isAgentWindowOpen(serviceId);
+    if (!isOpen) {
+      const defaults = WEB_AGENT_DEFAULTS[serviceId] || WEB_AGENT_DEFAULTS.chatgpt;
+      await spawnAgentWebview({
+        id: serviceId,
+        title: `${defaults.name} Agent`,
+        url: defaults.url,
+        visible: false,
+      });
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    await clearAgentMessage(serviceId);
+    const script = buildAuthCheckScript(serviceId);
+    await evalAgentScript(serviceId, script);
+    await new Promise((r) => setTimeout(r, 300));
+
+    let raw = await getAgentMessage(serviceId);
+    let payload = null;
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch {}
+    }
+    if (!payload) {
+      const title = await getAgentWindowTitle(serviceId);
+      if (title && title.includes("__melon_msg__:")) {
+        try {
+          payload = JSON.parse(decodeURIComponent(title.split("__melon_msg__:")[1]));
+        } catch {}
+      }
+    }
+
+    if (payload && typeof payload.authenticated === "boolean") {
+      const isAuthed = payload.authenticated;
+      const prev = agentAuthStates.get(serviceId);
+      agentAuthStates.set(serviceId, isAuthed);
+      if (prev !== isAuthed) {
+        renderSlackHeader();
+        renderSlackNav();
+        const contacts = getSlackContacts();
+        const contact = contacts.find(
+          (c) =>
+            c.id === serviceId ||
+            c.category === serviceId ||
+            c.adapter === serviceId,
+        );
+        if (contact && !$("#slack-profile-pane")?.hidden) {
+          renderSlackProfilePane(contact);
+        }
+      }
+    }
+  } catch (err) {
+    console.debug("checkWebAgentAuth error:", err);
+  }
+}
 
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
@@ -1711,8 +1789,15 @@ function renderSlackNav() {
     li.dataset.type = "dm";
     li.dataset.id = contact.id;
 
+    const isWeb =
+      contact.type === "web" ||
+      Boolean(WEB_AGENT_DEFAULTS[contact.category || contact.adapter]);
+    const webId = contact.category || contact.adapter || contact.id;
+    const isAuthed = isWeb ? agentAuthStates.get(webId) : null;
+    const authClass = isAuthed === true ? "authed" : isAuthed === false ? "unauthed" : "";
+
     li.innerHTML = `
-      <span class="presence-dot ${contact.status}"></span>
+      <span class="presence-dot ${contact.status} ${authClass}"></span>
       <span style="font-size:14px; margin-right:2px;">${contact.avatar}</span>
       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:130px;">@${esc(contact.handle)}</span>
       <span class="agent-type-tag ${contact.tag.toLowerCase()}">${esc(contact.tag)}</span>
@@ -1791,11 +1876,19 @@ function renderSlackHeader() {
       (contact?.type === "web" ||
         Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]));
     if (isWebAgent) {
+      const agentId = contact?.category || contact?.adapter || "chatgpt";
+      const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
+      const isAuthed = agentAuthStates.get(agentId);
+
       btnAuth.hidden = false;
-      btnAuth.textContent = `🔑 Sign In`;
+      btnAuth.className = `ghost tiny btn-chat-authorize ${isAuthed ? "authed" : "needs-auth"}`;
+      btnAuth.innerHTML = isAuthed
+        ? `✓ Authenticated`
+        : `🔑 Sign In Required`;
+      btnAuth.title = isAuthed
+        ? `${contact?.name || defaults.name} session is authenticated and active`
+        : `Click to sign in to ${contact?.name || defaults.name}`;
       btnAuth.onclick = () => {
-        const agentId = contact?.category || contact?.adapter || "chatgpt";
-        const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
         const url = contact?.url || defaults.url;
         toast(`🔑 Opening sign-in window for ${contact?.name || agentId}. Session persists across restarts.`);
         spawnAgentWebview({
@@ -1806,6 +1899,9 @@ function renderSlackHeader() {
         });
         toggleAgentWebview(agentId, true);
       };
+
+      // Probe background webview for live auth status
+      checkWebAgentAuth(agentId);
     } else {
       btnAuth.hidden = true;
     }
@@ -2665,16 +2761,23 @@ function renderSlackProfilePane(agent) {
     </div>
     ${
       agent.type === "web" || WEB_AGENT_DEFAULTS[agent.category || agent.adapter] || agent.url
-        ? `
-    <div class="profile-field-group" style="background:rgba(99, 102, 241, 0.08); padding:10px; border-radius:6px; border:1px solid rgba(99, 102, 241, 0.2); margin-bottom:8px;">
-      <span class="profile-field-label" style="color:var(--text-main); font-weight:600;">Session Authentication</span>
-      <span class="profile-field-value" style="font-size:11.5px; margin-top:3px; display:block; color:var(--text-muted);">
-        Persistent WKWebView data store active. Sign-in cookies and tokens persist across app restarts.
+        ? (() => {
+            const agentId = agent.category || agent.adapter || "chatgpt";
+            const isAuthed = agentAuthStates.get(agentId);
+            return `
+    <div class="profile-field-group profile-auth-card ${isAuthed ? "is-authed" : "needs-auth"}" style="background:rgba(99, 102, 241, 0.08); padding:10px; border-radius:6px; border:1px solid ${isAuthed ? "rgba(16, 185, 129, 0.4)" : "rgba(245, 158, 11, 0.4)"}; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span class="profile-field-label" style="color:var(--text-main); font-weight:600;">Session Authentication</span>
+        <span class="sheet-badge ${isAuthed ? "badge-success" : "badge-warning"}">${isAuthed ? "✓ Active" : "🔑 Sign In Required"}</span>
+      </div>
+      <span class="profile-field-value" style="font-size:11.5px; margin-top:4px; display:block; color:var(--text-muted);">
+        ${isAuthed ? "Persistent WKWebView session authenticated. Model composer ready." : "Persistent WKWebView session requires sign-in. Sign in once to persist across restarts."}
       </span>
       <button type="button" class="primary btn-profile-open-auth" style="margin-top:8px; width:100%; padding:6px; font-size:12px;">
-        🔑 Open Sign-In Window
+        ${isAuthed ? "⚙️ Manage Web Session" : "🔑 Open Sign-In Window"}
       </button>
-    </div>`
+    </div>`;
+          })()
         : ""
     }
     <div class="profile-urls-section">
@@ -2922,9 +3025,7 @@ async function sendSlackMessage() {
       if (spawned) return;
     }
 
-    const isWebAgent =
-      agentTarget.type === "web" ||
-      Boolean(WEB_AGENT_DEFAULTS[agentTarget.category || agentTarget.adapter]);
+    const isWebAgent = agentTarget.type === "web" && !agentTarget.tabId;
 
     if (isWebAgent) {
       const serviceId = agentTarget.category || agentTarget.adapter || "chatgpt";
@@ -2945,19 +3046,30 @@ async function sendSlackMessage() {
       }
 
       // 2. Inject prompt
-      const injectScript = buildPromptInjectionScript(effectivePrompt, runId);
+      await clearAgentMessage(serviceId);
+      const injectScript = buildPromptInjectionScript(effectivePrompt, runId, serviceId);
       await evalAgentScript(serviceId, injectScript);
       await new Promise((r) => setTimeout(r, 250));
 
-      const title = await getAgentWindowTitle(serviceId);
+      let rawMsg = await getAgentMessage(serviceId);
       let payload = null;
-      if (title && title.includes("__melon_msg__:")) {
+      if (rawMsg) {
         try {
-          payload = JSON.parse(decodeURIComponent(title.split("__melon_msg__:")[1]));
+          payload = JSON.parse(rawMsg);
         } catch {}
+      }
+      if (!payload) {
+        const title = await getAgentWindowTitle(serviceId);
+        if (title && title.includes("__melon_msg__:")) {
+          try {
+            payload = JSON.parse(decodeURIComponent(title.split("__melon_msg__:")[1]));
+          } catch {}
+        }
       }
 
       if (payload && payload.status === "needs_auth") {
+        agentAuthStates.set(serviceId, false);
+        renderSlackHeader();
         if (typingBar) typingBar.hidden = true;
         agentMsg.streaming = false;
         agentMsg.needsAuth = true;
@@ -2968,6 +3080,11 @@ async function sendSlackMessage() {
         return;
       }
 
+      if (payload && payload.ok) {
+        agentAuthStates.set(serviceId, true);
+        renderSlackHeader();
+      }
+
       // 3. Response extraction polling loop
       const runner = slackChatRunners.get(runId);
       let lastText = "";
@@ -2976,19 +3093,29 @@ async function sendSlackMessage() {
 
       const pollInterval = setInterval(async () => {
         iterations++;
-        const extractScript = buildResponseExtractScript(runId);
+        await clearAgentMessage(serviceId);
+        const extractScript = buildResponseExtractScript(runId, serviceId);
         await evalAgentScript(serviceId, extractScript);
         await new Promise((r) => setTimeout(r, 100));
 
-        const extTitle = await getAgentWindowTitle(serviceId);
+        let extRaw = await getAgentMessage(serviceId);
         let extPayload = null;
-        if (extTitle && extTitle.includes("__melon_msg__:")) {
+        if (extRaw) {
           try {
-            extPayload = JSON.parse(decodeURIComponent(extTitle.split("__melon_msg__:")[1]));
+            extPayload = JSON.parse(extRaw);
           } catch {}
+        }
+        if (!extPayload) {
+          const extTitle = await getAgentWindowTitle(serviceId);
+          if (extTitle && extTitle.includes("__melon_msg__:")) {
+            try {
+              extPayload = JSON.parse(decodeURIComponent(extTitle.split("__melon_msg__:")[1]));
+            } catch {}
+          }
         }
 
         if (extPayload && extPayload.ok && typeof extPayload.text === "string") {
+          agentAuthStates.set(serviceId, true);
           const currentText = extPayload.text.trim();
           if (currentText && currentText !== lastText) {
             lastText = currentText;

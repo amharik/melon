@@ -1143,6 +1143,44 @@ details.drawer .drawer-content {
   background: var(--bg-hover);
 }
 
+.btn-chat-authorize.authed,
+#btn-chat-authorize.authed {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.1);
+  font-weight: 600;
+}
+
+.btn-chat-authorize.needs-auth,
+#btn-chat-authorize.needs-auth {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  font-weight: 600;
+}
+
+.presence-dot.online.authed {
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+}
+
+.presence-dot.idle.unauthed {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+}
+
+.sheet-badge.badge-success {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.sheet-badge.badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
 .slack-ws-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
