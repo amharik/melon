@@ -1,0 +1,37 @@
+description: Melon deterministic moderator eval
+prompts:
+  - "{{goal}}"
+providers:
+  - id: "exec:node scripts/promptfoo-provider.mjs"
+    label: single
+    config:
+      mode: single
+  - id: "exec:node scripts/promptfoo-provider.mjs"
+    label: moderator
+    config:
+      mode: moderator
+defaultTest:
+  assert:
+    - type: javascript
+      value: |
+        const text = String(output).toLowerCase();
+        const terms = (vars.expect || []).map((term) => String(term).toLowerCase());
+        const hits = terms.filter((term) => text.includes(term));
+        return hits.length >= Math.ceil(terms.length * 0.8);
+    - type: contains
+      value: "## Decision"
+    - type: contains
+      value: "## Risks"
+tests:
+  - vars:
+      goal: "Design an OAuth2 PKCE login flow for a local-first desktop app. Cover token storage, redirect validation, failure modes, and tests."
+      expect: ["pkce", "redirect", "token", "risk", "test"]
+  - vars:
+      goal: "Refactor an API rate limiter to bound memory, expose backpressure, and cancel queued work safely."
+      expect: ["limit", "queue", "backpressure", "cancel", "test"]
+  - vars:
+      goal: "Review a browser adapter strategy where third-party DOM selectors drift between releases. Propose health checks and a fallback."
+      expect: ["selector", "health", "fallback", "risk", "contract"]
+  - vars:
+      goal: "Design guarded local tool execution for web agents using git worktrees, human approval, and untrusted output handling."
+      expect: ["worktree", "approval", "untrusted", "command", "test"]

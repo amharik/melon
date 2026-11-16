@@ -10,6 +10,7 @@ import {
   isSvgCode,
   renderBuiltInSvgDiagram,
   createDiagramCardHtml,
+  sanitizeSvgXml,
 } from "../web/shared/diagrams.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -123,6 +124,36 @@ test("createDiagramCardHtml generates interactive card with controls", () => {
   assert.match(html, /id="diagram-source-diag_123"/);
 });
 
+test("sanitizeSvgXml strips scripts, event handlers, foreignObject, and scriptable URLs", () => {
+  const hostile = `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)">
+    <script>alert('xss')</script>
+    <foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><img src=x onerror="alert(2)"></body></foreignObject>
+    <a xlink:href="javascript:alert(3)"><text>link</text></a>
+    <animate attributeName="href" values="javascript:alert(4)" />
+    <style>@import url("https://evil.example/x.css");</style>
+    <rect width="10" height="10" />
+  </svg>`;
+  const clean = sanitizeSvgXml(hostile);
+  assert.doesNotMatch(clean, /<script/i);
+  assert.doesNotMatch(clean, /<foreignObject/i);
+  assert.doesNotMatch(clean, /onload|onerror/i);
+  assert.doesNotMatch(clean, /javascript:/i);
+  assert.doesNotMatch(clean, /<animate/i);
+  assert.doesNotMatch(clean, /@import/i);
+  assert.match(clean, /<rect width="10" height="10" \/>/);
+});
+
+test("createDiagramCardHtml neutralizes JSON script-tag breakouts", () => {
+  const html = createDiagramCardHtml({
+    id: "diag_xss",
+    type: "mermaid",
+    rawCode: 'graph TD\n  A --> B\n</script><img src=x onerror="alert(1)">',
+  });
+  // The raw sequence must not appear; it is encoded inside the inert JSON block.
+  assert.doesNotMatch(html, /<\/script><img/i);
+  assert.match(html, /\\u003c\/script\\u003e/);
+});
+
 test("extension domToRichMarkdown extracts unlabelled Mermaid blocks and SVG diagrams", async () => {
   const adaptersCode = await fs.readFile(path.join(ROOT, "extension/adapters.js"), "utf8");
   const fn = new Function("exports", adaptersCode + "; return this.MelonAdapters;");
@@ -215,8 +246,11 @@ test("web/app.js, index.html, and styles.css wire Mermaid and architecture diagr
   assert.match(app, /setupDiagramInteractions/);
   assert.match(app, /renderBuiltInSvgDiagram/);
 
-  // HTML wiring
-  assert.match(html, /mermaid@11\/dist\/mermaid\.min\.js/);
+  // HTML wiring — Mermaid is vendored locally and guarded by a CSP.
+  assert.match(html, /<script src="vendor\/mermaid\.min\.js"><\/script>/);
+  assert.doesNotMatch(html, /cdn\.jsdelivr\.net/);
+  assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /script-src 'self' 'wasm-unsafe-eval'/);
   assert.match(html, /id="lightbox-svg-container"/);
 
   // CSS wiring

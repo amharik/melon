@@ -101,6 +101,7 @@ test("phase 0-3: threads, agy, approvals, worktrees, blackboard, screenshots", a
       AGY_CMD: process.execPath,
       AGY_ARGS: FAKE_AGY,
       MELON_WORKTREE_ROOT: worktreeRoot,
+      MELON_SANDBOX: "off",
       MELON_BLACKBOARD: blackboardFile,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -116,6 +117,8 @@ test("phase 0-3: threads, agy, approvals, worktrees, blackboard, screenshots", a
   assert.equal(health.agy, true);
   assert.equal(path.resolve(health.worktreeRoot), path.resolve(worktreeRoot));
   assert.equal(health.blackboard, true);
+  assert.equal(health.sandbox.mode, "off");
+  assert.equal(health.tracing, false);
 
   const board = await (await fetch(`${base}/api/blackboard`)).json();
   assert.equal(board.ok, true);

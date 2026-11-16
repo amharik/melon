@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { createMessageStore } from "../server/messages.mjs";
 
@@ -63,7 +64,7 @@ test("SQLite message store persists turns, erases back, and searches vectors", a
   assert.equal(all[2].id, "m3");
 
   // 3. Vector search
-  const searchResults = store.searchMessages("vector similarity search", { targetType: "channel", targetId: "general-war-room" });
+  const searchResults = await store.searchMessages("vector similarity search", { targetType: "channel", targetId: "general-war-room" });
   assert.ok(searchResults.length > 0);
   assert.equal(searchResults[0].id, "m1");
 
@@ -87,6 +88,9 @@ test("SQLite message store persists turns, erases back, and searches vectors", a
   assert.equal(empty.length, 0);
 
   // Cleanup
+  store.close();
+  store.close();
+  assert.equal(store.available, false);
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -136,6 +140,110 @@ test("Persistent agent tab association retains agent identity across reboots", a
   assert.ok(updatedAgents[0].urls.includes("https://claude.ai/chat/project-beta"));
 
   // Cleanup
+  store.close();
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+test("migrates a legacy JSON-embedding database and rebuilds FTS", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "melon-msg-migrate-"));
+  const dbPath = path.join(tmpDir, "legacy.db");
+
+  const legacy = new DatabaseSync(dbPath);
+  legacy.exec(`
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      target_type TEXT,
+      target_id TEXT,
+      author TEXT,
+      avatar TEXT,
+      tag TEXT,
+      time TEXT,
+      text TEXT,
+      is_user INTEGER,
+      created_at INTEGER,
+      embedding TEXT
+    );
+    INSERT INTO messages (
+      id, target_type, target_id, author, avatar, tag, time, text, is_user, created_at, embedding
+    ) VALUES (
+      'legacy', 'channel', 'general-war-room', 'Old', '💬', 'MSG', '10:00',
+      'legacy content about vector indexing and lexical retrieval', 0, 1000,
+      '{"vector":1,"indexing":1}'
+    );
+  `);
+  legacy.close();
+
+  const store = createMessageStore({ dbPath });
+  assert.equal(store.available, true);
+
+  const all = store.getMessages("channel", "general-war-room");
+  assert.equal(all.length, 1);
+  assert.equal(all[0].id, "legacy");
+
+  const results = await store.searchMessages("lexical retrieval");
+  assert.ok(results.some((item) => item.id === "legacy"));
+  store.close();
+
+  const migrated = new DatabaseSync(dbPath);
+  const columns = migrated.prepare("PRAGMA table_info(messages)").all().map((item) => item.name);
+  assert.ok(columns.includes("embedding_blob"));
+  assert.ok(columns.includes("embedding_status"));
+  assert.ok(columns.includes("content_hash"));
+  const fts = migrated
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'")
+    .get();
+  assert.equal(fts.name, "messages_fts");
+  migrated.close();
+
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+test("parameterized queries and FTS5 replace shell SQL interpolation", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "melon-msg-safety-"));
+  const dbPath = path.join(tmpDir, "safe.db");
+  const store = createMessageStore({ dbPath });
+
+  const targetId = "x' OR 1=1 --";
+  store.appendMessage({
+    id: "evil",
+    targetType: "channel",
+    targetId,
+    text: "Robert'); DROP TABLE messages;-- vector indexing",
+    createdAt: 1000,
+  });
+  store.appendMessage({
+    id: "normal",
+    targetType: "channel",
+    targetId: "general-war-room",
+    text: "normal message about latency",
+    createdAt: 2000,
+  });
+
+  assert.equal(store.getMessages("channel", targetId).length, 1);
+  assert.equal(store.getMessages("channel", "other").length, 0);
+  assert.ok((await store.searchMessages("drop")).some((item) => item.id === "evil"));
+  assert.equal(store.getMessages("channel", "general-war-room").length, 1);
+
+  const mode = (await fs.stat(dbPath)).mode & 0o777;
+  assert.equal(mode, 0o600);
+
+  store.close();
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+test("rejects a symlinked database path instead of following it", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "melon-msg-symlink-"));
+  const target = path.join(tmpDir, "target.db");
+  const link = path.join(tmpDir, "link.db");
+  await fs.writeFile(target, "");
+  await fs.symlink(target, link);
+
+  const store = createMessageStore({ dbPath: link });
+  assert.equal(store.available, false);
+  assert.match(store.error, /symlink/i);
+  assert.throws(() => store.appendMessage({ text: "nope" }), /symlink/i);
+  store.close();
+
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 

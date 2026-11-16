@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseCliArgs, formatTabRow, resolveTargetTab, extractShellCommands } from "../bin/melon.mjs";
+import { parseCliArgs, formatTabRow, resolveTargetTab, extractShellCommands, mergeStreamText } from "../bin/melon.mjs";
 
 test("cli argument parsing captures flags and commands", () => {
   const askArgs = parseCliArgs(["ask", "-t", "12345", "--silent", "Refactor the parser"]);
@@ -83,6 +83,23 @@ test("cli parses melon do and melon decide with flags and commands", () => {
   assert.equal(decideArgs.command, "decide");
   assert.equal(decideArgs.query, "auth user");
   assert.deepEqual(decideArgs.candidates, ["Postgres DB", "OAuth JWT Handler", "CSS"]);
+});
+
+test("auto-exec requires an explicit untrusted-exec opt-in", () => {
+  assert.equal(parseCliArgs(["do", "-y", "task"]).allowUntrusted, false);
+  const trusted = parseCliArgs(["do", "-y", "--allow-untrusted-exec", "task"]);
+  assert.equal(trusted.autoExec, true);
+  assert.equal(trusted.allowUntrusted, true);
+});
+
+test("mergeStreamText handles delta and cumulative chunks without duplication", () => {
+  assert.deepEqual(mergeStreamText("", "Hello"), { text: "Hello", delta: "Hello" });
+  // Delta chunks (extension bridge).
+  assert.deepEqual(mergeStreamText("Hello", " world"), { text: "Hello world", delta: " world" });
+  // Cumulative snapshots (some adapters).
+  assert.deepEqual(mergeStreamText("Hello", "Hello world"), { text: "Hello world", delta: " world" });
+  // Duplicate replay is ignored.
+  assert.deepEqual(mergeStreamText("Hello world", "world"), { text: "Hello world", delta: "" });
 });
 
 test("extractShellCommands extracts clean shell commands from markdown code blocks", () => {

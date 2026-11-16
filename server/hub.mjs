@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { exec as execCb } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 import { extractArtifactsFromText } from "../web/shared/artifacts.js";
@@ -25,7 +25,10 @@ import { createAuditLog } from "./audit.mjs";
 import { packEtag, packSummary, readPackFile } from "./adapter-pack.mjs";
 import { createThreadStore } from "./threads.mjs";
 import { createAgyRunner, splitArgs } from "./agy.mjs";
+import { createAcpClient } from "./acp.mjs";
 import { createWorktreeManager } from "./worktrees.mjs";
+import { createSandbox } from "./sandbox.mjs";
+import { createTracer } from "./trace.mjs";
 import { readBlackboard } from "./blackboard.mjs";
 import { createMessageStore } from "./messages.mjs";
 
@@ -59,6 +62,8 @@ const AGY_ARGS = process.env.AGY_ARGS
   ? splitArgs(process.env.AGY_ARGS)
   : ["--input-format", "stream-json", "--output-format", "stream-json"];
 const AGY_INPUT_FORMAT = process.env.AGY_INPUT_FORMAT || "stream-json";
+const ACP_CMD = process.env.ACP_CMD || "";
+const ACP_ARGS = process.env.ACP_ARGS ? splitArgs(process.env.ACP_ARGS) : [];
 const WORKTREE_ROOT = path.resolve(
   process.env.MELON_WORKTREE_ROOT || path.join(ROOT, ".melon", "worktrees"),
 );
@@ -67,6 +72,13 @@ const BLACKBOARD_FILE = process.env.MELON_BLACKBOARD
   : path.join(ROOT, ".melon", "blackboard.md");
 const TOOL_TIMEOUT_MS = Math.max(1000, Math.min(120000, Number(process.env.MELON_TOOL_TIMEOUT_MS) || 30000));
 const TOOL_MAX_OUTPUT = 20000;
+const TRACE_LOG = process.env.MELON_TRACE_LOG
+  ? path.resolve(process.env.MELON_TRACE_LOG)
+  : /^(1|true|yes)$/i.test(process.env.MELON_TRACE || "")
+    ? path.join(ROOT, ".melon", "traces.jsonl")
+    : "";
+const tracer = createTracer({ file: TRACE_LOG });
+const sandbox = createSandbox({ root: ROOT });
 const kev = createKevClient({ url: KEV_URL, model: KEV_MODEL });
 const audit = createAuditLog({ file: AUDIT_LOG });
 const TELEMETRY_FILE = process.env.MELON_TELEMETRY_LOG
@@ -75,10 +87,14 @@ const TELEMETRY_FILE = process.env.MELON_TELEMETRY_LOG
 const telemetry = createTelemetryTracker({ file: TELEMETRY_FILE });
 const taskStore = createTaskStore();
 const threads = createThreadStore();
-const messageStore = createMessageStore({ dbPath: path.join(ROOT, ".melon", "messages.db") });
+const MESSAGES_DB = process.env.MELON_MESSAGES_DB
+  ? path.resolve(process.env.MELON_MESSAGES_DB)
+  : path.join(ROOT, ".melon", "messages.db");
+const messageStore = createMessageStore({ dbPath: MESSAGES_DB });
 const agy = createAgyRunner({ cmd: AGY_CMD, args: AGY_ARGS, inputFormat: AGY_INPUT_FORMAT });
+const acp = createAcpClient({ command: ACP_CMD, args: ACP_ARGS });
 const worktrees = createWorktreeManager({ root: WORKTREE_ROOT, repo: ROOT });
-const exec = promisify(execCb);
+const execFile = promisify(execFileCb);
 worktrees.ensureRoot().catch((err) => console.warn(`[hub] worktree root: ${err.message}`));
 
 let TOKEN = process.env.MELON_TOKEN || "";
@@ -102,6 +118,33 @@ const screenshotRequests = new Map();
 const extractRequests = new Map();
 const runArtifacts = new Map();
 let adapterPackCache = { mtimeMs: 0, envelope: null, etag: null, error: null };
+
+const MAX_RUN_ARTIFACTS = 200;
+const MAX_TOOL_REQUESTS = 200;
+const TOOL_REQUEST_TTL_MS = 60 * 60 * 1000;
+
+function rememberArtifacts(key, artifacts) {
+  runArtifacts.delete(key);
+  runArtifacts.set(key, artifacts);
+  while (runArtifacts.size > MAX_RUN_ARTIFACTS) {
+    runArtifacts.delete(runArtifacts.keys().next().value);
+  }
+}
+
+function pruneToolRequests() {
+  const now = Date.now();
+  for (const [id, record] of toolRequests) {
+    if (record.status === "pending") continue;
+    if (now - (record.decidedAt || record.createdAt || 0) > TOOL_REQUEST_TTL_MS) {
+      toolRequests.delete(id);
+    }
+  }
+  while (toolRequests.size > MAX_TOOL_REQUESTS) {
+    const decided = [...toolRequests.entries()].find(([, record]) => record.status !== "pending");
+    if (!decided) break;
+    toolRequests.delete(decided[0]);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // SSE
@@ -177,6 +220,13 @@ function newRun(id, target) {
       controlId: tab?.controlId || null,
     },
   };
+  run.trace = tracer.span("run", {
+    runId: id,
+    target: target.type,
+    node: target.node,
+    adapter: target.adapter,
+    tabId: target.tabId,
+  });
   runs.set(id, run);
   const task = taskStore.create({ id, target, threadId });
   broadcast({ type: "task.update", task });
@@ -243,12 +293,19 @@ function finishRun(id, event) {
   const finalText = String(event.text ?? run.text ?? "");
   const artifacts = extractArtifactsFromText(finalText);
   if (artifacts.length > 0) {
-    runArtifacts.set(id, artifacts);
+    rememberArtifacts(id, artifacts);
     broadcast({ type: "run.artifacts", runId: id, artifacts, count: artifacts.length });
   }
   audit.write({
     event: "run.end",
     ...run.audit,
+    status,
+    durationMs: Date.now() - run.createdAt,
+    chars: finalText.length,
+    timedOut: !!event.timedOut,
+    artifacts: artifacts.length,
+  });
+  run.trace?.end({
     status,
     durationMs: Date.now() - run.createdAt,
     chars: finalText.length,
@@ -303,6 +360,9 @@ function abortRun(id) {
     finishRun(id, { type: "error", error: { message: "cancelled by user" } });
   } else if (run.target.type === "agy") {
     finishRun(id, { type: "cancelled" });
+  } else if (run.target.type === "acp") {
+    run.controller.abort();
+    finishRun(id, { type: "cancelled" });
   } else {
     finishRun(id, { type: "error", error: { message: "cancelled by user" } });
   }
@@ -329,6 +389,8 @@ function publicToolRequest(record) {
     exitCode: record.exitCode ?? null,
     output: record.output ?? "",
     error: record.error ?? null,
+    sandbox: record.sandbox ?? null,
+    sandboxError: record.sandboxError ?? null,
     createdAt: record.createdAt,
     decidedAt: record.decidedAt ?? null,
   };
@@ -366,7 +428,14 @@ function createToolRequest(input = {}) {
     createdAt: Date.now(),
     decidedAt: null,
   };
+  record.trace = tracer.span("tool.approval", {
+    commandId: id,
+    runId: record.runId,
+    worktree: record.worktree,
+    source: record.source,
+  });
   toolRequests.set(id, record);
+  pruneToolRequests();
   if (run) setRunStatus(run, "waiting_human");
   audit.write({
     event: "tool.request",
@@ -400,6 +469,7 @@ async function decideToolRequest(id, decision, commandOverride) {
   record.decidedAt = Date.now();
   if (decision === "deny") {
     record.status = "denied";
+    record.trace?.end({ decision: "deny", status: "denied" });
     const run = record.runId ? runs.get(record.runId) : null;
     if (run) setRunStatus(run, "streaming");
     audit.write({
@@ -427,13 +497,15 @@ async function decideToolRequest(id, decision, commandOverride) {
   broadcast({ type: "tool.result", request: publicToolRequest(record) });
   const started = Date.now();
   try {
-    const result = await exec(record.command, {
+    const outcome = await sandbox.run(record.command, {
       cwd: record.cwd,
       timeout: TOOL_TIMEOUT_MS,
       maxBuffer: TOOL_MAX_OUTPUT * 4,
       env: toolEnv(record.cwd),
-      shell: "/bin/sh",
     });
+    const result = outcome.result;
+    record.sandbox = outcome.sandbox;
+    record.sandboxError = outcome.sandboxError || null;
     record.output = String(result.stdout || result.stderr || "").slice(-TOOL_MAX_OUTPUT);
     record.exitCode = 0;
     record.status = "done";
@@ -441,9 +513,19 @@ async function decideToolRequest(id, decision, commandOverride) {
     record.output = String(err.stdout || err.stderr || err.message || "").slice(-TOOL_MAX_OUTPUT);
     record.exitCode = Number.isInteger(err.code) ? err.code : null;
     record.error = err.killed ? "command timed out" : String(err.message || err).slice(0, 400);
+    record.sandbox = err.sandbox || record.sandbox || null;
+    record.sandboxError = err.sandboxError || record.sandboxError || null;
     record.status = "error";
   }
   record.durationMs = Date.now() - started;
+  record.trace?.end({
+    decision: "approve",
+    status: record.status,
+    exitCode: record.exitCode,
+    durationMs: record.durationMs,
+    sandbox: record.sandbox,
+    sandboxError: record.sandboxError,
+  });
   const run = record.runId ? runs.get(record.runId) : null;
   if (run && runs.has(run.id)) setRunStatus(run, "streaming");
   audit.write({
@@ -456,6 +538,8 @@ async function decideToolRequest(id, decision, commandOverride) {
     status: record.status,
     exitCode: record.exitCode,
     durationMs: record.durationMs,
+    sandbox: record.sandbox,
+    sandboxError: record.sandboxError || null,
   });
   broadcast({ type: "tool.result", request: publicToolRequest(record) });
   if (record.tabId) {
@@ -684,7 +768,7 @@ function handleExtMessage(client, raw) {
     const text = String(message.text || "");
     const artifacts = extractArtifactsFromText(text);
     if (message.tabId) {
-      runArtifacts.set(`tab-${message.tabId}-latest`, artifacts);
+      rememberArtifacts(`tab-${message.tabId}-latest`, artifacts);
     }
     const req = extractRequests.get(String(message.requestId));
     if (req) {
@@ -904,7 +988,8 @@ function opencodeRuns(base, sessionId) {
 
 function ensureOpencodeStream(base) {
   const existing = opencodeStreams.get(base);
-  if (existing) return existing.ready;
+  if (existing && !existing.closed) return existing.ready;
+  if (existing) opencodeStreams.delete(base);
 
   const entry = {
     base,
@@ -932,6 +1017,10 @@ function ensureOpencodeStream(base) {
         if (entry.controller.signal.aborted) return;
       }
     }
+    // No stream is available. Mark the entry closed so the next run retries
+    // instead of reusing a dead connection forever.
+    entry.closed = true;
+    if (opencodeStreams.get(base) === entry) opencodeStreams.delete(base);
     console.warn(`[opencode] no event stream at ${base}; agent output will be partial`);
   })();
 
@@ -995,6 +1084,7 @@ async function readOpencodeStream(entry, body) {
     }
   } finally {
     entry.closed = true;
+    if (opencodeStreams.get(entry.base) === entry) opencodeStreams.delete(entry.base);
   }
 }
 
@@ -1047,6 +1137,39 @@ async function startAgyRun(run) {
   } catch (err) {
     if (!runs.has(run.id)) return;
     if (err.name === "AbortError") finishRun(run.id, { type: "cancelled" });
+    else finishRun(run.id, { type: "error", error: { message: err.message } });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ACP adapter (local subprocess, newline-delimited JSON-RPC)
+// ---------------------------------------------------------------------------
+
+async function startAcpRun(run) {
+  if (!ACP_CMD) {
+    finishRun(run.id, { type: "error", error: { message: "ACP_CMD is not configured on the hub" } });
+    return;
+  }
+  try {
+    let cwd;
+    if (run.target.worktree) {
+      cwd = (await worktrees.add({ name: run.target.worktree, base: run.target.base })).path;
+    } else {
+      await worktrees.ensureRoot();
+      cwd = resolveToolCwd({ cwd: run.target.cwd });
+    }
+    run.cwd = cwd;
+    runEvent(run.id, { type: "meta", adapter: "acp", cwd });
+    const text = await acp.run(run.target.prompt, {
+      cwd,
+      signal: run.controller.signal,
+      onChunk: (chunk) => runEvent(run.id, { type: "chunk", text: chunk }),
+    });
+    if (!runs.has(run.id)) return;
+    finishRun(run.id, { type: "done", text });
+  } catch (err) {
+    if (!runs.has(run.id)) return;
+    if (run.controller.signal.aborted || err?.name === "AbortError") finishRun(run.id, { type: "cancelled" });
     else finishRun(run.id, { type: "error", error: { message: err.message } });
   }
 }
@@ -1265,6 +1388,8 @@ async function handleApi(req, res, url) {
       telemetryErrors: telemetry.size,
       agy: !!AGY_CMD,
       agyCommand: AGY_CMD,
+      acp: !!ACP_CMD,
+      acpCommand: ACP_CMD || null,
       adapterPack: packSummary(adapterPackRecord().envelope),
       extensionClients: extClients.size,
       tabs: aggregateTabs().length,
@@ -1273,6 +1398,12 @@ async function handleApi(req, res, url) {
       resumableTasks: taskStore.list({ status: "resumable" }).length,
       threads: threads.list().length,
       pendingToolRequests: [...toolRequests.values()].filter((item) => item.status === "pending").length,
+      messagesDb: messageStore.available ? MESSAGES_DB : null,
+      messagesError: messageStore.error,
+      embeddings: messageStore.embedding,
+      sandbox: sandbox.status(),
+      tracing: tracer.enabled,
+      traceFile: tracer.enabled ? tracer.file : null,
       worktreeRoot: WORKTREE_ROOT,
       blackboard: readBlackboard({ file: BLACKBOARD_FILE }).ok,
     });
@@ -1291,10 +1422,13 @@ async function handleApi(req, res, url) {
       kevConfigured: kev.enabled,
       agyConfigured: !!AGY_CMD,
       agyCommand: AGY_CMD,
+      acpConfigured: !!ACP_CMD,
+      acpCommand: ACP_CMD || null,
       worktreeRoot: WORKTREE_ROOT,
       blackboardFile: BLACKBOARD_FILE,
       adapterPackConfigured: !!adapterPackRecord().envelope,
       adapterPackVersion: adapterPackRecord().envelope?.payload?.version || null,
+      embeddings: messageStore.embedding,
       extensionTokenHint: TOKEN.slice(0, 4) + "…",
     });
   }
@@ -1406,8 +1540,15 @@ async function handleApi(req, res, url) {
     const q = url.searchParams.get("q") || "";
     const targetType = url.searchParams.get("targetType") || null;
     const targetId = url.searchParams.get("targetId") || null;
-    const results = messageStore.searchMessages(q, { targetType, targetId });
-    return json(res, 200, { ok: true, results });
+    const span = tracer.span("messages.search", { targetType, targetId, queryChars: q.length });
+    try {
+      const results = await messageStore.searchMessages(q, { targetType, targetId });
+      span.end({ status: "ok", results: results.length });
+      return json(res, 200, { ok: true, results });
+    } catch (err) {
+      span.error(err);
+      throw err;
+    }
   }
 
   /* ------------------------------ Persistent Tab-to-Agent Associations */
@@ -1614,8 +1755,8 @@ async function handleApi(req, res, url) {
     const runId = String(body.runId || "");
     const target = body.target || {};
     if (!runId) return json(res, 400, { ok: false, error: "runId is required" });
-    if (!["extension", "opencode", "llm", "agy"].includes(target.type)) {
-      return json(res, 400, { ok: false, error: "target.type must be extension, opencode, llm or agy" });
+    if (!["extension", "opencode", "llm", "agy", "acp"].includes(target.type)) {
+      return json(res, 400, { ok: false, error: "target.type must be extension, opencode, llm, agy or acp" });
     }
     const prompt = String(body.prompt || "");
     if (!prompt.trim()) return json(res, 400, { ok: false, error: "prompt is required" });
@@ -1633,6 +1774,7 @@ async function handleApi(req, res, url) {
     if (target.type === "extension") startExtensionRun(run);
     else if (target.type === "opencode") startOpencodeRun(run);
     else if (target.type === "agy") startAgyRun(run);
+    else if (target.type === "acp") startAcpRun(run);
     else startLlmRun(run);
     return;
   }
@@ -1668,19 +1810,35 @@ async function handleApi(req, res, url) {
     for (const f of files) {
       const relPath = f.filename || f.path;
       if (!relPath) continue;
-      const safeRel = relPath.replace(/^(\.\.[\/\\])+/, "");
+      const safeRel = String(relPath).replace(/^(\.\.[\/\\])+/, "");
       const absPath = path.resolve(outDir, safeRel);
-      if (!absPath.startsWith(outDir)) continue;
+      const relToOut = path.relative(outDir, absPath);
+      if (!relToOut || relToOut.startsWith("..") || path.isAbsolute(relToOut)) continue;
       fs.mkdirSync(path.dirname(absPath), { recursive: true });
       fs.writeFileSync(absPath, f.content || "", "utf8");
       filesWritten.push(safeRel);
     }
     let gitBranchCreated = null;
+    let gitBranchError = null;
     if (body.branch) {
+      const branch = String(body.branch);
+      const validBranch =
+        /^(?![-.])[A-Za-z0-9._/-]{1,120}$/.test(branch) &&
+        !branch.includes("..") &&
+        !branch.includes("//") &&
+        !branch.includes("\\") &&
+        !branch.endsWith("/") &&
+        !branch.endsWith(".lock");
+      if (!validBranch) {
+        return json(res, 400, { ok: false, error: "invalid branch name" });
+      }
       try {
-        await exec(`git branch "${body.branch}" 2>/dev/null || true`, { cwd: ROOT });
-        gitBranchCreated = body.branch;
-      } catch {}
+        // execFile avoids shell interpolation; -- prevents option injection.
+        await execFile("git", ["branch", "--", branch], { cwd: ROOT });
+        gitBranchCreated = branch;
+      } catch (err) {
+        gitBranchError = String(err?.message || err).slice(0, 300);
+      }
     }
     return json(res, 200, {
       ok: true,
@@ -1688,6 +1846,7 @@ async function handleApi(req, res, url) {
       dir: outDir,
       filesWritten,
       branch: gitBranchCreated,
+      ...(gitBranchError ? { branchError: gitBranchError } : {}),
     });
   }
 
@@ -1828,10 +1987,12 @@ async function handleApi(req, res, url) {
         sseClients.delete(res);
       }
     }, 20000);
-    req.on("close", () => {
+    const cleanupSse = () => {
       clearInterval(heartbeat);
       sseClients.delete(res);
-    });
+    };
+    res.on("error", cleanupSse);
+    req.on("close", cleanupSse);
     return;
   }
 
@@ -1914,12 +2075,20 @@ function serveStatic(req, res, url) {
       "content-type": MIME[ext] || "application/octet-stream",
       "content-length": stat.size,
       "cache-control": ext === ".wasm" ? "public, max-age=3600" : "no-store",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
     });
     if (req.method === "HEAD") {
       res.end();
       return;
     }
-    fs.createReadStream(filePath).pipe(res);
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", (err) => {
+      console.error("[hub] static read failed", err.message);
+      if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      res.end("read error");
+    });
+    stream.pipe(res);
   });
 }
 
@@ -1985,7 +2154,14 @@ server.on("upgrade", (req, socket, head) => {
     connectedAt: Date.now(),
   };
   extClients.add(client);
-  socket.on("data", (chunk) => parseFrames(client, chunk));
+  socket.on("data", (chunk) => {
+    try {
+      parseFrames(client, chunk);
+    } catch (err) {
+      console.error("[hub] websocket frame error", err.message);
+      client.socket.destroy();
+    }
+  });
   socket.on("error", () => {});
   socket.on("close", () => {
     extClients.delete(client);
@@ -2016,6 +2192,31 @@ setInterval(() => {
   for (const client of extClients) sendWs(client, { type: "ping", t: Date.now() });
 }, 25000).unref();
 
+setInterval(() => pruneToolRequests(), 5 * 60 * 1000).unref();
+
+process.on("unhandledRejection", (reason) => {
+  const message = reason?.message || String(reason);
+  console.error("[hub] unhandled rejection", reason);
+  telemetry.record({
+    subsystem: "hub",
+    type: "unhandled_rejection",
+    message,
+    stack: reason?.stack || null,
+  });
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[hub] uncaught exception", err);
+  telemetry.record({
+    subsystem: "hub",
+    type: "uncaught_exception",
+    message: err?.message || String(err),
+    stack: err?.stack || null,
+  });
+  // Keep the previous Node behaviour: an uncaught exception is fatal.
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   const base = `http://${HOST}:${PORT}`;
   console.log("");
@@ -2025,10 +2226,19 @@ server.listen(PORT, HOST, () => {
   console.log(`  opencode    ${OPENCODE_URL}`);
   console.log(`  agy         ${AGY_CMD} ${AGY_ARGS.join(" ")}`.trim());
   console.log(`  worktrees   ${WORKTREE_ROOT}`);
+  sandbox.probe().then((result) => {
+    const state = result.disabled
+      ? "off (MELON_SANDBOX=off)"
+      : result.available
+        ? `srt (${result.version || "available"})`
+        : `auto fallback (${result.error || "srt not installed"})`;
+    console.log(`  sandbox     ${state}`);
+  });
   console.log(`  blackboard  ${readBlackboard({ file: BLACKBOARD_FILE }).ok ? BLACKBOARD_FILE : "not found (optional)"}`);
   console.log(`  llm         ${LLM_URL && LLM_MODEL ? `${LLM_MODEL} @ ${LLM_URL}` : "not configured"}`);
   console.log(`  kev         ${kev.enabled ? `${kev.model} @ ${kev.endpoint}` : "not configured (set KEV_URL)"}`);
   console.log(`  audit       ${audit.enabled ? audit.file : "off (set MELON_AUDIT=1 or MELON_AUDIT_LOG)"}`);
+  console.log(`  tracing     ${tracer.enabled ? tracer.file : "off (set MELON_TRACE=1 or MELON_TRACE_LOG)"}`);
   console.log("");
   console.log("  extension token (paste into the extension options page):");
   console.log(`  ${TOKEN}`);

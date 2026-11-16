@@ -17,6 +17,19 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm run lint
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Rust core tests
+        run: cargo test --manifest-path core-runtime/Cargo.toml
+      - name: Rebuild WASM from source
+        run: |
+          cargo build --manifest-path core-runtime/Cargo.toml \
+            --target wasm32-unknown-unknown --release
+          cp core-runtime/target/wasm32-unknown-unknown/release/melon_core.wasm \
+            web/wasm/melon_core.wasm
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e

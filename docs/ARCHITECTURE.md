@@ -9,9 +9,10 @@ Melon separates three concerns that are easy to conflate:
 3. **Policy** — which tabs are bound, what prompt is sent, and what the human sees.
    Owned by the canvas and the user.
 
-The core never knows what a model is. The extension never schedules. The hub
-persists no conversation content; bounded threads are in memory only, and an
-optional audit log stores run metadata only.
+The core never knows what a model is. The extension never schedules. Run threads
+are in memory only; the team-chat view persists messages and agent identities in a
+local SQLite file (`.melon/messages.db`, mode `0600`), and an optional audit log
+stores run metadata only. There is no cloud database.
 
 ## Component map
 
@@ -26,8 +27,8 @@ optional audit log stores run metadata only.
 │         │ HTTP + SSE                                             │
 │  ┌──────▼─────────────────────────────────────────────────────┐  │
 │  │ local hub (server/hub.mjs)                                 │  │
-│  │ static · SSE · threads · approvals · worktrees · agy       │  │
-│  │ opencode · OpenAI-compatible                               │  │
+│  │ static · SSE · threads · approvals · worktrees · agy/acp   │  │
+│  │ opencode · OpenAI-compatible · MCP stdio                   │  │
 │  └──────┬──────────────────────────────┬──────────────────────┘  │
 │         │ WebSocket (token)            │ HTTP + SSE              │
 │  ┌──────▼────────────┐          ┌──────▼──────────────┐          │
@@ -179,6 +180,7 @@ routing contract, not a substitute for the extension.
   - `{ "type": "extension", "tabId": 42, "adapter": "auto" }`
   - `{ "type": "opencode", "url": "http://127.0.0.1:4096" }`
   - `{ "type": "agy", "worktree": "agent-agy" | "cwd": "relative/path" }`
+  - `{ "type": "acp", "worktree": "agent-acp" | "cwd": "relative/path" }`
   - `{ "type": "llm" }`
 - `POST /api/runs/:id/cancel`
 - `GET /api/threads`, `POST /api/threads`, `GET /api/threads/:id`
@@ -190,8 +192,16 @@ routing contract, not a substitute for the extension.
 - `POST /api/llm` — streaming proxy for same-origin use.
 
 Run IDs are client-generated and unique. The hub returns `202` immediately and
-streams progress over SSE. Threads, tool requests and run status are in memory;
-the hub still persists no conversation content.
+streams progress over SSE. Threads, tool requests and run status are in memory.
+Team-chat messages and persistent agent identities are stored locally in SQLite
+(`MELON_MESSAGES_DB`, default `.melon/messages.db`); the run/thread layer itself
+still persists no conversation content. The store uses Node's built-in
+`node:sqlite` driver (Node 24+) with FTS5 lexical search and a pluggable
+embedding provider for cosine ranking. The default provider is a deterministic
+hashed bag-of-words vector; `EMBEDDING_URL`/`EMBEDDING_MODEL` or
+`OLLAMA_EMBED_MODEL` enables real embeddings. Remote vectors are backfilled in
+the background with bounded retries, so no model server or external `sqlite3`
+binary is required.
 
 ### Audit log
 
@@ -381,8 +391,8 @@ The v1/v2 tolerance is intentional because opencode route shapes have changed.
 If none match, the run fails with the last HTTP status.
 
 Note: ACP (Zed's Agent Client Protocol) is a *client-to-agent* stdio protocol.
-It is not a cross-tab RPC. Melon can add an ACP adapter, but it would sit next to
-the opencode HTTP adapter, not replace the hub.
+It is not a cross-tab RPC. `server/acp.mjs` therefore sits next to the opencode
+HTTP adapter, not in place of the hub. See the ACP adapter section below.
 
 ## Host orchestration
 
@@ -406,6 +416,45 @@ stdout and normalizes common shapes (`text`, `delta`, `assistant` content blocks
 `done`, `result`, `error`, bare lines). `AGY_INPUT_FORMAT=stream-json` is the
 default; `prompt` writes a plain prompt. Abort kills the child.
 
+### Tracing
+
+`server/trace.mjs` writes bounded JSONL spans when `MELON_TRACE` or
+`MELON_TRACE_LOG` is set. Each span has a trace id, span id, optional parent id,
+name, start/end timestamps, duration, status, and a small allowlisted attribute
+set. Prompts, commands, output, page text, and secrets are filtered before write.
+The hub wraps runs, tool approvals, search, and adapter execution; `GET
+/api/health` reports whether tracing is enabled.
+
+### Command sandbox
+
+`server/sandbox.mjs` wraps approved commands with `srt --settings <file> -- /bin/sh
+-c <command>`. Settings are generated per cwd under `.melon/sandbox/` (mode 0600)
+with network denied, write access limited to the worktree and temp directory, and
+sensitive credential paths denied for reads and writes. `srt` is an operator-
+provided binary, not a project dependency. `MELON_SANDBOX=auto` falls back with
+`sandbox: "none"` and `sandboxError` recorded on the tool result; `required` fails
+closed. `GET /api/health` reports the mode and probe status.
+
+### ACP adapter
+
+`server/acp.mjs` spawns `ACP_CMD` (with optional `ACP_ARGS`) and speaks ACP v1
+over newline-delimited JSON-RPC on stdio. It initializes a client session, creates
+one session per run in the selected worktree, streams `agent_message_chunk` text
+as `run.event` chunks, and cancels by aborting the run and terminating the child.
+It advertises no filesystem or terminal capabilities, and permission requests are
+denied by default unless a caller supplies an explicit `onPermission` handler.
+The hub exposes `acp` and `acpCommand` in `/api/health`; no listening port is
+created.
+
+### MCP server
+
+`server/mcp.mjs` is a dependency-free MCP stdio client and server. The server
+exposes `melon_health`, `melon_list_tabs`, `melon_search_messages`, and
+`melon_append_message`, mapping each tool to the hub HTTP API. `npm run mcp`
+starts it; `MELON_HUB_URL` selects the hub. The client performs the
+`initialize` / `tools/list` / `tools/call` handshake for local MCP servers. Both
+sides use stdio only.
+
 ### Approvals and worktrees
 
 Web agents can propose commands in a fenced `melon:tool` block. The content script
@@ -413,10 +462,12 @@ extracts the proposal and sends `tool.request`; the hub creates a pending record
 with `taint: untrusted`, pauses the run at `waiting_human`, and waits for a human
 decision. On approve, the hub runs `/bin/sh -c` with the command, a timeout, a
 minimal environment, and a cwd confined by `server/worktrees.mjs` to
-`MELON_WORKTREE_ROOT` (default `.melon/worktrees`). Output is truncated and sent
-back as `agent.tool.result`; the content script inserts it with a data-not-
-instructions header and does not submit. The approval gate is the security
-control; the worktree is a working-directory bound, not a sandbox.
+`MELON_WORKTREE_ROOT` (default `.melon/worktrees`). When `srt` is available, the
+approved command also runs under its filesystem/network profile (network denied,
+writes limited to the worktree and temp, credential paths denied). Output is
+truncated and sent back as `agent.tool.result`; the content script inserts it with
+a data-not-instructions header and does not submit. The approval gate remains the
+primary control, and the sandbox is defense in depth.
 
 `POST /api/worktrees` creates or reuses `melon/<name>` via `git worktree add`
 before an agy run starts. `POST /api/runs` can also select a relative `cwd` under
@@ -446,12 +497,15 @@ content script pastes the image into the composer without sending.
   still in scope. Each controlled tab advertises a unique control id in-page and
   in the canvas so the grant is observable. Bridged-tab output is tainted and
   downstream prompts explicitly label it as untrusted data.
-- The hub persists no conversation history. It holds prompts, streamed text and
-  bounded thread state in memory only; restarting the hub clears it. The audit log
-  remains metadata-only.
+- Run threads hold prompts, streamed text and bounded state in memory only;
+  restarting the hub clears them. The team-chat view persists messages and agent
+  identities in `.melon/messages.db` (owner-only), and the audit log remains
+  metadata-only. No conversation content leaves the machine.
 - Tool execution is human-gated. Approved commands run as the local user inside a
-  worktree-confined cwd; this is not an OS sandbox. Tool output is always
-  `taint: untrusted` and is never auto-submitted into a tab.
+  worktree-confined cwd, and under `srt` when installed; `MELON_SANDBOX=required`
+  makes the sandbox mandatory. Without `srt`, auto mode records an audited
+  fallback. Tool output is always `taint: untrusted` and is never auto-submitted
+  into a tab.
 - Local AI downloads model files from Hugging Face only after an explicit
   optional-permission grant. The runtime is vendored locally; model output is
   treated as untrusted and never executed as code.

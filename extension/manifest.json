@@ -36,6 +36,7 @@
         "https://chat.mistral.ai/*"
       ],
       "js": [
+        "vendor/readability.js",
         "adapters.js",
         "content.js"
       ],

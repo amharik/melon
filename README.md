@@ -9,7 +9,8 @@ Melon is deliberately small:
   fan-out/join, concurrency, cancellation, metrics. No model logic.
 - **One local Node hub** — static server, SSE to the canvas, WebSocket to the
   extension, plus opencode, agy/stdio CLI and OpenAI-compatible adapters. Threads
-  and run status live in memory only: no database, no persistence.
+  and run status live in memory only. The team-chat view persists messages in a
+  local SQLite file (`.melon/messages.db`, mode `0600`); there is no cloud database.
 - **Vanilla canvas UI** — no bundler, no framework. Nodes, ports, drag-to-connect,
   inspector, activity log, demo tabs.
 - **MV3 extension bridge** — drives real ChatGPT, Claude, Gemini and Mistral tabs
@@ -21,10 +22,12 @@ grant.
 
 ## Quick start
 
-Requirements: Node 20+ (tested on 24). Rust is only needed to rebuild the WASM
-core; the repository already includes `web/wasm/melon_core.wasm`.
+Requirements: Node 24+ (see `.nvmrc`; `nvm use` or equivalent). Rust is only
+needed to rebuild the WASM core; the repository already includes
+`web/wasm/melon_core.wasm`.
 
 ```bash
+npm ci
 node server/hub.mjs
 ```
 
@@ -155,6 +158,83 @@ Every path falls back to deterministic behavior if Kev is unavailable. Kev is a
 decision model, not a general-purpose reranker; treat its ranking as an optional
 heuristic and keep the deterministic adapter resolver as the control path.
 
+### Message search embeddings (optional)
+
+Team-chat search is hybrid: SQLite FTS5 plus cosine similarity over message
+vectors. By default the vectors are a deterministic 256-dimension hashed
+bag-of-words embedding, so search works with no model server. For real semantic
+search, point the hub at an OpenAI-compatible `/embeddings` endpoint:
+
+```bash
+EMBEDDING_URL=http://127.0.0.1:11434/v1 \
+EMBEDDING_MODEL=nomic-embed-text \
+node server/hub.mjs
+```
+
+Or let the hub use Ollama's native API:
+
+```bash
+ollama pull nomic-embed-text
+OLLAMA_EMBED_MODEL=nomic-embed-text node server/hub.mjs
+```
+
+`EMBEDDING_PROVIDER=openai|ollama|hash` forces a backend; `EMBEDDING_KEY` and
+`EMBEDDING_TIMEOUT_MS` are optional. Remote embeddings are computed in the
+background, retried up to three times, and never block message writes or lexical
+search. `GET /api/health` reports the provider, model, dimensions, and pending or
+failed counts. Message text stays local unless you configure a remote URL.
+
+### Command sandbox (optional)
+
+Approved tool commands can run inside [Anthropic Sandbox
+Runtime](https://github.com/anthropics/sandbox-runtime). Install the `srt` binary
+separately, for example `npm install -g @anthropic-ai/sandbox-runtime`; Melon does
+not bundle it.
+
+```bash
+MELON_SANDBOX=required node server/hub.mjs
+```
+
+The default `MELON_SANDBOX=auto` wraps each approved command when `srt` is
+available. The generated profile denies network access, allows writes only inside
+the selected worktree and the system temp directory, and denies reads of common
+credential paths (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.npmrc`, and similar). Set
+`MELON_SANDBOX_ALLOW_DOMAINS` to a comma-separated allowlist if a command needs
+network access. `MELON_SANDBOX=required` fails closed when `srt` cannot start;
+`MELON_SANDBOX=off` disables the wrapper. `SRT_CMD` selects a different binary and
+`MELON_SANDBOX_SETTINGS` points at a custom settings file.
+
+### ACP agents (optional)
+
+Melon can run a local [Agent Client Protocol](https://agentclientprotocol.com)
+subprocess as an agent node. ACP uses stdio only; the hub does not open a new
+listening port.
+
+```bash
+ACP_CMD=gemini ACP_ARGS="--experimental-acp" node server/hub.mjs
+```
+
+Set the adapter to **ACP agent** on a node, or POST a run with
+`{"target":{"type":"acp","worktree":"agent-acp"}}`. `ACP_ARGS` is split with the
+same quoting rules as `AGY_ARGS`. The hub advertises no client filesystem or
+terminal capabilities, and **denies ACP permission requests by default**; a
+model cannot approve its own sensitive tool call. Runs use the same worktree
+isolation and cancellation path as `agy`.
+
+### MCP server (optional)
+
+`npm run mcp` starts a stdio MCP server that exposes a small, bounded view of
+the hub to external MCP clients:
+
+- `melon_health` — hub status
+- `melon_list_tabs` — bridged browser tabs
+- `melon_search_messages` — hybrid message search
+- `melon_append_message` — append to the local message store
+
+Point it at a non-default hub with `MELON_HUB_URL`. The server reads and writes
+only over stdin/stdout; it does not open a port. `server/mcp.mjs` also exports a
+client for connecting Melon to another local MCP server.
+
 ### Audit log (optional)
 
 The hub can append run metadata to a local JSONL file. It is off by default:
@@ -172,6 +252,15 @@ content. The file is append-only and created with mode `0600`; rotate it by
 stopping the hub and moving the file. This covers hub-routed runs, not demo tabs
 that run entirely in the browser. `GET /api/health` reports whether auditing is
 enabled.
+
+### Tracing (optional)
+
+`MELON_TRACE=1` writes newline-delimited span events to `.melon/traces.jsonl`;
+use `MELON_TRACE_LOG=/path/to/traces.jsonl` to choose another file. Spans cover
+runs, tool approvals/execution, ACP/agy/LLM targets, and message searches, with
+parent links, duration, status, exit code, sandbox mode, and result counts. Prompts,
+command text, output, and page content are never written. `GET /api/health`
+reports `tracing` and the active `traceFile`.
 
 ### opencode
 
@@ -301,6 +390,18 @@ reports a single-agent baseline against a two-reviewer moderator. It is
 deterministic and key-free: a harness for measuring changes, not a model quality
 benchmark. Replace its agents with real adapters when comparing models.
 
+The optional promptfoo config uses the same deterministic simulator through an
+`exec:` provider, so it needs no model keys:
+
+```bash
+npm run eval:promptfoo
+# or: npx --yes promptfoo@0.125.1 eval -c evals/promptfooconfig.yaml
+```
+
+The repository does not pin promptfoo because it is a large, optional CLI. The
+deterministic red-team assertions for tab prompt injection run as part of
+`npm test` in `test/redteam.test.mjs`.
+
 ## What is real vs simulated
 
 | Path | Status |
@@ -311,6 +412,7 @@ benchmark. Replace its agents with real adapters when comparing models.
 | opencode adapter | Real, tolerant of v1/v2 routes |
 | agy / stdio CLI adapter | Real when `AGY_CMD` exists; NDJSON contract |
 | Threads and run status | Real, in-memory and non-persistent |
+| Team chat and agent identities | Real, local SQLite (`.melon/messages.db`), not synced |
 | Approval-gated tool execution | Real; worktree-scoped, human-approved, untrusted output |
 | Shared blackboard | Real, read-only |
 | Screenshot insertion | Real, best-effort, confirmed and never auto-sent |
@@ -399,11 +501,20 @@ cd core-runtime && cargo test
 # Rebuild the WASM artifact into web/wasm/
 ./scripts/build.sh
 
+# Syntax-check every runtime, UI, extension, script, and test file
+npm run lint
+
 # Hub, WASM, extension, AI catalog and simulator tests
 npm test
 
+# Same suite with Node's built-in coverage report
+npm run test:coverage
+
 # Deterministic fixed-brief evaluation (single agent vs moderator)
 npm run eval
+
+# Optional promptfoo wrapper over the same deterministic provider
+npm run eval:promptfoo
 
 # Real Chromium E2E against synthetic ChatGPT, Claude, Gemini, and Mistral fixtures
 # Set CHROME_PATH if Chrome/Chromium is not auto-detected.
@@ -480,10 +591,12 @@ JSON out. See `docs/ARCHITECTURE.md`.
 
 Read this before pointing Melon at an account you care about.
 
-- The hub binds to `127.0.0.1` by default and persists no conversation history. It
-  holds prompt and streamed text in memory for the duration of a run, and bounded
-  thread state until restart, and any local process can call it. Treat it as part
-  of the local trusted client,
+- The hub binds to `127.0.0.1` by default. It holds prompt and streamed text in
+  memory for the duration of a run, and bounded thread state until restart. The
+  team-chat view writes messages and agent identities to a local SQLite file
+  (`.melon/messages.db`, owner-only `0600`), while the audit log remains
+  metadata-only. Any local process can call the hub. Treat it as part of the local
+  trusted client,
   not as an untrusted cloud backend. Do not expose it to a network interface
   without authentication and TLS. A stricter design would relay through the
   extension content script via `postMessage` and keep the hub out of the data
@@ -536,12 +649,16 @@ Read this before pointing Melon at an account you care about.
 - Local AI requires a WebGPU-capable Chromium build. It is disabled on Firefox
   and on hardware without a usable WebGPU adapter. Model downloads are large and
   model quality varies; deterministic adapters remain the fallback.
-- No persistence, no multi-user sync, no hosted deployment, no mobile support.
-  Threads and run status are lost when the hub restarts.
+- No cloud persistence, no multi-user sync, no hosted deployment, no mobile
+  support. Team-chat messages persist locally in SQLite; threads and run status
+  are lost when the hub restarts.
 - The `agy` adapter assumes a newline-delimited JSON CLI. The exact `agy` flags
   are configured with `AGY_CMD` / `AGY_ARGS` and are not pinned.
-- Tool execution is worktree-scoped but not sandboxed at the OS level. There is
-  no command allowlist beyond human approval.
+- Tool execution is worktree-scoped and uses `srt` for OS-level filesystem and
+  network isolation when it is installed. If `srt` is missing, commands fall back
+  to the unsandboxed path unless `MELON_SANDBOX=required`; fallbacks are recorded
+  in the Tool result and audit log. There is no command allowlist beyond human
+  approval.
 - Screenshot capture depends on Chrome's `activeTab`/capture rules and on the site
   accepting a synthetic paste event.
 - Run/output history and workflow version live in memory and the saved graph;

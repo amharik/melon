@@ -28,6 +28,7 @@ test("extension manifest references real files", async () => {
 });
 
 test("extension uses the documented bridge messages", async () => {
+  const manifest = JSON.parse(await fs.readFile(path.join(EXT, "manifest.json"), "utf8"));
   const background = await fs.readFile(path.join(EXT, "background.js"), "utf8");
   const content = await fs.readFile(path.join(EXT, "content.js"), "utf8");
   const adapters = await fs.readFile(path.join(EXT, "adapters.js"), "utf8");
@@ -48,6 +49,20 @@ test("extension uses the documented bridge messages", async () => {
   assert.match(background, /controlId/);
   assert.match(content, /showControlBadge/);
   assert.match(content, /melon-control/);
+  assert.match(content, /readabilityChunks/);
+  assert.match(content, /new Readability\(document\.cloneNode\(true\)/);
+  assert.match(content, /cachedSelector/);
+  assert.match(content, /rememberSelector/);
+  assert.match(content, /repairField/);
+  assert.match(content, /selectorCache/);
+  const contentScripts = manifest.content_scripts[0].js;
+  assert.ok(
+    contentScripts.indexOf("vendor/readability.js") < contentScripts.indexOf("content.js"),
+    "Readability must load before content.js",
+  );
+  const readability = await fs.readFile(path.join(EXT, "vendor/readability.js"), "utf8");
+  assert.match(readability, /function Readability/);
+  assert.match(readability, /Apache License/);
 
   const app = await fs.readFile(path.join(ROOT, "web", "app.js"), "utf8");
   assert.match(app, /tabHealthInfo/);

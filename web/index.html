@@ -3,6 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
     <title>Melon — Agentic Office</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -588,6 +592,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <option value="demo:gemini">Gemini (Interactive Browser / Demo)</option>
               <option value="ext">Active Browser Tab (via Extension Bridge)</option>
               <option value="agy">Antigravity CLI (Local agy stream-json)</option>
+              <option value="acp">ACP Agent (Local stdio subprocess)</option>
               <option value="opencode">OpenCode / Local Terminal</option>
               <option value="llm">Local WebGPU LLM</option>
             </select>
@@ -699,6 +704,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <option value="tab">🌐 Browser Tab Agent (ChatGPT, Claude, Gemini, Mistral)</option>
               <option value="opencode">💻 CLI Agent: Opencode (http://127.0.0.1:4096)</option>
               <option value="agy">🚀 CLI Agent: Agy CLI (stream-json)</option>
+              <option value="acp">🛰️ Agent Client Protocol: Local ACP subprocess</option>
               <option value="llm">🔮 Custom LLM Endpoint (OpenAI-compatible)</option>
             </select>
           </div>
@@ -920,7 +926,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
 
     <div class="toast" id="toast" hidden></div>
     <input type="file" id="file-import" accept="application/json,.json" hidden />
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script src="vendor/mermaid.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

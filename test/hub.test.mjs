@@ -120,7 +120,11 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
       OPENCODE_URL: "http://127.0.0.1:1",
       KEV_URL: `http://127.0.0.1:${kevPort}`,
       KEV_MODEL: "kev",
+      ACP_CMD: process.execPath,
+      ACP_ARGS: path.join(ROOT, "test", "fixtures", "acp-agent.mjs"),
       MELON_AUDIT_LOG: auditFile,
+      MELON_SANDBOX: "off",
+      MELON_MESSAGES_DB: path.join(auditDir, "messages.db"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -143,6 +147,10 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
   assert.equal(health.version, "0.1.0");
   assert.equal(health.kev, true);
   assert.equal(health.kevModel, "kev");
+  assert.equal(health.acp, true);
+  assert.equal(health.sandbox.mode, "off");
+  assert.equal(health.tracing, false);
+  assert.equal(health.acpCommand, process.execPath);
   assert.equal(health.audit, true);
   assert.equal(health.adapterPack.version, 2);
   assert.equal(health.adapterPack.keyId, "melon-dev");
@@ -426,6 +434,25 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
     (event) => event.type === "run.event" && event.runId === "run-2" && event.event?.type === "cancelled"
   );
   assert.equal(cancelled.event.type, "cancelled");
+
+  const acpStart = await fetch(`${base}/api/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      runId: "run-acp",
+      prompt: "hello acp",
+      target: { type: "acp", node: "acp-agent", label: "ACP Agent" },
+    }),
+  });
+  assert.equal(acpStart.status, 202);
+  const acpChunk = await sse.next(
+    (event) => event.type === "run.event" && event.runId === "run-acp" && event.event?.type === "chunk"
+  );
+  assert.equal(acpChunk.event.text, "echo: hello acp");
+  const acpDone = await sse.next(
+    (event) => event.type === "run.event" && event.runId === "run-acp" && event.event?.type === "done"
+  );
+  assert.equal(acpDone.event.text, "echo: hello acp");
 
   if (logs.includes("UnhandledPromiseRejection")) {
     assert.fail(logs);

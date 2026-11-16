@@ -19,6 +19,9 @@ const FIELDS = new Set([
   "commandId",
   "decision",
   "exitCode",
+  "sandbox",
+  "sandboxError",
+  "artifacts",
 ]);
 
 function clean(value) {

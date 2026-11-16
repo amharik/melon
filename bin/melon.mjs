@@ -55,6 +55,7 @@ function parseCliArgs(args) {
     help: false,
     version: false,
     autoExec: false,
+    allowUntrusted: false,
     retries: 2,
     query: "",
     candidates: [],
@@ -76,6 +77,8 @@ function parseCliArgs(args) {
       parsed.extractOnly = true;
     } else if (arg === "--exec" || arg === "-x" || arg === "--yes" || arg === "-y") {
       parsed.autoExec = true;
+    } else if (arg === "--allow-untrusted-exec" || arg === "--trust-untrusted") {
+      parsed.allowUntrusted = true;
     } else if (arg === "--retries") {
       parsed.retries = Math.max(0, Number(args[++i]) || 2);
     } else if (arg === "--tab" || arg === "-t") {
@@ -386,18 +389,20 @@ async function handleAsk(opts) {
           if (parsed.type === "run.event" && parsed.runId === runId) {
             const ev = parsed.event || {};
             if (ev.type === "chunk" && ev.text) {
-              const delta = ev.text.slice(fullOutput.length);
-              fullOutput = ev.text;
-              if (!opts.json) {
-                process.stdout.write(delta);
+              const merged = mergeStreamText(fullOutput, ev.text);
+              fullOutput = merged.text;
+              if (!opts.json && merged.delta) {
+                process.stdout.write(merged.delta);
               }
             } else if (ev.type === "done") {
               const text = ev.text ?? fullOutput;
-              if (!opts.json && text.length > fullOutput.length) {
-                process.stdout.write(text.slice(fullOutput.length));
+              const merged = mergeStreamText(fullOutput, text);
+              if (!opts.json && merged.delta) {
+                process.stdout.write(merged.delta);
               }
               fullOutput = text;
               finalStatus = "done";
+              await reader.cancel().catch(() => {});
               if (opts.json) {
                 console.log(JSON.stringify({ ok: true, runId, text: fullOutput, tab: tab.id }, null, 2));
               } else if (!fullOutput.endsWith("\n")) {
@@ -419,6 +424,17 @@ async function handleAsk(opts) {
       process.exit(1);
     }
   }
+}
+
+// Merge streamed text. Batches may be deltas (extension chunks) or cumulative
+// snapshots (some adapters); handle both without duplicating output.
+export function mergeStreamText(current = "", incoming = "") {
+  const prev = String(current || "");
+  const next = String(incoming || "");
+  if (!next) return { text: prev, delta: "" };
+  if (next.startsWith(prev)) return { text: next, delta: next.slice(prev.length) };
+  if (prev.endsWith(next)) return { text: prev, delta: "" };
+  return { text: prev + next, delta: next };
 }
 
 // Helper: extract shell commands from markdown code blocks
@@ -525,7 +541,7 @@ async function handleDo(opts) {
     let fullOutput = "";
 
     try {
-      while (true) {
+      streamLoop: while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -545,16 +561,15 @@ async function handleDo(opts) {
             if (parsed.type === "run.event" && parsed.runId === runId) {
               const ev = parsed.event || {};
               if (ev.type === "chunk" && ev.text) {
-                const delta = ev.text.slice(fullOutput.length);
-                fullOutput = ev.text;
-                process.stdout.write(delta);
+                const merged = mergeStreamText(fullOutput, ev.text);
+                fullOutput = merged.text;
+                if (merged.delta) process.stdout.write(merged.delta);
               } else if (ev.type === "done") {
                 const text = ev.text ?? fullOutput;
-                if (text.length > fullOutput.length) {
-                  process.stdout.write(text.slice(fullOutput.length));
-                }
+                const merged = mergeStreamText(fullOutput, text);
+                if (merged.delta) process.stdout.write(merged.delta);
                 fullOutput = text;
-                break;
+                break streamLoop;
               } else if (ev.type === "error") {
                 console.error(`\n❌ Error: ${ev.error?.message || "Unknown error"}`);
                 process.exit(1);
@@ -565,6 +580,8 @@ async function handleDo(opts) {
       }
     } catch (err) {
       console.error(`\nStream interrupted: ${err.message}`);
+    } finally {
+      await reader.cancel().catch(() => {});
     }
 
     if (!fullOutput.endsWith("\n")) process.stdout.write("\n");
@@ -581,7 +598,16 @@ async function handleDo(opts) {
     }
 
     const commandToRun = commands[0];
-    let proceed = opts.autoExec;
+    // Commands are derived from a live web tab, which is untrusted and can be
+    // prompt-injected. Auto-execution requires both -y/-x and an explicit
+    // --allow-untrusted-exec opt-in so a single flag cannot grant RCE.
+    let proceed = opts.autoExec && opts.allowUntrusted;
+    if (opts.autoExec && !opts.allowUntrusted) {
+      console.error(
+        "\n⚠️  --yes/--exec alone no longer auto-runs commands from a web tab.\n" +
+          "   Re-run with --allow-untrusted-exec to opt into executing untrusted model output."
+      );
+    }
     if (!proceed) {
       const answer = await promptUser(`\nExecute \`$ ${commandToRun}\`? [Y/n] `);
       proceed = !answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes";
@@ -943,7 +969,8 @@ OPTIONS:
   -r, --role <name>         Target tab by role or model name (e.g. chatgpt, gemini, claude)
   -a, --adapter <name>      Target tab by adapter name
   -e, --extract             Extract latest response only (no new prompt sent)
-  -x, --exec, -y, --yes     Auto-execute extracted commands without asking confirmation
+  -x, --exec, -y, --yes     Skip the per-command confirmation prompt (still needs --allow-untrusted-exec)
+  --allow-untrusted-exec    Explicitly allow auto-executing commands extracted from an untrusted web tab
   --retries <n>             Maximum auto-healing retry iterations on command failure (default: 2)
   -s, --silent              Suppress connecting and routing status on stderr
   --json                    Output structured JSON response
@@ -954,6 +981,7 @@ EXAMPLES:
   # Autonomous runner: runs on tab, prompts to execute code, and auto-fixes failures!
   melon do "Run the task test suite and fix any broken tests"
   melon do -y "Build the extension zip package"
+  melon do -y --allow-untrusted-exec "Build the extension zip package"
 
   # Query the active browser tab
   melon ask "Write an async retry utility in TypeScript"

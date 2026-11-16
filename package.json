@@ -7,9 +7,13 @@
   "bin": {
     "melon": "./bin/melon.mjs"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node server/hub.mjs",
-    "test": "node --experimental-websocket --test test/runtime.test.mjs test/audit.test.mjs test/hub.test.mjs test/kev.test.mjs test/extension.test.mjs test/adapters.test.mjs test/planner.test.mjs test/protocol.test.mjs test/simulator.test.mjs test/ai.test.mjs test/adapter-pack.test.mjs test/threads.test.mjs test/worktrees.test.mjs test/agy.test.mjs test/phase.test.mjs test/evals.test.mjs test/office.test.mjs test/cli.test.mjs test/artifacts.test.mjs test/tournament.test.mjs test/onboarding.test.mjs test/telemetry.test.mjs test/tasks.test.mjs test/messages.test.mjs test/diagrams.test.mjs",
+    "mcp": "node server/mcp-server.mjs",
+    "test": "node --experimental-websocket --test \"test/**/*.test.mjs\"",
     "eval": "node scripts/eval.mjs",
     "e2e": "node scripts/e2e-extension.mjs",
     "e2e:ai": "node scripts/e2e-ai.mjs",
@@ -18,9 +22,16 @@
     "test:remote": "scripts/e2e-remote.sh",
     "build": "scripts/build.sh",
     "build:extension": "mkdir -p dist && (cd extension && zip -qr ../dist/melon-extension.zip .)",
-    "vendor:ai": "scripts/vendor-ai.sh"
+    "vendor:ai": "scripts/vendor-ai.sh",
+    "eval:promptfoo": "npx --yes promptfoo@0.125.1 eval -c evals/promptfooconfig.yaml",
+    "test:coverage": "node --experimental-websocket --experimental-test-coverage --test \"test/**/*.test.mjs\"",
+    "lint": "node scripts/check-syntax.mjs"
   },
   "devDependencies": {
+    "fast-check": "4.5.3",
     "playwright": "^1.65.0"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.7.0"
   }
 }

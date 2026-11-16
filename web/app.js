@@ -16,6 +16,7 @@ import {
   isSvgCode,
   renderBuiltInSvgDiagram,
   createDiagramCardHtml,
+  sanitizeSvgXml,
 } from "./shared/diagrams.js";
 
 const ROOM = "demo";
@@ -45,6 +46,7 @@ const ADAPTERS = [
   ["ext", "Bridged web tab (extension)"],
   ["opencode", "opencode serve"],
   ["agy", "agy CLI (stdio/worktree)"],
+  ["acp", "ACP agent (stdio/worktree)"],
   ["llm", "Hub LLM endpoint"],
 ];
 
@@ -90,7 +92,7 @@ const nodeVersions = new Map();
 const lastInputs = new Map();
 const jobRecords = new Map();
 const toolRequests = new Map();
-const hub = { online: false, llm: false, kev: false, agy: false, opencodeUrl: "", worktreeRoot: "", es: null };
+const hub = { online: false, llm: false, kev: false, agy: false, acp: false, opencodeUrl: "", worktreeRoot: "", es: null };
 let currentThreadId = localStorage.getItem(THREAD_KEY) || null;
 let blackboard = { ok: false, text: "", path: null, error: null };
 const THEME_KEY = "melon.theme.v1";
@@ -479,6 +481,7 @@ function adapterLabel(node) {
     return node.config.extTabId ? `bridged · ${String(node.config.extTabId).slice(-5)}` : "bridged · unbound";
   }
   if (adapter === "opencode") return "opencode serve";
+  if (adapter === "acp") return "ACP agent";
   if (adapter === "llm") return "hub llm";
   return node.kind;
 }
@@ -1126,10 +1129,14 @@ async function renderAllPendingDiagrams(root = document) {
       let rendered = false;
       if (window.mermaid && typeof window.mermaid.render === "function") {
         try {
+          if (!window.mermaid.__melonConfigured) {
+            window.mermaid.initialize?.({ startOnLoad: false, securityLevel: "strict" });
+            window.mermaid.__melonConfigured = true;
+          }
           const uniqueSvgId = `m_svg_${diagId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
           const res = await window.mermaid.render(uniqueSvgId, rawCode);
           if (res && res.svg) {
-            body.innerHTML = res.svg;
+            body.innerHTML = sanitizeSvgXml(res.svg);
             rendered = true;
           }
         } catch (err) {
@@ -1449,6 +1456,11 @@ const DEFAULT_PERSONAS = {
     role: "Autonomous Subagent Orchestrator",
     persona: "Specializes in fanning out parallel research tasks, tool execution, and strategic plan synthesis.",
     avatar: "🚀",
+  },
+  acp: {
+    role: "ACP Coding Agent",
+    persona: "Connects a local Agent Client Protocol subprocess with a per-run worktree.",
+    avatar: "🛰️",
   },
   llm: {
     role: "Offline Edge Model",
@@ -1882,9 +1894,10 @@ let pendingForwardMsg = null;
 
 function resolveTabForMessage(msg) {
   if (!msg) return null;
+  const tabList = [...extTabs.values()];
   // 1. Direct tabId property on msg
   if (msg.tabId) {
-    const tab = extTabs.find((t) => String(t.id) === String(msg.tabId));
+    const tab = tabList.find((t) => String(t.id) === String(msg.tabId));
     if (tab) return tab;
   }
   // 2. Match against Slack contacts by name, handle, or tag
@@ -1897,14 +1910,14 @@ function resolveTabForMessage(msg) {
     (msg.author && c.name && msg.author.toLowerCase().includes(c.name.toLowerCase()))
   );
   if (contact?.tabId) {
-    const tab = extTabs.find((t) => String(t.id) === String(contact.tabId));
+    const tab = tabList.find((t) => String(t.id) === String(contact.tabId));
     if (tab) return tab;
     return { id: contact.tabId, title: contact.name, adapter: contact.adapter || "auto" };
   }
   // 3. Match against extTabs by adapter or title keywords
   const authorStr = String(msg.author || "").toLowerCase();
   const tagStr = String(msg.tag || "").toLowerCase();
-  const matchedTab = extTabs.find((t) => {
+  const matchedTab = tabList.find((t) => {
     const title = (t.title || "").toLowerCase();
     const adapter = (t.adapter || "").toLowerCase();
     return authorStr.includes(adapter) ||
@@ -1918,15 +1931,15 @@ function resolveTabForMessage(msg) {
   if (currentChatTarget.type === "dm" && !msg.isUser) {
     const dmContact = contacts.find((c) => c.id === currentChatTarget.id);
     if (dmContact?.tabId) {
-      const tab = extTabs.find((t) => String(t.id) === String(dmContact.tabId));
+      const tab = tabList.find((t) => String(t.id) === String(dmContact.tabId));
       if (tab) return tab;
       return { id: dmContact.tabId, title: dmContact.name, adapter: dmContact.adapter || "auto" };
     }
   }
 
   // 5. Fallback: If only 1 extension tab is connected and message is from an agent/bot
-  if (extTabs.length === 1 && !msg.isUser) {
-    return extTabs[0];
+  if (tabList.length === 1 && !msg.isUser) {
+    return tabList[0];
   }
 
   return null;
@@ -3248,7 +3261,7 @@ function setupAddContactModal() {
       type,
       name,
       handle: cleanHandle,
-      avatar: type === "tab" ? "🌐" : type === "opencode" ? "💻" : type === "agy" ? "🚀" : "🔮",
+      avatar: type === "tab" ? "🌐" : type === "opencode" ? "💻" : type === "agy" ? "🚀" : type === "acp" ? "🛰️" : "🔮",
       adapter: type === "tab" ? "auto" : type,
       status: "online",
       tag: type === "tab" ? "TAB" : "CLI",
@@ -3302,6 +3315,7 @@ function getAgentPersona(node) {
   else if (adapter.includes("mistral") || id.includes("mistral")) avatar = "🦊";
   else if (adapter === "opencode" || id.includes("code")) avatar = "💻";
   else if (adapter === "agy" || id.includes("agy")) avatar = "🚀";
+  else if (adapter === "acp" || id.includes("acp")) avatar = "🛰️";
   else if (adapter === "ext" || adapter.includes("browser")) avatar = "🌐";
   else if (adapter === "llm") avatar = "🔮";
 
@@ -4071,6 +4085,19 @@ function renderInspector() {
         <p class="note">Hub: ${esc(hub.worktreeRoot || ".melon/worktrees")}. The hub spawns <code>${esc(hub.online ? "agy" : "AGY_CMD")}</code> with NDJSON over stdio.</p>
       </div>`;
   }
+  if (node.kind === "agent" && adapter === "acp") {
+    binding = `
+      <div class="field">
+        <label>Worktree name (optional)</label>
+        <input id="f-acp-worktree" value="${esc(node.config.worktree || "")}" placeholder="agent-acp" />
+        <p class="note">Creates or reuses <code>.melon/worktrees/&lt;name&gt;</code> on branch <code>melon/&lt;name&gt;</code>.</p>
+      </div>
+      <div class="field">
+        <label>Working directory (optional)</label>
+        <input id="f-acp-cwd" value="${esc(node.config.cwd || "")}" placeholder="relative to the worktree root" />
+        <p class="note">Hub: ${esc(hub.worktreeRoot || ".melon/worktrees")}. Set <code>ACP_CMD</code> and optional <code>ACP_ARGS</code>; the hub speaks ACP over stdio. Permission requests are denied unless a human approves them.</p>
+      </div>`;
+  }
   if (node.kind === "agent" && adapter === "llm") {
     binding = `<p class="hint">Uses the hub's OpenAI-compatible endpoint. Start the hub with LLM_URL and LLM_MODEL, or use the demo adapters.</p>`;
   }
@@ -4259,6 +4286,14 @@ function renderInspector() {
   $("#f-cwd", fields)?.addEventListener("change", (event) => {
     node.config.cwd = event.target.value.trim() || undefined;
     bumpWorkflowVersion("agy working directory changed");
+  });
+  $("#f-acp-worktree", fields)?.addEventListener("change", (event) => {
+    node.config.worktree = event.target.value.trim() || undefined;
+    bumpWorkflowVersion("acp worktree changed");
+  });
+  $("#f-acp-cwd", fields)?.addEventListener("change", (event) => {
+    node.config.cwd = event.target.value.trim() || undefined;
+    bumpWorkflowVersion("acp working directory changed");
   });
 
   $("#f-instructions", fields)?.addEventListener("change", (event) => {
@@ -4885,6 +4920,8 @@ async function runAgent(node, command) {
       finalText = await runOpencode(node, prompt, onChunk, command);
     } else if (adapter === "agy") {
       finalText = await runAgy(node, prompt, onChunk, command);
+    } else if (adapter === "acp") {
+      finalText = await runAcp(node, prompt, onChunk, command);
     } else if (adapter === "llm") {
       finalText = await runLlm(node, prompt, onChunk, command);
     } else {
@@ -5119,6 +5156,23 @@ async function runAgy(node, prompt, onChunk, command) {
   const run = startHubRun(
     {
       type: "agy",
+      worktree: node.config.worktree || undefined,
+      cwd: node.config.cwd || undefined,
+      base: node.config.base || undefined,
+      node: node.id,
+      label: node.label,
+    },
+    prompt,
+    onChunk,
+  );
+  setHandleCancel(command, run.cancel);
+  return run.promise;
+}
+
+async function runAcp(node, prompt, onChunk, command) {
+  const run = startHubRun(
+    {
+      type: "acp",
       worktree: node.config.worktree || undefined,
       cwd: node.config.cwd || undefined,
       base: node.config.base || undefined,
@@ -5660,6 +5714,11 @@ function connectHub() {
           renderToolRequests();
           if (message.request.status === "pending") {
             log("warn", `tool approval: ${message.request.command}`);
+          } else if (message.type === "tool.result") {
+            log(
+              "hub",
+              `tool ${message.request.status}${message.request.sandbox ? ` · sandbox ${message.request.sandbox}` : ""}${message.request.sandboxError ? ` · ${message.request.sandboxError}` : ""}`,
+            );
           }
         }
       } else if (message.type === "screenshot.result") {
@@ -5693,6 +5752,7 @@ async function refreshHub() {
     hub.llm = !!health.llm;
     hub.kev = !!health.kev;
     hub.agy = !!health.agy;
+    hub.acp = !!health.acp;
     hub.opencodeUrl = health.opencodeUrl || hub.opencodeUrl;
     hub.worktreeRoot = health.worktreeRoot || hub.worktreeRoot;
     hub.activeTasks = health.activeTasks || 0;

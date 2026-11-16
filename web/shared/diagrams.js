@@ -87,16 +87,51 @@ export function extractDiagramTitle(code, fallback = "Diagram") {
   return fallback;
 }
 
+const SVG_DANGEROUS_TAGS = [
+  "script",
+  "foreignObject",
+  "iframe",
+  "object",
+  "embed",
+  "audio",
+  "video",
+  "animate",
+  "animateTransform",
+  "animateMotion",
+  "set",
+  "handler",
+];
+
 export function sanitizeSvgXml(svgText) {
   if (!svgText) return "";
-  let clean = svgText.trim();
-  // Strip XML declarations or DOCTYPEs
+  let clean = String(svgText).trim();
+  // Strip XML declarations, DOCTYPEs, and entity definitions
   clean = clean.replace(/<\?xml[^>]*\?>/gi, "");
   clean = clean.replace(/<!DOCTYPE[^>]*>/gi, "");
-  // Remove script tags and inline event handlers for security
-  clean = clean.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
-  clean = clean.replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, "");
-  clean = clean.replace(/\son[a-z]+\s*=\s*[^>\s]+/gi, "");
+  clean = clean.replace(/<!ENTITY[^>]*>/gi, "");
+  // Remove executable/scriptable elements, including unclosed variants.
+  for (const tag of SVG_DANGEROUS_TAGS) {
+    clean = clean.replace(
+      new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "gi"),
+      ""
+    );
+    clean = clean.replace(new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi"), "");
+  }
+  // Remove inline event handlers (quoted, unquoted, or bare).
+  clean = clean.replace(/\son[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  // Remove scriptable URL schemes from href/xlink:href.
+  clean = clean.replace(
+    /\s(?:xlink:href|href)\s*=\s*("|')\s*(?:javascript|vbscript|data:text\/html|livescript|mocha):[^"']*\1/gi,
+    ""
+  );
+  clean = clean.replace(
+    /\s(?:xlink:href|href)\s*=\s*(?:javascript|vbscript|data:text\/html|livescript|mocha):[^\s>]+/gi,
+    ""
+  );
+  // Remove CSS-based script/exfiltration vectors.
+  clean = clean.replace(/@import\s[^;]*;?/gi, "");
+  clean = clean.replace(/url\(\s*(['"]?)\s*(?:javascript|vbscript):[^)]*\)/gi, "");
+  clean = clean.replace(/\bexpression\s*\(/gi, "");
 
   // Ensure xmlns is present
   if (!clean.includes('xmlns="http://www.w3.org/2000/svg"')) {
@@ -541,6 +576,14 @@ export function createDiagramCardHtml({
   const cleanTitle = escapeHtml(dynamicTitle);
   const badgeLabel = type === "svg" ? "SVG" : type === "box" ? "Monospace" : "Mermaid";
   const icon = type === "box" ? "📐" : type === "svg" ? "🖼️" : "🏛️";
+  // JSON.stringify alone does not prevent a `</script>` sequence inside an
+  // inert JSON script tag from closing it early and injecting HTML.
+  const metaJson = JSON.stringify({ id, type, title: dynamicTitle, rawCode })
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 
   return `
     <div class="arch-diagram-card ${type}-card" id="diagram-card-${id}" data-diagram-id="${id}" data-diagram-type="${type}">
@@ -567,7 +610,7 @@ export function createDiagramCardHtml({
       <div class="arch-diagram-source" id="diagram-source-${id}" hidden>
         <pre><code>${cleanCode}</code></pre>
       </div>` : ""}
-      <script type="application/json" class="diagram-meta">${JSON.stringify({ id, type, title: dynamicTitle, rawCode })}</script>
+      <script type="application/json" class="diagram-meta">${metaJson}</script>
     </div>
   `;
 }
