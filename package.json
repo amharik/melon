@@ -22,6 +22,9 @@
     "test:remote": "scripts/e2e-remote.sh",
     "build": "scripts/build.sh",
     "build:extension": "mkdir -p dist && (cd extension && zip -qr ../dist/melon-extension.zip .)",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "vendor:ai": "scripts/vendor-ai.sh",
     "vendor:markup": "node scripts/vendor-markup.mjs",
     "eval:promptfoo": "npx --yes promptfoo@0.125.1 eval -c evals/promptfooconfig.yaml",
@@ -34,6 +37,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.14",
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/cli": "^2.12.5",
     "@types/node": "26.6.6",
     "fast-check": "4.5.3",
     "jsdom": "26.1.0",

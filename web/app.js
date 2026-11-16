@@ -13,6 +13,13 @@ import { extractArtifactsFromText } from "./shared/artifacts.js";
 import { renderBuiltInSvgDiagram } from "./shared/diagrams.js";
 import { renderMarkdownHtml } from "./shared/markdown.js";
 import { sanitizeSvg } from "./shared/sanitize.js";
+import {
+  isTauri,
+  spawnAgentWebview,
+  toggleAgentWebview,
+  evalAgentScript,
+  runCliAgent,
+} from "./shared/tauri_bridge.js";
 
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
@@ -2725,6 +2732,37 @@ async function sendSlackMessage() {
     },
   });
 
+  if (isTauri()) {
+    if (
+      agentTarget.type === "cli" ||
+      agentTarget.adapter === "opencode" ||
+      agentTarget.adapter === "agy"
+    ) {
+      const runner = slackChatRunners.get(runId);
+      const spawned = await runCliAgent(
+        {
+          runId,
+          agentName: agentTarget.name,
+          command: agentTarget.adapter === "agy" ? "agy" : "opencode",
+          args: ["run"],
+          prompt: effectivePrompt,
+        },
+        {
+          onChunk: (chunk) => {
+            if (runner) runner.onChunk((agentMsg.text || "") + chunk);
+          },
+          onDone: () => {
+            if (runner) runner.onDone(agentMsg.text);
+          },
+          onError: (err) => {
+            if (runner) runner.onError(err);
+          },
+        },
+      );
+      if (spawned) return;
+    }
+  }
+
   const runTarget =
     agentTarget.type === "tab"
       ? { type: "extension", tabId: agentTarget.tabId, adapter: agentTarget.adapter || "auto" }
@@ -3041,6 +3079,32 @@ function setupSlackChat() {
       e.preventDefault();
       sendSlackMessage();
     }
+  });
+
+  $("#btn-chat-toggle-webview")?.addEventListener("click", async () => {
+    if (!isTauri()) {
+      toast("🖥️ Live WebView window is available in standalone desktop mode (Tauri).");
+      return;
+    }
+    const contacts = getSlackContacts();
+    let target = null;
+    if (currentChatTarget.type === "dm") {
+      target = contacts.find((c) => c.id === currentChatTarget.id);
+    } else if (contacts.length > 0) {
+      target = contacts[0];
+    }
+    const agentId = target?.category || target?.adapter || "chatgpt";
+    const AGENT_URLS = {
+      chatgpt: "https://chatgpt.com",
+      gemini: "https://gemini.google.com",
+      claude: "https://claude.ai",
+      mistral: "https://chat.mistral.ai",
+      deepseek: "https://chat.deepseek.com",
+    };
+    const targetUrl = target?.url || AGENT_URLS[agentId] || AGENT_URLS.chatgpt;
+    const title = `${target?.name || agentId} · Melon Live WebView`;
+    toast(`🖥️ Opening live WebView for ${target?.name || agentId}...`);
+    await spawnAgentWebview({ id: agentId, title, url: targetUrl, visible: true });
   });
 
   $("#btn-chat-toggle-profile")?.addEventListener("click", () => {
@@ -5535,15 +5599,21 @@ function updateStatus() {
     coreChip.classList.add("ok");
   }
   const hubChip = $("#chip-hub");
-  hubChip.textContent = hub.online
-    ? hub.kev
-      ? "hub: kev"
-      : hub.llm
-        ? "hub: llm"
-        : "hub: online"
-    : "hub: offline";
-  hubChip.classList.toggle("ok", hub.online);
-  hubChip.classList.toggle("bad", !hub.online);
+  if (isTauri()) {
+    hubChip.textContent = "desktop: tauri (native)";
+    hubChip.classList.add("ok");
+    hubChip.classList.remove("bad");
+  } else {
+    hubChip.textContent = hub.online
+      ? hub.kev
+        ? "hub: kev"
+        : hub.llm
+          ? "hub: llm"
+          : "hub: online"
+      : "hub: offline";
+    hubChip.classList.toggle("ok", hub.online);
+    hubChip.classList.toggle("bad", !hub.online);
+  }
   $("#chip-tabs").textContent = `tabs: ${presence.size} local · ${extTabs.size} bridged`;
   $("#chip-wf").textContent = `wf: v${workflowVersion}`;
   const runChip = $("#chip-run");
