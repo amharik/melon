@@ -9,7 +9,13 @@ import {
   spawnAgentWebview,
   toggleAgentWebview,
   evalAgentScript,
+  getAgentWindowTitle,
+  isAgentWindowOpen,
+  closeAgentWindow,
   runCliAgent,
+  buildPromptInjectionScript,
+  buildResponseExtractScript,
+  WEB_AGENT_DEFAULTS,
 } from "../web/shared/tauri_bridge.js";
 
 test("Tauri desktop bridge detects non-Tauri browser environments safely", () => {
@@ -168,4 +174,97 @@ test("src-tauri configuration and Rust backend are structurally valid", () => {
   assert.ok(libRs.includes("toggle_agent_window"));
   assert.ok(libRs.includes("eval_agent_script"));
   assert.ok(libRs.includes("run_cli_agent"));
+  assert.ok(libRs.includes("get_agent_window_title"));
+  assert.ok(libRs.includes("is_agent_window_open"));
+  assert.ok(libRs.includes("close_agent_window"));
+});
+
+test("WEB_AGENT_DEFAULTS catalog supports ChatGPT, Claude, Gemini, DeepSeek, and Mistral", () => {
+  assert.ok(WEB_AGENT_DEFAULTS.chatgpt);
+  assert.equal(WEB_AGENT_DEFAULTS.chatgpt.url, "https://chatgpt.com");
+  assert.equal(WEB_AGENT_DEFAULTS.chatgpt.tag, "CHATGPT");
+
+  assert.ok(WEB_AGENT_DEFAULTS.claude);
+  assert.equal(WEB_AGENT_DEFAULTS.claude.url, "https://claude.ai");
+  assert.equal(WEB_AGENT_DEFAULTS.claude.tag, "CLAUDE");
+
+  assert.ok(WEB_AGENT_DEFAULTS.gemini);
+  assert.equal(WEB_AGENT_DEFAULTS.gemini.url, "https://gemini.google.com");
+  assert.equal(WEB_AGENT_DEFAULTS.gemini.tag, "GEMINI");
+
+  assert.ok(WEB_AGENT_DEFAULTS.deepseek);
+  assert.equal(WEB_AGENT_DEFAULTS.deepseek.url, "https://chat.deepseek.com");
+
+  assert.ok(WEB_AGENT_DEFAULTS.mistral);
+  assert.equal(WEB_AGENT_DEFAULTS.mistral.url, "https://chat.mistral.ai");
+});
+
+test("Tauri bridge manages window title, open state, and close commands", async () => {
+  const calls = [];
+  const fakeTauri = {
+    core: {
+      invoke: async (cmd, args) => {
+        calls.push({ cmd, args });
+        if (cmd === "get_agent_window_title") return "ChatGPT · Melon Agent";
+        if (cmd === "is_agent_window_open") return true;
+        if (cmd === "close_agent_window") return true;
+        return null;
+      },
+    },
+  };
+
+  globalThis.window = { __TAURI__: fakeTauri };
+  try {
+    const title = await getAgentWindowTitle("chatgpt");
+    assert.equal(title, "ChatGPT · Melon Agent");
+
+    const isOpen = await isAgentWindowOpen("chatgpt");
+    assert.equal(isOpen, true);
+
+    const closed = await closeAgentWindow("chatgpt");
+    assert.equal(closed, true);
+
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].cmd, "get_agent_window_title");
+    assert.equal(calls[1].cmd, "is_agent_window_open");
+    assert.equal(calls[2].cmd, "close_agent_window");
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test("Prompt injection script and response extraction script generate expected code", () => {
+  const injectCode = buildPromptInjectionScript("Analyze architecture", "run_abc");
+  assert.ok(injectCode.includes("Analyze architecture"));
+  assert.ok(injectCode.includes("run_abc"));
+  assert.ok(injectCode.includes("needs_auth"));
+  assert.ok(injectCode.includes("__melon_msg__:"));
+
+  const extractCode = buildResponseExtractScript("run_abc");
+  assert.ok(extractCode.includes("run_abc"));
+  assert.ok(extractCode.includes("extracted"));
+  assert.ok(extractCode.includes("model-response"));
+  assert.ok(extractCode.includes("font-claude-message"));
+  assert.ok(extractCode.includes("__melon_msg__:"));
+});
+
+test("DOM markup and CSS expose sidebar collapse, AI service selection, and auth controls", () => {
+  const html = fs.readFileSync(path.resolve("web/index.html"), "utf8");
+  assert.ok(html.includes('id="btn-toggle-slack-sidebar"'));
+  assert.ok(html.includes('id="btn-expand-slack-sidebar"'));
+  assert.ok(html.includes('id="btn-chat-authorize"'));
+  assert.ok(html.includes('id="contact-model-service"'));
+  assert.ok(html.includes('id="group-contact-model"'));
+
+  const css = fs.readFileSync(path.resolve("web/styles.css"), "utf8");
+  assert.ok(css.includes(".slack-sidebar.collapsed"));
+  assert.ok(css.includes(".btn-sidebar-toggle"));
+  assert.ok(css.includes(".btn-sidebar-expand"));
+  assert.ok(css.includes(".agent-type-tag.web"));
+
+  const appJs = fs.readFileSync(path.resolve("web/app.js"), "utf8");
+  assert.ok(appJs.includes("setSidebarCollapsed"));
+  assert.ok(appJs.includes("melon.slack_sidebar_collapsed"));
+  assert.ok(appJs.includes("btn-open-auth-window"));
+  assert.ok(appJs.includes("btn-profile-open-auth"));
 });

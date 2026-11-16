@@ -18,7 +18,13 @@ import {
   spawnAgentWebview,
   toggleAgentWebview,
   evalAgentScript,
+  getAgentWindowTitle,
+  isAgentWindowOpen,
+  closeAgentWindow,
   runCliAgent,
+  buildPromptInjectionScript,
+  buildResponseExtractScript,
+  WEB_AGENT_DEFAULTS,
 } from "./shared/tauri_bridge.js";
 
 const ROOM = "demo";
@@ -1602,6 +1608,76 @@ function getSlackContacts() {
     desc: llmMeta.persona,
   });
 
+  // Built-in Native Web Agents (Tauri standalone desktop mode)
+  if (isTauri()) {
+    const defaultWebProviders = [
+      {
+        id: "web_chatgpt",
+        name: "ChatGPT",
+        handle: "chatgpt",
+        avatar: "🧠",
+        tag: "WEB",
+        adapter: "chatgpt",
+        category: "chatgpt",
+        role: "OpenAI ChatGPT Agent",
+        desc: "Autonomous conversational reasoner with persistent session.",
+        persona: "Analytical problem solver with broad conversational intelligence.",
+        url: "https://chatgpt.com",
+        status: "online",
+      },
+      {
+        id: "web_claude",
+        name: "Claude",
+        handle: "claude",
+        avatar: "🤖",
+        tag: "WEB",
+        adapter: "claude",
+        category: "claude",
+        role: "Anthropic Claude Agent",
+        desc: "Thoughtful synthesizer with deep coding and technical rigor.",
+        persona: "Precise, thoughtful synthesizer specializing in deep technical depth.",
+        url: "https://claude.ai",
+        status: "online",
+      },
+      {
+        id: "web_gemini",
+        name: "Gemini",
+        handle: "gemini",
+        avatar: "⚡",
+        tag: "WEB",
+        adapter: "gemini",
+        category: "gemini",
+        role: "Google Gemini Agent",
+        desc: "Multimodal research agent with massive context window.",
+        persona: "Fast multi-modal explorer with massive factual and web context.",
+        url: "https://gemini.google.com",
+        status: "online",
+      },
+      {
+        id: "web_deepseek",
+        name: "DeepSeek",
+        handle: "deepseek",
+        avatar: "🐳",
+        tag: "WEB",
+        adapter: "deepseek",
+        category: "deepseek",
+        role: "DeepSeek Reasoning Agent",
+        desc: "Specialized mathematical and deep code reasoning model.",
+        persona: "Specialized mathematical and deep code reasoning agent.",
+        url: "https://chat.deepseek.com",
+        status: "online",
+      },
+    ];
+
+    for (const p of defaultWebProviders) {
+      contacts.push({
+        ...p,
+        type: "web",
+        urls: [p.url],
+      });
+    }
+  }
+
   for (const custom of customContacts) {
     contacts.push(custom);
   }
@@ -1706,6 +1782,34 @@ function renderSlackHeader() {
   if (descEl) descEl.textContent = currentChatTarget.desc || "";
   if (inputEl)
     inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
+
+  const btnAuth = $("#btn-chat-authorize");
+  if (btnAuth) {
+    const contact = currentChatTarget.contact;
+    const isWebAgent =
+      currentChatTarget.type === "dm" &&
+      (contact?.type === "web" ||
+        Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]));
+    if (isWebAgent) {
+      btnAuth.hidden = false;
+      btnAuth.textContent = `🔑 Sign In`;
+      btnAuth.onclick = () => {
+        const agentId = contact?.category || contact?.adapter || "chatgpt";
+        const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
+        const url = contact?.url || defaults.url;
+        toast(`🔑 Opening sign-in window for ${contact?.name || agentId}. Session persists across restarts.`);
+        spawnAgentWebview({
+          id: agentId,
+          title: `${contact?.name || defaults.name} · Session Authentication`,
+          url,
+          visible: true,
+        });
+        toggleAgentWebview(agentId, true);
+      };
+    } else {
+      btnAuth.hidden = true;
+    }
+  }
 }
 
 async function loadSlackMessages(targetType, targetId) {
@@ -2232,6 +2336,24 @@ function renderSlackMessages() {
           : "AI TAB"
         : msg.tag || "AGENT";
 
+    let msgBodyHtml = msg.text
+      ? renderMarkdown(msg.text)
+      : msg.streaming
+        ? '<span class="typing-bubble"></span> Thinking...'
+        : "";
+
+    if (msg.needsAuth) {
+      msgBodyHtml += `
+        <div class="msg-auth-action-box" style="margin-top:10px; padding:12px; background:rgba(99, 102, 241, 0.08); border:1px solid rgba(99, 102, 241, 0.25); border-radius:6px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+          <div>
+            <strong style="color:var(--text-main); font-size:13px; display:block;">🔑 Authentication Required</strong>
+            <span style="font-size:11.5px; color:var(--text-muted);">Sign in once to authorize @${esc(msg.author || "agent")}. Session persists permanently across restarts.</span>
+          </div>
+          <button type="button" class="primary btn-open-auth-window" data-service="${esc(msg.agentService || 'chatgpt')}" style="padding:6px 12px; font-size:12px; white-space:nowrap;">Open Sign-In Window</button>
+        </div>
+      `;
+    }
+
     item.innerHTML = `
       <div class="slack-msg-avatar">
         ${msg.avatar || (isUser ? "👤" : "💬")}
@@ -2245,7 +2367,7 @@ function renderSlackMessages() {
           <span class="slack-msg-time">${esc(msg.time)}</span>
         </div>
         <div class="slack-msg-body">
-          ${msg.text ? renderMarkdown(msg.text) : msg.streaming ? '<span class="typing-bubble"></span> Thinking...' : ""}
+          ${msgBodyHtml}
         </div>
         ${reactionsHtml}
       </div>
@@ -2377,6 +2499,17 @@ function renderSlackMessages() {
     };
     item.querySelector(".opt-delete")?.addEventListener("click", triggerDelete);
     item.querySelector(".btn-msg-delete")?.addEventListener("click", triggerDelete);
+
+    // Open sign-in window for auth
+    item.querySelectorAll(".btn-open-auth-window").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const s = btn.dataset.service || "chatgpt";
+        const d = WEB_AGENT_DEFAULTS[s] || WEB_AGENT_DEFAULTS.chatgpt;
+        toast(`🔑 Opening sign-in window for ${d.name}...`);
+        spawnAgentWebview({ id: s, title: `${d.name} Sign In`, url: d.url, visible: true });
+        toggleAgentWebview(s, true);
+      });
+    });
 
     feed.appendChild(item);
   }
@@ -2530,6 +2663,20 @@ function renderSlackProfilePane(agent) {
       <span class="profile-field-label">Presence</span>
       <span class="profile-field-value"><span class="presence-dot ${agent.status}"></span> ${esc(agent.status.toUpperCase())}</span>
     </div>
+    ${
+      agent.type === "web" || WEB_AGENT_DEFAULTS[agent.category || agent.adapter] || agent.url
+        ? `
+    <div class="profile-field-group" style="background:rgba(99, 102, 241, 0.08); padding:10px; border-radius:6px; border:1px solid rgba(99, 102, 241, 0.2); margin-bottom:8px;">
+      <span class="profile-field-label" style="color:var(--text-main); font-weight:600;">Session Authentication</span>
+      <span class="profile-field-value" style="font-size:11.5px; margin-top:3px; display:block; color:var(--text-muted);">
+        Persistent WKWebView data store active. Sign-in cookies and tokens persist across app restarts.
+      </span>
+      <button type="button" class="primary btn-profile-open-auth" style="margin-top:8px; width:100%; padding:6px; font-size:12px;">
+        🔑 Open Sign-In Window
+      </button>
+    </div>`
+        : ""
+    }
     <div class="profile-urls-section">
       <div class="profile-urls-head">
         <label>Persistent URLs (Reboot Resilient)</label>
@@ -2589,6 +2736,19 @@ function renderSlackProfilePane(agent) {
 
   body.querySelector(".btn-profile-dm")?.addEventListener("click", () => {
     selectSlackTarget("dm", agent.id);
+  });
+  body.querySelector(".btn-profile-open-auth")?.addEventListener("click", () => {
+    const agentId = agent.category || agent.adapter || "chatgpt";
+    const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
+    const url = agent.url || defaults.url;
+    toast(`🔑 Opening sign-in window for ${agent.name}. Session persists across restarts.`);
+    spawnAgentWebview({
+      id: agentId,
+      title: `${agent.name} · Session Authentication`,
+      url,
+      visible: true,
+    });
+    toggleAgentWebview(agentId, true);
   });
   body.querySelector(".btn-profile-edit-persona")?.addEventListener("click", () => {
     const modal = $("#modal-agent-persona");
@@ -2760,6 +2920,98 @@ async function sendSlackMessage() {
         },
       );
       if (spawned) return;
+    }
+
+    const isWebAgent =
+      agentTarget.type === "web" ||
+      Boolean(WEB_AGENT_DEFAULTS[agentTarget.category || agentTarget.adapter]);
+
+    if (isWebAgent) {
+      const serviceId = agentTarget.category || agentTarget.adapter || "chatgpt";
+      const defaults = WEB_AGENT_DEFAULTS[serviceId] || WEB_AGENT_DEFAULTS.chatgpt;
+      const targetUrl = agentTarget.url || defaults.url;
+      const agentTitle = `${agentTarget.name || defaults.name} Agent`;
+
+      // 1. Ensure child webview exists
+      const isOpen = await isAgentWindowOpen(serviceId);
+      if (!isOpen) {
+        await spawnAgentWebview({
+          id: serviceId,
+          title: agentTitle,
+          url: targetUrl,
+          visible: false,
+        });
+        await new Promise((r) => setTimeout(r, 700));
+      }
+
+      // 2. Inject prompt
+      const injectScript = buildPromptInjectionScript(effectivePrompt, runId);
+      await evalAgentScript(serviceId, injectScript);
+      await new Promise((r) => setTimeout(r, 250));
+
+      const title = await getAgentWindowTitle(serviceId);
+      let payload = null;
+      if (title && title.includes("__melon_msg__:")) {
+        try {
+          payload = JSON.parse(decodeURIComponent(title.split("__melon_msg__:")[1]));
+        } catch {}
+      }
+
+      if (payload && payload.status === "needs_auth") {
+        if (typingBar) typingBar.hidden = true;
+        agentMsg.streaming = false;
+        agentMsg.needsAuth = true;
+        agentMsg.agentService = serviceId;
+        agentMsg.text = `🔒 **Authentication required for ${agentTarget.name || defaults.name}**\n\nPlease sign in to **${defaults.name}** to enable autonomous message responses.\n\n*(Your login session is preserved permanently by the native WebView data store across restarts.)*`;
+        slackChatRunners.delete(runId);
+        renderSlackMessages();
+        return;
+      }
+
+      // 3. Response extraction polling loop
+      const runner = slackChatRunners.get(runId);
+      let lastText = "";
+      let iterations = 0;
+      const maxIterations = 120; // ~60 seconds max
+
+      const pollInterval = setInterval(async () => {
+        iterations++;
+        const extractScript = buildResponseExtractScript(runId);
+        await evalAgentScript(serviceId, extractScript);
+        await new Promise((r) => setTimeout(r, 100));
+
+        const extTitle = await getAgentWindowTitle(serviceId);
+        let extPayload = null;
+        if (extTitle && extTitle.includes("__melon_msg__:")) {
+          try {
+            extPayload = JSON.parse(decodeURIComponent(extTitle.split("__melon_msg__:")[1]));
+          } catch {}
+        }
+
+        if (extPayload && extPayload.ok && typeof extPayload.text === "string") {
+          const currentText = extPayload.text.trim();
+          if (currentText && currentText !== lastText) {
+            lastText = currentText;
+            if (runner) runner.onChunk(currentText);
+          }
+
+          if (!extPayload.streaming && currentText.length > 0 && iterations > 2) {
+            clearInterval(pollInterval);
+            if (runner) runner.onDone(currentText);
+            return;
+          }
+        }
+
+        if (iterations >= maxIterations) {
+          clearInterval(pollInterval);
+          if (runner) {
+            if (lastText) runner.onDone(lastText);
+            else runner.onError("Response timeout: no response received from agent within 60s.");
+          }
+        }
+      }, 500);
+
+      return;
     }
   }
 
@@ -3081,6 +3333,51 @@ function setupSlackChat() {
     }
   });
 
+  const sidebar = $(".slack-sidebar");
+  const btnToggleSidebar = $("#btn-toggle-slack-sidebar");
+  const btnExpandSidebar = $("#btn-expand-slack-sidebar");
+
+  function setSidebarCollapsed(collapsed) {
+    if (!sidebar) return;
+    sidebar.classList.toggle("collapsed", collapsed);
+    if (btnExpandSidebar) btnExpandSidebar.hidden = !collapsed;
+    try {
+      localStorage.setItem("melon.slack_sidebar_collapsed", collapsed ? "true" : "false");
+    } catch {}
+  }
+
+  btnToggleSidebar?.addEventListener("click", () => {
+    setSidebarCollapsed(true);
+  });
+
+  btnExpandSidebar?.addEventListener("click", () => {
+    setSidebarCollapsed(false);
+  });
+
+  try {
+    const isCollapsed = localStorage.getItem("melon.slack_sidebar_collapsed") === "true";
+    if (isCollapsed) setSidebarCollapsed(true);
+  } catch {}
+
+  // Global Slack desktop keyboard shortcuts
+  window.addEventListener("keydown", (e) => {
+    // ⌘[ or Ctrl+[ or ⌘\ or Ctrl+\ : Toggle Left Slack Navigation Sidebar
+    if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key === "\\")) {
+      e.preventDefault();
+      const isCurrentlyCollapsed = sidebar?.classList.contains("collapsed");
+      setSidebarCollapsed(!isCurrentlyCollapsed);
+    }
+    // ⌘] or Ctrl+] : Toggle Right Profile & Details Inspector Pane
+    if ((e.metaKey || e.ctrlKey) && e.key === "]") {
+      e.preventDefault();
+      const pane = $("#slack-profile-pane");
+      if (pane) {
+        pane.hidden = !pane.hidden;
+        if (!pane.hidden) renderSlackProfilePane();
+      }
+    }
+  });
+
   $("#btn-chat-toggle-webview")?.addEventListener("click", async () => {
     if (!isTauri()) {
       toast("🖥️ Live WebView window is available in standalone desktop mode (Tauri).");
@@ -3259,10 +3556,19 @@ function setupAddContactModal() {
   const btnCancel = $("#btn-cancel-contact");
   const form = $("#form-add-contact");
   const typeSelect = $("#contact-type");
+  const modelGroup = $("#group-contact-model");
+  const modelSelect = $("#contact-model-service");
   const tabGroup = $("#group-contact-tab");
   const tabSelect = $("#contact-tab-select");
 
+  const syncVisibility = () => {
+    const val = typeSelect?.value || "web";
+    if (modelGroup) modelGroup.hidden = val !== "web";
+    if (tabGroup) tabGroup.hidden = val !== "tab";
+  };
+
   btnOpen?.addEventListener("click", () => {
+    syncVisibility();
     if (tabSelect) {
       tabSelect.innerHTML = "";
       for (const tab of extTabs.values()) {
@@ -3287,41 +3593,67 @@ function setupAddContactModal() {
     });
   }
 
-  typeSelect?.addEventListener("change", () => {
-    if (tabGroup) tabGroup.hidden = typeSelect.value !== "tab";
-  });
+  typeSelect?.addEventListener("change", syncVisibility);
 
   form?.addEventListener("submit", (e) => {
     e.preventDefault();
     const name = $("#contact-name")?.value.trim();
-    const type = typeSelect?.value || "tab";
+    const type = typeSelect?.value || "web";
     const tabId = tabSelect?.value;
     const roleDesc = $("#contact-role-desc")?.value.trim();
 
     if (!name) return;
     const cleanHandle = name.toLowerCase().replace(/[^a-z0-9_-]/g, "");
 
-    const newContact = {
-      id: `custom_${Date.now()}`,
-      type,
-      name,
-      handle: cleanHandle,
-      avatar:
-        type === "tab"
-          ? "🌐"
-          : type === "opencode"
-            ? "💻"
-            : type === "agy"
-              ? "🚀"
-              : type === "acp"
-                ? "🛰️"
-                : "🔮",
-      adapter: type === "tab" ? "auto" : type,
-      status: "online",
-      tag: type === "tab" ? "TAB" : "CLI",
-      desc: roleDesc || `${name} agent`,
-      tabId: type === "tab" ? tabId : null,
-    };
+    let newContact = null;
+    if (type === "web") {
+      const service = modelSelect?.value || "chatgpt";
+      const defaults = WEB_AGENT_DEFAULTS[service] || WEB_AGENT_DEFAULTS.chatgpt;
+      newContact = {
+        id: `custom_${Date.now()}`,
+        type: "web",
+        name,
+        handle: cleanHandle,
+        avatar: defaults.avatar || "🌐",
+        adapter: service,
+        category: service,
+        status: "online",
+        tag: "WEB",
+        desc: roleDesc || `${name} (${defaults.name})`,
+        url: defaults.url,
+        urls: [defaults.url],
+      };
+      if (isTauri()) {
+        spawnAgentWebview({
+          id: service,
+          title: `${defaults.name} Agent`,
+          url: defaults.url,
+          visible: false,
+        });
+      }
+    } else {
+      newContact = {
+        id: `custom_${Date.now()}`,
+        type,
+        name,
+        handle: cleanHandle,
+        avatar:
+          type === "tab"
+            ? "🌐"
+            : type === "opencode"
+              ? "💻"
+              : type === "agy"
+                ? "🚀"
+                : type === "acp"
+                  ? "🛰️"
+                  : "🔮",
+        adapter: type === "tab" ? "auto" : type,
+        status: "online",
+        tag: type === "tab" ? "TAB" : "CLI",
+        desc: roleDesc || `${name} agent`,
+        tabId: type === "tab" ? tabId : null,
+      };
+    }
 
     customContacts.push(newContact);
     close();

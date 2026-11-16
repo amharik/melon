@@ -219,7 +219,10 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
                 <span class="slack-user-status"><span class="presence-dot online"></span>Active Workspace</span>
               </div>
             </div>
-            <button type="button" class="tiny ghost" id="btn-quick-switcher" title="Quick Switcher (⌘K)">⌘K</button>
+            <div class="slack-ws-actions" style="display:flex; gap:4px; align-items:center;">
+              <button type="button" class="tiny ghost" id="btn-quick-switcher" title="Quick Switcher (⌘K)">⌘K</button>
+              <button type="button" class="tiny ghost btn-sidebar-toggle" id="btn-toggle-slack-sidebar" title="Collapse Sidebar (⌘[ or ⌘\)">◀</button>
+            </div>
           </div>
 
           <div class="slack-channels-section">
@@ -290,6 +293,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
         <!-- Slack Main Chat Area -->
         <main class="slack-main">
           <header class="slack-chat-header">
+            <button type="button" class="tiny ghost btn-sidebar-expand" id="btn-expand-slack-sidebar" title="Expand Sidebar (⌘[ or ⌘\)" hidden>☰</button>
             <div class="slack-chat-title-group">
               <div class="slack-title-row">
                 <span class="slack-current-icon" id="slack-current-icon">#</span>
@@ -299,6 +303,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <p id="slack-current-desc">Central company workspace: all tab agents and CLI subprocesses collaborate here.</p>
             </div>
             <div class="slack-header-actions">
+              <button type="button" class="tiny ghost" id="btn-chat-authorize" title="Sign in or authorize web agent session" hidden>🔑 Sign In</button>
               <button type="button" class="tiny ghost" id="btn-chat-toggle-webview" title="Open or toggle live AI agent WebView window">🖥️ Live View</button>
               <button type="button" class="tiny ghost" id="btn-chat-toggle-profile" title="Toggle Agent Persona & Details Inspector">ℹ️ Details</button>
               <button type="button" class="tiny ghost" id="btn-chat-sync-war" title="Trigger Strategy Consensus War-Room Synthesis">⚡ Sync Consensus</button>
@@ -702,15 +707,27 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           <div class="form-group">
             <label for="contact-type">Agent Type</label>
             <select id="contact-type">
-              <option value="tab">🌐 Browser Tab Agent (ChatGPT, Claude, Gemini, Mistral)</option>
+              <option value="web">🌐 AI Web Agent (ChatGPT, Claude, Gemini, DeepSeek)</option>
               <option value="opencode">💻 CLI Agent: Opencode (http://127.0.0.1:4096)</option>
               <option value="agy">🚀 CLI Agent: Agy CLI (stream-json)</option>
               <option value="acp">🛰️ Agent Client Protocol: Local ACP subprocess</option>
               <option value="llm">🔮 Custom LLM Endpoint (OpenAI-compatible)</option>
+              <option value="tab">📑 Connected Browser Tab (Extension)</option>
             </select>
           </div>
-          <div class="form-group" id="group-contact-tab">
-            <label for="contact-tab-select">Select Open Browser Tab</label>
+          <div class="form-group" id="group-contact-model">
+            <label for="contact-model-service">AI Web Service / Provider</label>
+            <select id="contact-model-service">
+              <option value="chatgpt">ChatGPT (OpenAI · chatgpt.com)</option>
+              <option value="claude">Claude (Anthropic · claude.ai)</option>
+              <option value="gemini">Gemini (Google · gemini.google.com)</option>
+              <option value="deepseek">DeepSeek (chat.deepseek.com)</option>
+              <option value="mistral">Mistral (chat.mistral.ai)</option>
+            </select>
+            <small class="form-hint" style="color:var(--text-subtle); display:block; margin-top:4px;">Sessions and logins are automatically persisted by the native WebView across restarts.</small>
+          </div>
+          <div class="form-group" id="group-contact-tab" hidden>
+            <label for="contact-tab-select">Connected Browser Tab</label>
             <select id="contact-tab-select"></select>
           </div>
           <div class="form-group" id="group-contact-role">

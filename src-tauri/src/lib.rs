@@ -117,6 +117,30 @@ mod commands {
     }
 
     #[tauri::command]
+    pub fn get_agent_window_title(app: AppHandle, id: String) -> Result<String, String> {
+        if let Some(win) = app.get_webview_window(&id) {
+            win.title().map_err(|e| e.to_string())
+        } else {
+            Err(format!("Window {} not found", id))
+        }
+    }
+
+    #[tauri::command]
+    pub fn is_agent_window_open(app: AppHandle, id: String) -> bool {
+        app.get_webview_window(&id).is_some()
+    }
+
+    #[tauri::command]
+    pub async fn close_agent_window(app: AppHandle, id: String) -> Result<bool, String> {
+        if let Some(win) = app.get_webview_window(&id) {
+            win.close().map_err(|e| e.to_string())?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[tauri::command]
     pub async fn run_cli_agent(
         app: AppHandle,
         req: CliRunRequest,
@@ -208,6 +232,9 @@ pub fn run() {
             commands::spawn_agent_window,
             commands::toggle_agent_window,
             commands::eval_agent_script,
+            commands::get_agent_window_title,
+            commands::is_agent_window_open,
+            commands::close_agent_window,
             commands::run_cli_agent
         ])
         .setup(|app| {

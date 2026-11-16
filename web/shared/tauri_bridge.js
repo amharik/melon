@@ -4,6 +4,44 @@
  * managing child webviews (ChatGPT, Gemini, Claude) and native CLI agents (opencode, agy).
  */
 
+export const WEB_AGENT_DEFAULTS = {
+  chatgpt: {
+    name: "ChatGPT",
+    url: "https://chatgpt.com",
+    avatar: "🧠",
+    tag: "CHATGPT",
+    adapter: "chatgpt",
+  },
+  claude: {
+    name: "Claude",
+    url: "https://claude.ai",
+    avatar: "🤖",
+    tag: "CLAUDE",
+    adapter: "claude",
+  },
+  gemini: {
+    name: "Gemini",
+    url: "https://gemini.google.com",
+    avatar: "⚡",
+    tag: "GEMINI",
+    adapter: "gemini",
+  },
+  deepseek: {
+    name: "DeepSeek",
+    url: "https://chat.deepseek.com",
+    avatar: "🐳",
+    tag: "DEEPSEEK",
+    adapter: "deepseek",
+  },
+  mistral: {
+    name: "Mistral",
+    url: "https://chat.mistral.ai",
+    avatar: "🌪️",
+    tag: "MISTRAL",
+    adapter: "mistral",
+  },
+};
+
 export function isTauri() {
   if (typeof window === "undefined") return false;
   return Boolean(
@@ -66,6 +104,33 @@ export async function evalAgentScript(id, script) {
   }
 }
 
+export async function getAgentWindowTitle(id) {
+  if (!isTauri()) return null;
+  try {
+    return await tauriInvoke("get_agent_window_title", { id });
+  } catch (err) {
+    return null;
+  }
+}
+
+export async function isAgentWindowOpen(id) {
+  if (!isTauri()) return false;
+  try {
+    return Boolean(await tauriInvoke("is_agent_window_open", { id }));
+  } catch {
+    return false;
+  }
+}
+
+export async function closeAgentWindow(id) {
+  if (!isTauri()) return false;
+  try {
+    return await tauriInvoke("close_agent_window", { id });
+  } catch {
+    return false;
+  }
+}
+
 export async function runCliAgent(
   { runId, agentName, command, args = [], prompt, cwd = null },
   { onChunk, onDone, onError },
@@ -114,4 +179,156 @@ export async function runCliAgent(
     if (typeof unlisten === "function") unlisten();
     return false;
   }
+}
+
+/**
+ * Builds the DOM prompt injection script for external webviews
+ */
+export function buildPromptInjectionScript(prompt, runId) {
+  return `(function() {
+    try {
+      const promptText = ${JSON.stringify(prompt)};
+      const runId = ${JSON.stringify(runId)};
+
+      // 1. Check for composer elements
+      const composerSelectors = [
+        '#prompt-textarea',
+        'rich-textarea div[contenteditable="true"]',
+        'div[contenteditable="true"].ProseMirror',
+        'div[contenteditable="true"]',
+        'textarea'
+      ];
+
+      let composer = null;
+      for (const sel of composerSelectors) {
+        const el = document.querySelector(sel);
+        if (el && (el.offsetParent !== null || el.getClientRects().length > 0)) {
+          composer = el;
+          break;
+        }
+      }
+
+      // Check if login/auth page is shown
+      const loginCheck = document.querySelector(
+        '[data-testid="login-button"], a[href*="login"], a[href*="signin"], a[href*="accounts.google.com"], button[aria-label*="Sign in" i], button[aria-label*="Log in" i]'
+      );
+
+      if (!composer) {
+        const state = { ok: false, status: "needs_auth", hasLogin: Boolean(loginCheck), runId };
+        document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+        return state;
+      }
+
+      // 2. Insert text
+      composer.focus();
+      if (composer.isContentEditable) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(composer);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        let inserted = false;
+        try {
+          inserted = document.execCommand("insertText", false, promptText);
+        } catch(e) {}
+        if (!inserted) {
+          composer.textContent = promptText;
+          composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: promptText }));
+        }
+      } else {
+        const proto = HTMLTextAreaElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) setter.call(composer, promptText);
+        else composer.value = promptText;
+        composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: promptText }));
+        composer.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      // 3. Find send button
+      const sendSelectors = [
+        '[data-testid="send-button"]',
+        'button[aria-label*="Send" i]',
+        'button.bg-composer-primary',
+        'button[type="submit"]',
+        'button[aria-label="Send message"]'
+      ];
+      let btn = null;
+      for (const sel of sendSelectors) {
+        const el = document.querySelector(sel);
+        if (el && !el.disabled && el.getAttribute("aria-disabled") !== "true") {
+          btn = el;
+          break;
+        }
+      }
+
+      if (btn) {
+        btn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        btn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        btn.click();
+      } else {
+        const form = composer.closest("form");
+        if (form) form.requestSubmit();
+      }
+
+      const state = { ok: true, status: "sent", runId };
+      document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+      return state;
+    } catch(err) {
+      const state = { ok: false, error: String(err), runId };
+      document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+      return state;
+    }
+  })();`;
+}
+
+/**
+ * Builds the response extraction script
+ */
+export function buildResponseExtractScript(runId) {
+  return `(function() {
+    try {
+      const runId = ${JSON.stringify(runId)};
+      const responseSelectors = [
+        '[data-message-author-role="assistant"] .markdown',
+        '[data-message-author-role="assistant"]',
+        'div[data-is-streaming] .font-claude-message',
+        '[data-testid="assistant-message"]',
+        '.font-claude-message',
+        'model-response message-content .markdown',
+        'model-response message-content',
+        'model-response',
+        '.model-response-text',
+        '.model-response-contents',
+        'div[data-message-author-role="model"]'
+      ];
+
+      let el = null;
+      for (const sel of responseSelectors) {
+        const list = document.querySelectorAll(sel);
+        if (list.length > 0) {
+          el = list[list.length - 1];
+          break;
+        }
+      }
+
+      if (!el) {
+        const state = { ok: false, status: "waiting", runId };
+        document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+        return state;
+      }
+
+      const isStreaming = Boolean(document.querySelector(
+        '[data-is-streaming="true"], button[aria-label*="Stop" i], [data-testid="stop-button"]'
+      ));
+
+      const text = el.innerText || el.textContent || "";
+      const state = { ok: true, status: "extracted", text, streaming: isStreaming, runId };
+      document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+      return state;
+    } catch(err) {
+      const state = { ok: false, error: String(err), runId };
+      document.title = "__melon_msg__:" + encodeURIComponent(JSON.stringify(state));
+      return state;
+    }
+  })();`;
 }
