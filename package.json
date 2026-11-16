@@ -23,6 +23,7 @@
     "build": "scripts/build.sh",
     "build:extension": "mkdir -p dist && (cd extension && zip -qr ../dist/melon-extension.zip .)",
     "vendor:ai": "scripts/vendor-ai.sh",
+    "vendor:markup": "node scripts/vendor-markup.mjs",
     "eval:promptfoo": "npx --yes promptfoo@0.125.1 eval -c evals/promptfooconfig.yaml",
     "test:coverage": "node --experimental-websocket --experimental-test-coverage --test --test-concurrency=1 \"test/**/*.test.mjs\"",
     "lint": "node scripts/check-syntax.mjs && tsc -p jsconfig.json && biome lint . --max-diagnostics=20 --reporter=summary",
@@ -35,10 +36,13 @@
     "@biomejs/biome": "2.3.14",
     "@types/node": "26.6.6",
     "fast-check": "4.5.3",
+    "jsdom": "26.1.0",
     "playwright": "^1.65.0",
     "typescript": "7.0.2"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "2.7.0"
+    "@agentclientprotocol/sdk": "2.7.0",
+    "dompurify": "3.4.18",
+    "marked": "18.2.0"
   }
 }

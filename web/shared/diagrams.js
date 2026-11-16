@@ -89,76 +89,6 @@ export function extractDiagramTitle(code, fallback = "Diagram") {
   return fallback;
 }
 
-const SVG_DANGEROUS_TAGS = [
-  "script",
-  "foreignObject",
-  "iframe",
-  "object",
-  "embed",
-  "audio",
-  "video",
-  "animate",
-  "animateTransform",
-  "animateMotion",
-  "set",
-  "handler",
-];
-
-export function sanitizeSvgXml(svgText) {
-  if (!svgText) return "";
-  let clean = String(svgText).trim();
-  // Strip XML declarations, DOCTYPEs, and entity definitions
-  clean = clean.replace(/<\?xml[^>]*\?>/gi, "");
-  clean = clean.replace(/<!DOCTYPE[^>]*>/gi, "");
-  clean = clean.replace(/<!ENTITY[^>]*>/gi, "");
-  // Remove executable/scriptable elements, including unclosed variants.
-  for (const tag of SVG_DANGEROUS_TAGS) {
-    clean = clean.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "gi"), "");
-    clean = clean.replace(new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi"), "");
-  }
-  // Remove inline event handlers (quoted, unquoted, or bare).
-  clean = clean.replace(/\son[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // Remove scriptable URL schemes from href/xlink:href.
-  clean = clean.replace(
-    /\s(?:xlink:href|href)\s*=\s*("|')\s*(?:javascript|vbscript|data:text\/html|livescript|mocha):[^"']*\1/gi,
-    "",
-  );
-  clean = clean.replace(
-    /\s(?:xlink:href|href)\s*=\s*(?:javascript|vbscript|data:text\/html|livescript|mocha):[^\s>]+/gi,
-    "",
-  );
-  // Remove CSS-based script/exfiltration vectors.
-  clean = clean.replace(/@import\s[^;]*;?/gi, "");
-  clean = clean.replace(/url\(\s*(['"]?)\s*(?:javascript|vbscript):[^)]*\)/gi, "");
-  clean = clean.replace(/\bexpression\s*\(/gi, "");
-
-  // Ensure xmlns is present
-  if (!clean.includes('xmlns="http://www.w3.org/2000/svg"')) {
-    clean = clean.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
-  }
-
-  // Synthesize viewBox from width/height if missing
-  if (!/viewBox\s*=/i.test(clean)) {
-    const wMatch = clean.match(/width\s*=\s*["']?(\d+(?:\.\d+)?)/i);
-    const hMatch = clean.match(/height\s*=\s*["']?(\d+(?:\.\d+)?)/i);
-    if (wMatch && hMatch) {
-      const w = wMatch[1];
-      const h = hMatch[1];
-      clean = clean.replace(/<svg\b/i, `<svg viewBox="0 0 ${w} ${h}"`);
-    }
-  }
-
-  // Ensure responsive style attributes
-  if (!/style\s*=/i.test(clean)) {
-    clean = clean.replace(
-      /<svg\b/i,
-      '<svg style="width:100%; height:auto; display:block; max-height:560px;"',
-    );
-  }
-
-  return clean;
-}
-
 function chooseNodeIcon(id, label) {
   const s = `${id} ${label}`.toLowerCase();
   if (
@@ -652,17 +582,10 @@ export function createDiagramCardHtml({ id, type = "mermaid", title = "", rawCod
   const cleanTitle = escapeHtml(dynamicTitle);
   const badgeLabel = type === "svg" ? "SVG" : type === "box" ? "Monospace" : "Mermaid";
   const icon = type === "box" ? "📐" : type === "svg" ? "🖼️" : "🏛️";
-  // JSON.stringify alone does not prevent a `</script>` sequence inside an
-  // inert JSON script tag from closing it early and injecting HTML.
-  const metaJson = JSON.stringify({ id, type, title: dynamicTitle, rawCode })
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+  const metaAttr = escapeHtml(JSON.stringify({ id, type, title: dynamicTitle, rawCode }));
 
   return `
-    <div class="arch-diagram-card ${type}-card" id="diagram-card-${id}" data-diagram-id="${id}" data-diagram-type="${type}">
+    <div class="arch-diagram-card ${type}-card" id="diagram-card-${id}" data-diagram-id="${id}" data-diagram-type="${type}" data-diagram-meta="${metaAttr}">
       <div class="arch-diagram-header">
         <div class="arch-diagram-title-group">
           <span class="arch-diagram-icon">${icon}</span>
@@ -680,7 +603,7 @@ export function createDiagramCardHtml({ id, type = "mermaid", title = "", rawCod
         </div>
       </div>
       <div class="arch-diagram-body" id="diagram-body-${id}">
-        ${inlineSvg ? sanitizeSvgXml(inlineSvg) : `<div class="arch-diagram-loading"><span class="typing-bubble"></span> Rendering ${cleanTitle}...</div>`}
+        ${inlineSvg || `<div class="arch-diagram-loading"><span class="typing-bubble"></span> Rendering ${cleanTitle}...</div>`}
       </div>
       ${
         rawCode
@@ -690,7 +613,6 @@ export function createDiagramCardHtml({ id, type = "mermaid", title = "", rawCod
       </div>`
           : ""
       }
-      <script type="application/json" class="diagram-meta">${metaJson}</script>
     </div>
   `;
 }

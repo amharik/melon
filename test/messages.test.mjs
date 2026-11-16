@@ -288,6 +288,7 @@ test("DOM and App expose Slack Erase-Back, Persistent URLs, and Experiments View
 test("Slack and Open WebUI message options menu, re-extraction, and forward rendering", async () => {
   const html = await fs.readFile(path.join(ROOT, "web/index.html"), "utf8");
   const app = await fs.readFile(path.join(ROOT, "web/app.js"), "utf8");
+  const markdown = await fs.readFile(path.join(ROOT, "web/shared/markdown.js"), "utf8");
   const css = await fs.readFile(path.join(ROOT, "web/styles.css"), "utf8");
 
   // 1. Forward message modal in HTML
@@ -325,5 +326,6 @@ test("Slack and Open WebUI message options menu, re-extraction, and forward rend
   assert.match(app, /btn-msg-react/);
   assert.match(app, /msg-options-dropdown/);
   assert.match(app, /openwebui-message/);
-  assert.match(app, /ai-thought-box/);
+  assert.match(app, /renderMarkdownHtml/);
+  assert.match(markdown, /ai-thought-box/);
 });

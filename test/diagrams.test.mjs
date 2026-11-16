@@ -10,7 +10,6 @@ import {
   isSvgCode,
   renderBuiltInSvgDiagram,
   createDiagramCardHtml,
-  sanitizeSvgXml,
 } from "../web/shared/diagrams.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -124,34 +123,15 @@ test("createDiagramCardHtml generates interactive card with controls", () => {
   assert.match(html, /id="diagram-source-diag_123"/);
 });
 
-test("sanitizeSvgXml strips scripts, event handlers, foreignObject, and scriptable URLs", () => {
-  const hostile = `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)">
-    <script>alert('xss')</script>
-    <foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><img src=x onerror="alert(2)"></body></foreignObject>
-    <a xlink:href="javascript:alert(3)"><text>link</text></a>
-    <animate attributeName="href" values="javascript:alert(4)" />
-    <style>@import url("https://evil.example/x.css");</style>
-    <rect width="10" height="10" />
-  </svg>`;
-  const clean = sanitizeSvgXml(hostile);
-  assert.doesNotMatch(clean, /<script/i);
-  assert.doesNotMatch(clean, /<foreignObject/i);
-  assert.doesNotMatch(clean, /onload|onerror/i);
-  assert.doesNotMatch(clean, /javascript:/i);
-  assert.doesNotMatch(clean, /<animate/i);
-  assert.doesNotMatch(clean, /@import/i);
-  assert.match(clean, /<rect width="10" height="10" \/>/);
-});
-
-test("createDiagramCardHtml neutralizes JSON script-tag breakouts", () => {
+test("createDiagramCardHtml neutralizes data-attribute breakouts", () => {
   const html = createDiagramCardHtml({
     id: "diag_xss",
     type: "mermaid",
     rawCode: 'graph TD\n  A --> B\n</script><img src=x onerror="alert(1)">',
   });
-  // The raw sequence must not appear; it is encoded inside the inert JSON block.
   assert.doesNotMatch(html, /<\/script><img/i);
-  assert.match(html, /\\u003c\/script\\u003e/);
+  assert.match(html, /data-diagram-meta="/);
+  assert.match(html, /&lt;\/script&gt;/);
 });
 
 test("extension domToRichMarkdown extracts unlabelled Mermaid blocks and SVG diagrams", async () => {
@@ -232,19 +212,21 @@ test("extension domToRichMarkdown extracts unlabelled Mermaid blocks and SVG dia
   assert.match(extractedWithTitle, /!\[Cloud Deployment Flow\]\(data:image\/svg\+xml;utf8,/);
 });
 
-test("web/app.js, index.html, and styles.css wire Mermaid and architecture diagram cards", async () => {
+test("web/app.js, markdown.js, index.html, and styles.css wire Mermaid and architecture diagram cards", async () => {
   const app = await fs.readFile(path.join(ROOT, "web/app.js"), "utf8");
+  const markdown = await fs.readFile(path.join(ROOT, "web/shared/markdown.js"), "utf8");
   const html = await fs.readFile(path.join(ROOT, "web/index.html"), "utf8");
   const css = await fs.readFile(path.join(ROOT, "web/styles.css"), "utf8");
 
-  // App.js wiring
-  assert.match(app, /isMermaidCode/);
-  assert.match(app, /isBoxDiagram/);
-  assert.match(app, /isSvgCode/);
-  assert.match(app, /createDiagramCardHtml/);
+  assert.match(app, /renderMarkdownHtml/);
   assert.match(app, /renderAllPendingDiagrams/);
   assert.match(app, /setupDiagramInteractions/);
   assert.match(app, /renderBuiltInSvgDiagram/);
+  assert.match(markdown, /isMermaidCode/);
+  assert.match(markdown, /isBoxDiagram/);
+  assert.match(markdown, /isSvgCode/);
+  assert.match(markdown, /createDiagramCardHtml/);
+  assert.match(markdown, /from "\.\/sanitize\.js"/);
 
   // HTML wiring — Mermaid is vendored locally and guarded by a CSP.
   assert.match(html, /<script src="vendor\/mermaid\.min\.js"><\/script>/);

@@ -10,14 +10,9 @@ import {
 } from "./shared/protocol.js";
 import { buildResponse, roleLabel, streamText } from "./shared/simulator.js";
 import { extractArtifactsFromText } from "./shared/artifacts.js";
-import {
-  isMermaidCode,
-  isBoxDiagram,
-  isSvgCode,
-  renderBuiltInSvgDiagram,
-  createDiagramCardHtml,
-  sanitizeSvgXml,
-} from "./shared/diagrams.js";
+import { renderBuiltInSvgDiagram } from "./shared/diagrams.js";
+import { renderMarkdownHtml } from "./shared/markdown.js";
+import { sanitizeSvg } from "./shared/sanitize.js";
 
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
@@ -940,7 +935,6 @@ function renderMarkdown(raw) {
   if (!raw) return "";
   const trimmed = raw.trim();
 
-  // Try parsing A2UI structured JSON schema
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const data = JSON.parse(trimmed);
@@ -950,217 +944,7 @@ function renderMarkdown(raw) {
     } catch {}
   }
 
-  // Preserve code blocks before processing markdown
-  const codeBlocks = [];
-  let text = raw.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    const id = `__CB_${codeBlocks.length}__`;
-    codeBlocks.push({ lang: lang || "text", code });
-    return id;
-  });
-
-  // Preserve extracted media/images before HTML escaping
-  const mediaBlocks = [];
-  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
-    const id = `__MEDIA_${mediaBlocks.length}__`;
-    mediaBlocks.push({ alt: alt || "Extracted Graphic", src: src.trim() });
-    return id;
-  });
-
-  // Basic HTML sanitization
-  text = esc(text);
-
-  // Open WebUI / Vercel style collapsible thinking process (<think>...</think>)
-  text = text.replace(/(?:&lt;think&gt;|<think>)([\s\S]*?)(?:&lt;\/think&gt;|<\/think>)/gi, (_, thought) => {
-    return `<details class="ai-thought-box" open>
-      <summary class="ai-thought-summary">
-        <span class="ai-thought-icon">🧠</span>
-        <span class="ai-thought-label">Thinking Process</span>
-      </summary>
-      <div class="ai-thought-body">${thought.trim()}</div>
-    </details>`;
-  });
-
-  // Headings
-  text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-  text = text.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-  text = text.replace(/^# (.*$)/gim, "<h1>$1</h1>");
-
-  // Callouts & Alerts (> [!NOTE], > [!WARNING], > [!IMPORTANT])
-  text = text.replace(
-    /^\&gt; \[!(NOTE|TIP|INFO)\]\s*(.*$)/gim,
-    '<blockquote class="callout-info"><strong>ℹ $1:</strong> $2</blockquote>',
-  );
-  text = text.replace(
-    /^\&gt; \[!(WARNING|CAUTION)\]\s*(.*$)/gim,
-    '<blockquote class="callout-warn"><strong>⚠ $1:</strong> $2</blockquote>',
-  );
-  text = text.replace(
-    /^\&gt; \[!(DANGER|CRITICAL)\]\s*(.*$)/gim,
-    '<blockquote class="callout-danger"><strong>⛔ $1:</strong> $2</blockquote>',
-  );
-  text = text.replace(/^\&gt; (.*$)/gim, "<blockquote>$1</blockquote>");
-
-  // GFM Tables
-  text = text.replace(/((?:\|[^\n]+\|\n?)+)/g, (table) => {
-    const rows = table
-      .trim()
-      .split("\n")
-      .map((r) => r.trim())
-      .filter(Boolean);
-    if (rows.length < 2) return table;
-    const header = rows[0]
-      .split("|")
-      .filter((_, i, arr) => i > 0 && i < arr.length - 1)
-      .map((c) => c.trim());
-    const hasDivider = rows[1] && rows[1].includes("---");
-    const dataRows = rows.slice(hasDivider ? 2 : 1);
-    const ths = header.map((h) => `<th>${h}</th>`).join("");
-    const trs = dataRows
-      .map((r) => {
-        const cells = r
-          .split("|")
-          .filter((_, i, arr) => i > 0 && i < arr.length - 1)
-          .map((c) => `<td>${c.trim()}</td>`)
-          .join("");
-        return `<tr>${cells}</tr>`;
-      })
-      .join("");
-    return `<div class="slack-table-wrap"><table class="slack-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
-  });
-
-  // Links [text](url)
-  text = text.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer" class="slack-chat-link">$1 ↗</a>',
-  );
-
-  // Math: Block $$...$$ and Inline $...$
-  text = text.replace(/\$\$([\s\S]*?)\$\$/g, '<div class="slack-math-block">$1</div>');
-  text = text.replace(/\$([^\$\n]+)\$/g, '<span class="slack-math-inline">$1</span>');
-
-  // Bold, Italic & Strikethrough
-  text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-  text = text.replace(/\*(.*?)\*/g, "<em>$1</em>");
-  text = text.replace(/~~(.*?)~~/g, "<del>$1</del>");
-  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-  // Lists & Task Items
-  text = text.replace(/^\s*[-*]\s+\[([ xX])\]\s+(.*$)/gim, (_, mark, val) => {
-    const checked = mark.toLowerCase() === "x" ? "checked" : "";
-    return `<li class="slack-task-item"><input type="checkbox" disabled ${checked} /> <span>${val}</span></li>`;
-  });
-  text = text.replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>");
-  text = text.replace(/(<li>[\s\S]*?<\/li>)/gim, "<ul>$1</ul>");
-
-  // Paragraphs
-  text = text
-    .split("\n\n")
-    .map((p) => {
-      p = p.trim();
-      if (!p) return "";
-      if (
-        p.startsWith("<h") ||
-        p.startsWith("<pre") ||
-        p.startsWith("<div") ||
-        p.startsWith("<table") ||
-        p.startsWith("<ul") ||
-        p.startsWith("<blockquote") ||
-        p.startsWith("<details") ||
-        p.startsWith("__CB_") ||
-        p.startsWith("__MEDIA_")
-      ) {
-        return p;
-      }
-      return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
-    })
-    .join("\n");
-
-  // Restore code blocks with rich header, copy button, and architecture diagram support
-  text = text.replace(/__CB_(\d+)__/g, (_, idx) => {
-    const cb = codeBlocks[Number(idx)];
-    if (!cb) return "";
-    const cleanCode = esc(cb.code.trim());
-    const rawCode = cb.code.trim();
-    const lang = (cb.lang || "").toLowerCase();
-
-    // 1. Mermaid Architecture Diagram
-    if (lang === "mermaid" || isMermaidCode(rawCode)) {
-      const diagId = `m_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-      return createDiagramCardHtml({
-        id: diagId,
-        type: "mermaid",
-        rawCode,
-      });
-    }
-
-    // 2. SVG Architecture Diagram
-    if (lang === "svg" || isSvgCode(rawCode)) {
-      const diagId = `svg_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-      return createDiagramCardHtml({
-        id: diagId,
-        type: "svg",
-        rawCode,
-        inlineSvg: rawCode,
-      });
-    }
-
-    // 3. Monospace Box-Drawing Architecture Diagram
-    if (isBoxDiagram(rawCode)) {
-      const diagId = `box_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-      return createDiagramCardHtml({
-        id: diagId,
-        type: "box",
-        rawCode,
-      });
-    }
-
-    return `<div class="md-code-block" style="margin:8px 0; border:1px solid var(--glass-border); border-radius:8px; overflow:hidden;">
-      <div class="md-code-header">
-        <span style="font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase;">${esc(cb.lang)}</span>
-        <button type="button" class="tiny ghost btn-copy-code" data-copy="${cleanCode}">Copy</button>
-      </div>
-      <pre style="margin:0; border:0; border-radius:0; max-height:260px; overflow:auto;"><code>${cleanCode}</code></pre>
-    </div>`;
-  });
-
-  // Restore extracted media / images / illustrations
-  text = text.replace(/__MEDIA_(\d+)__/g, (_, idx) => {
-    const m = mediaBlocks[Number(idx)];
-    if (!m) return "";
-
-    // If it is an extracted SVG architecture diagram data URI
-    if (m.src.startsWith("data:image/svg+xml")) {
-      let rawSvg = "";
-      try {
-        if (m.src.includes("utf8,")) {
-          rawSvg = decodeURIComponent(m.src.split("utf8,")[1]);
-        } else if (m.src.includes("base64,")) {
-          rawSvg = atob(m.src.split("base64,")[1]);
-        }
-      } catch (err) {
-        console.warn("Failed to decode SVG data URI:", err);
-      }
-      if (rawSvg && rawSvg.includes("<svg")) {
-        const diagId = `svg_media_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
-        return createDiagramCardHtml({
-          id: diagId,
-          type: "svg",
-          title: m.alt && m.alt !== "Architecture Diagram" && m.alt !== "Extracted Graphic" ? m.alt : "",
-          rawCode: rawSvg,
-          inlineSvg: rawSvg,
-        });
-      }
-    }
-
-    const safeSrc = m.src.replace(/"/g, "&quot;");
-    const safeAlt = esc(m.alt);
-    return `<div class="slack-media-card">
-      <img class="slack-media-img" src="${safeSrc}" alt="${safeAlt}" loading="lazy" data-modal-src="${safeSrc}" data-modal-cap="${safeAlt}" />
-      <div class="slack-media-caption">📷 ${safeAlt}</div>
-    </div>`;
-  });
-
-  return `<div class="md-body">${text}</div>`;
+  return renderMarkdownHtml(raw);
 }
 
 async function renderAllPendingDiagrams(root = document) {
@@ -1171,10 +955,9 @@ async function renderAllPendingDiagrams(root = document) {
     const diagId = card.dataset.diagramId;
     const type = card.dataset.diagramType;
     const body = card.querySelector(".arch-diagram-body");
-    const metaScript = card.querySelector(".diagram-meta");
     let meta = {};
     try {
-      meta = metaScript ? JSON.parse(metaScript.textContent) : {};
+      meta = card.dataset.diagramMeta ? JSON.parse(card.dataset.diagramMeta) : {};
     } catch {}
 
     const rawCode = meta.rawCode || "";
@@ -1191,7 +974,7 @@ async function renderAllPendingDiagrams(root = document) {
           const uniqueSvgId = `m_svg_${diagId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
           const res = await window.mermaid.render(uniqueSvgId, rawCode);
           if (res && res.svg) {
-            body.innerHTML = sanitizeSvgXml(res.svg);
+            body.innerHTML = sanitizeSvg(res.svg);
             rendered = true;
           }
         } catch (err) {
@@ -1219,10 +1002,9 @@ function setupDiagramInteractions(root = document) {
 
     const body = card.querySelector(".arch-diagram-body");
     const source = card.querySelector(".arch-diagram-source");
-    const metaScript = card.querySelector(".diagram-meta");
     let meta = {};
     try {
-      meta = metaScript ? JSON.parse(metaScript.textContent) : {};
+      meta = card.dataset.diagramMeta ? JSON.parse(card.dataset.diagramMeta) : {};
     } catch {}
 
     let currentZoom = 1;

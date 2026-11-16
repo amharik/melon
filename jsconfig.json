@@ -8,6 +8,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0,
     "types": ["node"]
   },
   "include": [
@@ -18,5 +19,8 @@
     "server/mcp-server.mjs",
     "server/embeddings.mjs",
     "server/audit.mjs"
+  ],
+  "exclude": [
+    "node_modules"
   ]
 }
