@@ -98,7 +98,7 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
           },
         },
         usage: { input_tokens: 24, output_tokens: 1 },
-      })
+      }),
     );
   });
   await new Promise((resolve) => kevServer.listen(kevPort, "127.0.0.1", resolve));
@@ -256,7 +256,7 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
           checkedAt: 123,
         },
       ],
-    })
+    }),
   );
   await sse.next((event) => event.type === "tabs");
 
@@ -293,7 +293,7 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
           { from: { node: "reviewer", port: "result" }, to: { node: "decision", port: "in" } },
         ],
       }),
-    })
+    }),
   );
   const planned = await planResponse;
   assert.equal(planned.status, 200);
@@ -313,7 +313,7 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
       requestId: badPlanRequest.requestId,
       ok: true,
       text: "not json",
-    })
+    }),
   );
   const badPlan = await badPlanResponse;
   assert.equal(badPlan.status, 422);
@@ -369,7 +369,7 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
       requestId: multiPlanRequest.requestId,
       ok: true,
       texts: [JSON.stringify(candidate("First")), JSON.stringify(candidate("Second"))],
-    })
+    }),
   );
   const multiPlan = await multiPlanResponse;
   assert.equal(multiPlan.status, 200);
@@ -394,7 +394,9 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
   assert.equal(agentRun.prompt, "review the proposal");
 
   ws.send(JSON.stringify({ type: "run.event", runId: "run-1", event: { type: "chunk", text: "hello " } }));
-  ws.send(JSON.stringify({ type: "run.event", runId: "run-1", event: { type: "done", text: "hello world" } }));
+  ws.send(
+    JSON.stringify({ type: "run.event", runId: "run-1", event: { type: "done", text: "hello world" } }),
+  );
 
   const chunk = await sse.next((event) => event.type === "run.event" && event.event?.type === "chunk");
   assert.equal(chunk.event.text, "hello ");
@@ -431,7 +433,7 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
   assert.equal(cancel.status, 200);
   await waitForMessage(messages, (m) => m.type === "cancel" && m.runId === "run-2");
   const cancelled = await sse.next(
-    (event) => event.type === "run.event" && event.runId === "run-2" && event.event?.type === "cancelled"
+    (event) => event.type === "run.event" && event.runId === "run-2" && event.event?.type === "cancelled",
   );
   assert.equal(cancelled.event.type, "cancelled");
 
@@ -446,11 +448,11 @@ test("hub serves the app, enforces CORS, and brokers extension runs", async (t) 
   });
   assert.equal(acpStart.status, 202);
   const acpChunk = await sse.next(
-    (event) => event.type === "run.event" && event.runId === "run-acp" && event.event?.type === "chunk"
+    (event) => event.type === "run.event" && event.runId === "run-acp" && event.event?.type === "chunk",
   );
   assert.equal(acpChunk.event.text, "echo: hello acp");
   const acpDone = await sse.next(
-    (event) => event.type === "run.event" && event.runId === "run-acp" && event.event?.type === "done"
+    (event) => event.type === "run.event" && event.runId === "run-acp" && event.event?.type === "done",
   );
   assert.equal(acpDone.event.text, "echo: hello acp");
 

@@ -58,7 +58,9 @@ function asObject(value) {
 }
 
 function cleanText(value, max) {
-  return String(value || "").trim().slice(0, max);
+  return String(value || "")
+    .trim()
+    .slice(0, max);
 }
 
 function normalizeId(value) {
@@ -179,7 +181,9 @@ export function validatePlanGraph(input, options = {}) {
     const node = {
       id,
       kind,
-      label: cleanText(source.label, 60) || (kind === "source" ? "Brief" : kind === "sink" ? "Decision" : kind === "join" ? "Join" : "Agent"),
+      label:
+        cleanText(source.label, 60) ||
+        (kind === "source" ? "Brief" : kind === "sink" ? "Decision" : kind === "join" ? "Join" : "Agent"),
       trigger: kind === "agent" && inputs.length > 1 ? "all" : spec.trigger,
       concurrency: 1,
       inputs,
@@ -191,7 +195,8 @@ export function validatePlanGraph(input, options = {}) {
 
     if (kind === "source") {
       node.label = cleanText(source.label, 60) || "Brief";
-      node.config.topic = cleanText(config.topic, PLAN_LIMITS.maxGoal) || cleanText(options.goal, PLAN_LIMITS.maxGoal);
+      node.config.topic =
+        cleanText(config.topic, PLAN_LIMITS.maxGoal) || cleanText(options.goal, PLAN_LIMITS.maxGoal);
     } else if (kind === "agent") {
       const adapter = normalizeAdapter(config.adapter || source.adapter);
       if (!adapter) {
@@ -286,9 +291,10 @@ export function validatePlanGraph(input, options = {}) {
       errors.push(`edges[${index}] cannot connect a node to itself`);
       return;
     }
-    const id = normalizeId(source.id) && !edgeIds.has(normalizeId(source.id))
-      ? normalizeId(source.id)
-      : `e${index + 1}`;
+    const id =
+      normalizeId(source.id) && !edgeIds.has(normalizeId(source.id))
+        ? normalizeId(source.id)
+        : `e${index + 1}`;
     edgeIds.add(id);
     const edge = {
       id,

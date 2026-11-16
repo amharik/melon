@@ -60,8 +60,8 @@ function writeKeyFiles({ keyId, publicKey, publicFile }) {
     `(function (root) {\n  "use strict";\n  root.MELON_ADAPTER_PACK_KEY = ${JSON.stringify(
       record,
       null,
-      2
-    )};\n})(typeof globalThis !== "undefined" ? globalThis : this);\n`
+      2,
+    )};\n})(typeof globalThis !== "undefined" ? globalThis : this);\n`,
   );
   return record;
 }
@@ -116,7 +116,9 @@ function sign(options) {
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, `${JSON.stringify(envelope, null, 2)}\n`);
   writeKeyFiles({ keyId, publicKey, publicFile });
-  console.log(JSON.stringify({ ok: true, outFile, publicFile, keyFile: KEY_FILE, ...packSummary(envelope) }, null, 2));
+  console.log(
+    JSON.stringify({ ok: true, outFile, publicFile, keyFile: KEY_FILE, ...packSummary(envelope) }, null, 2),
+  );
 }
 
 function verify(options) {
@@ -139,8 +141,8 @@ function verify(options) {
         ...(result.pack ? packSummary(envelope) : {}),
       },
       null,
-      2
-    )
+      2,
+    ),
   );
   if (!result.ok) process.exitCode = 1;
 }

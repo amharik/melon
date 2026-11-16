@@ -52,7 +52,11 @@ export function createWorktreeManager({ root, repo, git = "git" } = {}) {
       });
       return { ok: true, path: target, existing: false, name: safe };
     } catch (err) {
-      throw new Error(String(err.stderr || err.message || err).trim().slice(0, 400));
+      throw new Error(
+        String(err.stderr || err.message || err)
+          .trim()
+          .slice(0, 400),
+      );
     }
   }
 

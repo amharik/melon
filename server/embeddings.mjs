@@ -29,7 +29,10 @@ function fnv1a(text, seed = 0x811c9dc5) {
 export function hashEmbedding(text, dimensions = HASH_DIMENSIONS) {
   const dim = Math.max(8, Math.min(4096, Math.trunc(Number(dimensions) || HASH_DIMENSIONS)));
   const vector = new Float32Array(dim);
-  const tokens = cleanText(text).toLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
+  const tokens =
+    cleanText(text)
+      .toLowerCase()
+      .match(/[\p{L}\p{N}_]+/gu) || [];
   for (const token of tokens) {
     if (token.length < 2) continue;
     const bucket = fnv1a(token) % dim;
@@ -76,8 +79,9 @@ function assertVectors(vectors, expected, label) {
     if (!Array.isArray(vector) && !ArrayBuffer.isView(vector)) {
       throw new Error(`${label} returned a non-vector value`);
     }
-    if (!dimensions) dimensions = vector.length;
-    if (vector.length !== dimensions) throw new Error(`${label} returned inconsistent dimensions`);
+    const size = /** @type {{ length: number }} */ (vector).length;
+    if (!dimensions) dimensions = size;
+    if (size !== dimensions) throw new Error(`${label} returned inconsistent dimensions`);
   }
   return dimensions;
 }
@@ -93,7 +97,9 @@ export function createEmbeddingClient({
   fetchImpl = fetch,
 } = {}) {
   const selected = String(provider || "hash").toLowerCase();
-  const base = String(url || "").trim().replace(/\/+$/, "");
+  const base = String(url || "")
+    .trim()
+    .replace(/\/+$/, "");
   const selectedModel = selected === "hash" ? "hash-v1" : String(model || "").trim();
   const selectedDimensions =
     selected === "hash"
@@ -252,7 +258,8 @@ export function createEmbeddingClient({
 
   async function embed(texts) {
     const list = (Array.isArray(texts) ? texts : [texts]).map(cleanText);
-    if (!list.length) return { vectors: [], model: selectedModel, dim: selectedDimensions, provider: selected };
+    if (!list.length)
+      return { vectors: [], model: selectedModel, dim: selectedDimensions, provider: selected };
 
     if (selected === "hash") {
       return {
@@ -279,8 +286,7 @@ export function createEmbeddingClient({
         }
       });
       if (!missing.length) continue;
-      const result =
-        selected === "ollama" ? await ollamaBatch(missing) : await openAiBatch(missing);
+      const result = selected === "ollama" ? await ollamaBatch(missing) : await openAiBatch(missing);
       if (!dim && result.dim) dim = result.dim;
       if (result.dim && dim && result.dim !== dim) {
         throw new Error(`embedding dimensions changed from ${dim} to ${result.dim}`);

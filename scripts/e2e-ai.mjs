@@ -35,28 +35,21 @@ const PLANNER = process.env.MELON_E2E_AI_PLANNER === "1";
 const GOAL =
   process.env.MELON_E2E_AI_GOAL ||
   "Review a product launch plan with two independent reviewers and synthesize a decision.";
-const PLANNER_ATTEMPTS = Math.max(
-  1,
-  Math.min(4, Number(process.env.MELON_E2E_AI_PLANNER_ATTEMPTS) || 2)
-);
+const PLANNER_ATTEMPTS = Math.max(1, Math.min(4, Number(process.env.MELON_E2E_AI_PLANNER_ATTEMPTS) || 2));
 const PROMPT =
-  process.env.MELON_E2E_AI_PROMPT ||
-  'Reply with exactly this JSON and nothing else: {"ok":true}';
-const MAX_NEW_TOKENS = Math.max(
-  1,
-  Math.min(256, Number(process.env.MELON_E2E_AI_MAX_NEW_TOKENS) || 24)
-);
+  process.env.MELON_E2E_AI_PROMPT || 'Reply with exactly this JSON and nothing else: {"ok":true}';
+const MAX_NEW_TOKENS = Math.max(1, Math.min(256, Number(process.env.MELON_E2E_AI_MAX_NEW_TOKENS) || 24));
 const PLANNER_MAX_NEW_TOKENS = Math.max(
   1,
-  Math.min(1200, Number(process.env.MELON_E2E_AI_PLANNER_MAX_NEW_TOKENS) || 900)
+  Math.min(1200, Number(process.env.MELON_E2E_AI_PLANNER_MAX_NEW_TOKENS) || 900),
 );
 const LOAD_TIMEOUT = Math.max(
   60000,
-  Number(process.env.MELON_E2E_AI_LOAD_TIMEOUT) || (HARDWARE || PLANNER ? 600000 : 180000)
+  Number(process.env.MELON_E2E_AI_LOAD_TIMEOUT) || (HARDWARE || PLANNER ? 600000 : 180000),
 );
 const GENERATE_TIMEOUT = Math.max(
   20000,
-  Number(process.env.MELON_E2E_AI_GENERATE_TIMEOUT) || (HARDWARE || PLANNER ? 600000 : 120000)
+  Number(process.env.MELON_E2E_AI_GENERATE_TIMEOUT) || (HARDWARE || PLANNER ? 600000 : 120000),
 );
 const PROFILE = process.env.MELON_E2E_AI_PROFILE || null;
 
@@ -173,13 +166,11 @@ class CDP {
         returnByValue: true,
         userGesture: true,
       },
-      timeoutMs
+      timeoutMs,
     );
     if (result.exceptionDetails) {
       const text =
-        result.exceptionDetails.exception?.description ||
-        result.exceptionDetails.text ||
-        "evaluation failed";
+        result.exceptionDetails.exception?.description || result.exceptionDetails.text || "evaluation failed";
       throw new Error(text);
     }
     return result.result?.value;
@@ -258,7 +249,7 @@ async function main() {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
-    }
+    },
   );
   let chromeLogs = "";
   chrome.stdout.on("data", (data) => (chromeLogs += data));
@@ -271,10 +262,14 @@ async function main() {
   let browserCdp = null;
   let optionsCdp = null;
   try {
-    await waitFor(async () => {
-      const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`).catch(() => null);
-      return response?.ok;
-    }, "Chromium DevTools", 30000);
+    await waitFor(
+      async () => {
+        const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`).catch(() => null);
+        return response?.ok;
+      },
+      "Chromium DevTools",
+      30000,
+    );
     log(`Chromium ${chromePath} headless=${HEADLESS} hardware=${HARDWARE} device=${DEVICE || "webgpu"}`);
 
     const worker = await waitFor(async () => {
@@ -282,7 +277,7 @@ async function main() {
       return list.find(
         (target) =>
           target.type === "service_worker" &&
-          target.url === `chrome-extension://${extensionId}/background.js`
+          target.url === `chrome-extension://${extensionId}/background.js`,
       );
     }, "extension service worker");
     log(`extension worker ${worker.url}`);
@@ -334,7 +329,7 @@ async function main() {
         url: "ai/offscreen.html",
         reasons: ["WORKERS"],
         justification: "Melon local AI E2E",
-      })`
+      })`,
     );
     const offscreenTarget = await waitFor(async () => {
       const list = await targets(debugPort);
@@ -355,14 +350,14 @@ async function main() {
         target: "melon-ai",
         type: "ai.prepare",
         model: ${JSON.stringify(MODEL)},
-      })`
+      })`,
     );
 
     let lastProgress = "";
     const state = await waitFor(
       async () => {
         const current = await optionsCdp.evaluate(
-          `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.status" })`
+          `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.status" })`,
         );
         if (current?.state?.status === "error") {
           throw new Error(current.state.error || "model load failed");
@@ -375,7 +370,7 @@ async function main() {
             log(
               `model ${progress.status}${progress.file ? ` ${progress.file}` : ""}${
                 progress.progress != null ? ` ${progress.progress}%` : ""
-              }`
+              }`,
             );
           }
         }
@@ -383,7 +378,7 @@ async function main() {
       },
       "local model load",
       LOAD_TIMEOUT,
-      1000
+      1000,
     );
     const expectedDevice = DEVICE || "webgpu";
     if (!state.device?.startsWith(expectedDevice)) {
@@ -401,13 +396,15 @@ async function main() {
           messages: [{ role: "user", content: ${JSON.stringify(PROMPT)} }],
           maxNewTokens: ${MAX_NEW_TOKENS},
         })`,
-        GENERATE_TIMEOUT
+        GENERATE_TIMEOUT,
       );
       if (!reply?.ok) {
-        throw new Error(`${reply?.error || "local generation failed"}${reply?.stack ? `\n${reply.stack}` : ""}`);
+        throw new Error(
+          `${reply?.error || "local generation failed"}${reply?.stack ? `\n${reply.stack}` : ""}`,
+        );
       }
       log(
-        `generated ${String(reply.text || "").length} chars in ${Date.now() - started}ms: ${String(reply.text || "").slice(0, 120)}`
+        `generated ${String(reply.text || "").length} chars in ${Date.now() - started}ms: ${String(reply.text || "").slice(0, 120)}`,
       );
     }
 
@@ -419,9 +416,7 @@ async function main() {
       let plannerError = null;
       for (let attempt = 0; attempt < PLANNER_ATTEMPTS; attempt++) {
         const messages = planner.messagesForGoal(GOAL, attempt);
-        log(
-          `planner attempt ${attempt + 1}/${PLANNER_ATTEMPTS}, up to ${PLANNER_MAX_NEW_TOKENS} tokens`
-        );
+        log(`planner attempt ${attempt + 1}/${PLANNER_ATTEMPTS}, up to ${PLANNER_MAX_NEW_TOKENS} tokens`);
         const started = Date.now();
         const reply = await optionsCdp.evaluate(
           `chrome.runtime.sendMessage({
@@ -430,7 +425,7 @@ async function main() {
             messages: ${JSON.stringify(messages)},
             maxNewTokens: ${PLANNER_MAX_NEW_TOKENS},
           })`,
-          GENERATE_TIMEOUT
+          GENERATE_TIMEOUT,
         );
         log(`planner attempt ${attempt + 1} took ${Date.now() - started}ms`);
         if (!reply?.ok) {
@@ -439,15 +434,13 @@ async function main() {
           continue;
         }
         const text = String(reply.text || "");
-        log(
-          `planner output ${text.length} chars: ${text.slice(0, 240).replace(/\s+/g, " ")}`
-        );
+        log(`planner output ${text.length} chars: ${text.slice(0, 240).replace(/\s+/g, " ")}`);
         try {
           const parsed = extractJsonObject(text);
           const plan = validatePlanGraph(parsed, { goal: GOAL });
           if (!plan.ok) throw new Error(plan.errors.join("; "));
           log(
-            `planner graph valid: ${plan.graph.nodes.length} nodes, ${plan.graph.edges.length} edges, ${text.length} chars`
+            `planner graph valid: ${plan.graph.nodes.length} nodes, ${plan.graph.edges.length} edges, ${text.length} chars`,
           );
           plannerError = null;
           break;
@@ -462,18 +455,18 @@ async function main() {
     try {
       await optionsCdp.evaluate(
         `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.unload" })`,
-        GENERATE_TIMEOUT
+        GENERATE_TIMEOUT,
       );
       await waitFor(
         async () => {
           const current = await optionsCdp.evaluate(
-            `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.status" })`
+            `chrome.runtime.sendMessage({ target: "melon-ai", type: "ai.status" })`,
           );
           return current?.state?.status === "idle";
         },
         "model unload",
         120000,
-        1000
+        1000,
       );
     } catch (err) {
       log(`unload warning: ${err.message}`);

@@ -92,8 +92,8 @@ async function broadcastAdapterPack() {
             adapters: activeAdapterPack.adapters,
             version: activeAdapterPack.version,
           })
-          .catch(() => {})
-      )
+          .catch(() => {}),
+      ),
   );
 }
 
@@ -158,7 +158,7 @@ async function fetchAdapterPack() {
   try {
     response = await fetch(
       `${String(settings.hubUrl).replace(/\/+$/, "")}/api/adapter-pack/update?version=${current}`,
-      { cache: "no-store" }
+      { cache: "no-store" },
     );
   } catch (err) {
     adapterPackState = {
@@ -213,7 +213,7 @@ function aiSnapshot() {
 function broadcastAiState() {
   try {
     Promise.resolve(chrome.runtime.sendMessage({ type: "melon.ai.state", state: aiSnapshot() })).catch(
-      () => {}
+      () => {},
     );
   } catch {}
 }
@@ -285,7 +285,7 @@ async function aiStatus() {
     } else if (aiState.status === "ready" || aiState.status === "loading") {
       setAiState(
         { status: "idle", model: null, progress: null, device: null, error: null, loadedAt: null },
-        false
+        false,
       );
     }
   }
@@ -309,7 +309,7 @@ async function setAiEnabled(enabled) {
     }
     setAiState(
       { status: "idle", model: null, progress: null, device: null, error: null, loadedAt: null },
-      false
+      false,
     );
   }
   settings.aiEnabled = !!enabled;
@@ -325,7 +325,7 @@ async function prepareAi(modelId) {
   const granted = await chrome.permissions.contains({ origins: AI.HF_ORIGINS });
   if (!granted) {
     throw new Error(
-      "Model download permission was not granted. Choose Download & load again and allow access to Hugging Face."
+      "Model download permission was not granted. Choose Download & load again and allow access to Hugging Face.",
     );
   }
   setAiState(
@@ -338,7 +338,7 @@ async function prepareAi(modelId) {
       error: null,
       loadedAt: null,
     },
-    false
+    false,
   );
   try {
     const response = await sendToOffscreen({
@@ -486,7 +486,7 @@ function connect() {
             ok: true,
             texts,
             text: texts[0] || "",
-          })
+          }),
         )
         .catch((err) =>
           send({
@@ -494,7 +494,7 @@ function connect() {
             requestId: message.requestId,
             ok: false,
             error: String(err?.message || err),
-          })
+          }),
         );
     } else if (message.type === "cancel") {
       sendToTab(message.tabId, { type: "melon.cancel", runId: message.runId }).catch(() => {});
@@ -617,7 +617,7 @@ async function tabHealth(tab) {
       const response = await withTimeout(
         sendToTab(tab.id, { type: "melon.ping" }),
         HEALTH_TIMEOUT,
-        "content script did not answer"
+        "content script did not answer",
       );
       if (!response?.ok) throw new Error(response?.error || "health check failed");
       return {
@@ -679,7 +679,7 @@ async function tabs() {
         url: tab.url || "",
         active: !!tab.active,
         attached: true,
-      }))
+      })),
   );
 }
 

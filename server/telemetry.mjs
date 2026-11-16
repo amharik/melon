@@ -78,7 +78,11 @@ function diagnoseError(entry) {
   if (msg.includes("timed out waiting for a response") || msg.includes("timeout")) {
     return "The model tab stalled or background tab throttling clamped timers. Re-extract response or verify tab is not occluded.";
   }
-  if (msg.includes("no visible match") || msg.includes("cannot find composer") || msg.includes("no melon adapter")) {
+  if (
+    msg.includes("no visible match") ||
+    msg.includes("cannot find composer") ||
+    msg.includes("no melon adapter")
+  ) {
     return "Site DOM changed or user is on login/CAPTCHA wall. Reload the tab and verify page is in an active chat.";
   }
   if (msg.includes("econnrefused") || msg.includes("failed to fetch") || msg.includes("websocket")) {

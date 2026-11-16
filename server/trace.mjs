@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const SAFE_VALUE = ["string", "number", "boolean"];
-const SENSITIVE = /^(prompt|text|output|command|content|message|body|html|token|key|secret|password|query|reason)$/i;
+const SENSITIVE =
+  /^(prompt|text|output|command|content|message|body|html|token|key|secret|password|query|reason)$/i;
 
 function clean(attrs = {}) {
   const out = {};

@@ -42,7 +42,10 @@ export function createAcpClient({
       stderr = `${stderr}\n${err.message}`.slice(-4000);
     });
 
-    const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
+    const stream = acp.ndJsonStream(
+      Writable.toWeb(child.stdin),
+      /** @type {ReadableStream<Uint8Array>} */ (Readable.toWeb(child.stdout)),
+    );
     const app = acp.client({ name: "melon-hub" });
     app.onRequest(acp.methods.client.session.requestPermission, async (params) => {
       if (typeof onPermission === "function") return onPermission(params);

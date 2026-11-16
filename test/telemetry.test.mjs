@@ -26,7 +26,9 @@ test("telemetry tracker records events and auto-diagnoses timeouts and adapter f
     tabId: 102,
   });
 
-  assert.ok(adapterEv.diagnosis.includes("Site DOM changed") || adapterEv.diagnosis.includes("login/CAPTCHA"));
+  assert.ok(
+    adapterEv.diagnosis.includes("Site DOM changed") || adapterEv.diagnosis.includes("login/CAPTCHA"),
+  );
 
   const list = tracker.list();
   assert.equal(list.length, 2);

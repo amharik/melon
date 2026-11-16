@@ -26,9 +26,7 @@ function textFromEvent(data) {
   if (typeof data.result?.response === "string") return data.result.response;
   if (typeof data.message?.content === "string") return data.message.content;
   if (Array.isArray(data.message?.content)) {
-    return data.message.content
-      .map((part) => (typeof part === "string" ? part : part?.text || ""))
-      .join("");
+    return data.message.content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("");
   }
   if (Array.isArray(data.content)) {
     return data.content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("");
@@ -84,7 +82,12 @@ function promptFrame(prompt, inputFormat) {
   };
 }
 
-export function createAgyRunner({ cmd = process.env.AGY_CMD || "agy", args = [], spawn = defaultSpawn, inputFormat = process.env.AGY_INPUT_FORMAT || "stream-json" } = {}) {
+export function createAgyRunner({
+  cmd = process.env.AGY_CMD || "agy",
+  args = [],
+  spawn = defaultSpawn,
+  inputFormat = process.env.AGY_INPUT_FORMAT || "stream-json",
+} = {}) {
   function run({ prompt, cwd, signal, onChunk = () => {}, env } = {}) {
     return new Promise((resolve, reject) => {
       if (!cmd) {

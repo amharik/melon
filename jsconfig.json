@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "server/sandbox.mjs",
+    "server/trace.mjs",
+    "server/acp.mjs",
+    "server/mcp.mjs",
+    "server/mcp-server.mjs",
+    "server/embeddings.mjs",
+    "server/audit.mjs"
+  ]
+}

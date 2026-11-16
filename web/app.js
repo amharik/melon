@@ -53,7 +53,10 @@ const ADAPTERS = [
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (value) =>
-  String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
+  );
 
 const stage = $("#stage");
 const nodesEl = $("#nodes");
@@ -92,7 +95,16 @@ const nodeVersions = new Map();
 const lastInputs = new Map();
 const jobRecords = new Map();
 const toolRequests = new Map();
-const hub = { online: false, llm: false, kev: false, agy: false, acp: false, opencodeUrl: "", worktreeRoot: "", es: null };
+const hub = {
+  online: false,
+  llm: false,
+  kev: false,
+  agy: false,
+  acp: false,
+  opencodeUrl: "",
+  worktreeRoot: "",
+  es: null,
+};
 let currentThreadId = localStorage.getItem(THREAD_KEY) || null;
 let blackboard = { ok: false, text: "", path: null, error: null };
 const THEME_KEY = "melon.theme.v1";
@@ -211,7 +223,13 @@ function exampleGraph() {
         trigger: "all",
         config: { adapter: "demo:moderator", outputFormat: "markdown" },
       }),
-      makeNode("sink", { id: "decision", label: "Decision", x: 520, y: 400, config: { outputFormat: "a2ui" } }),
+      makeNode("sink", {
+        id: "decision",
+        label: "Decision",
+        x: 520,
+        y: 400,
+        config: { outputFormat: "a2ui" },
+      }),
     ],
     edges: [
       makeEdge("brief", "out", "claude", "in", "e1"),
@@ -251,9 +269,7 @@ function sanitizeGraph(input) {
       inputs,
       outputs,
       config:
-        raw.config && typeof raw.config === "object" && !Array.isArray(raw.config)
-          ? { ...raw.config }
-          : {},
+        raw.config && typeof raw.config === "object" && !Array.isArray(raw.config) ? { ...raw.config } : {},
       x: Number.isFinite(raw.x) ? raw.x : 60 + (index % 3) * 280,
       y: Number.isFinite(raw.y) ? raw.y : 80 + Math.floor(index / 3) * 290,
       runtime: null,
@@ -378,7 +394,8 @@ async function requestPlan() {
   planProposal = null;
   $("#plan-block").hidden = false;
   $("#plan-status").textContent = "planning…";
-  $("#plan-summary").textContent = "The local model is proposing a graph. Nothing changes until you apply it.";
+  $("#plan-summary").textContent =
+    "The local model is proposing a graph. Nothing changes until you apply it.";
   $("#plan-json").textContent = "";
   $("#btn-plan").disabled = true;
   $("#btn-plan-apply").disabled = true;
@@ -535,12 +552,8 @@ function updateNodeRecordView(node) {
   }
   const wf = el.querySelector(".node-meta .wf");
   if (wf) {
-    wf.textContent = rec
-      ? `r${rec.runSeq ?? "?"}·v${rec.workflowVersion}·${formatShort(rec.format)}`
-      : "";
-    wf.title = rec
-      ? `run ${rec.runId || "manual"} · workflow v${rec.workflowVersion} · ${rec.format}`
-      : "";
+    wf.textContent = rec ? `r${rec.runSeq ?? "?"}·v${rec.workflowVersion}·${formatShort(rec.format)}` : "";
+    wf.title = rec ? `run ${rec.runId || "manual"} · workflow v${rec.workflowVersion} · ${rec.format}` : "";
   }
   const status = el.querySelector(".node-meta .status");
   if (status) status.textContent = rec?.status || "idle";
@@ -805,8 +818,12 @@ function handlePortClick(nodeId, port, dir) {
 }
 
 function refreshLinking() {
-  $$(".port").forEach((el) => el.classList.remove("armed"));
-  $$(".node").forEach((el) => el.classList.remove("linking"));
+  $$(".port").forEach((el) => {
+    el.classList.remove("armed");
+  });
+  $$(".node").forEach((el) => {
+    el.classList.remove("linking");
+  });
   if (!linking) {
     $("#stage-hint").textContent =
       "Click an output port, then an input port, to connect. Double-click an edge to remove it.";
@@ -969,28 +986,53 @@ function renderMarkdown(raw) {
   text = text.replace(/^# (.*$)/gim, "<h1>$1</h1>");
 
   // Callouts & Alerts (> [!NOTE], > [!WARNING], > [!IMPORTANT])
-  text = text.replace(/^\&gt; \[!(NOTE|TIP|INFO)\]\s*(.*$)/gim, '<blockquote class="callout-info"><strong>ℹ $1:</strong> $2</blockquote>');
-  text = text.replace(/^\&gt; \[!(WARNING|CAUTION)\]\s*(.*$)/gim, '<blockquote class="callout-warn"><strong>⚠ $1:</strong> $2</blockquote>');
-  text = text.replace(/^\&gt; \[!(DANGER|CRITICAL)\]\s*(.*$)/gim, '<blockquote class="callout-danger"><strong>⛔ $1:</strong> $2</blockquote>');
+  text = text.replace(
+    /^\&gt; \[!(NOTE|TIP|INFO)\]\s*(.*$)/gim,
+    '<blockquote class="callout-info"><strong>ℹ $1:</strong> $2</blockquote>',
+  );
+  text = text.replace(
+    /^\&gt; \[!(WARNING|CAUTION)\]\s*(.*$)/gim,
+    '<blockquote class="callout-warn"><strong>⚠ $1:</strong> $2</blockquote>',
+  );
+  text = text.replace(
+    /^\&gt; \[!(DANGER|CRITICAL)\]\s*(.*$)/gim,
+    '<blockquote class="callout-danger"><strong>⛔ $1:</strong> $2</blockquote>',
+  );
   text = text.replace(/^\&gt; (.*$)/gim, "<blockquote>$1</blockquote>");
 
   // GFM Tables
   text = text.replace(/((?:\|[^\n]+\|\n?)+)/g, (table) => {
-    const rows = table.trim().split("\n").map((r) => r.trim()).filter(Boolean);
+    const rows = table
+      .trim()
+      .split("\n")
+      .map((r) => r.trim())
+      .filter(Boolean);
     if (rows.length < 2) return table;
-    const header = rows[0].split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map((c) => c.trim());
+    const header = rows[0]
+      .split("|")
+      .filter((_, i, arr) => i > 0 && i < arr.length - 1)
+      .map((c) => c.trim());
     const hasDivider = rows[1] && rows[1].includes("---");
     const dataRows = rows.slice(hasDivider ? 2 : 1);
     const ths = header.map((h) => `<th>${h}</th>`).join("");
-    const trs = dataRows.map((r) => {
-      const cells = r.split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map((c) => `<td>${c.trim()}</td>`).join("");
-      return `<tr>${cells}</tr>`;
-    }).join("");
+    const trs = dataRows
+      .map((r) => {
+        const cells = r
+          .split("|")
+          .filter((_, i, arr) => i > 0 && i < arr.length - 1)
+          .map((c) => `<td>${c.trim()}</td>`)
+          .join("");
+        return `<tr>${cells}</tr>`;
+      })
+      .join("");
     return `<div class="slack-table-wrap"><table class="slack-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
   });
 
   // Links [text](url)
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="slack-chat-link">$1 ↗</a>');
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="slack-chat-link">$1 ↗</a>',
+  );
 
   // Math: Block $$...$$ and Inline $...$
   text = text.replace(/\$\$([\s\S]*?)\$\$/g, '<div class="slack-math-block">$1</div>');
@@ -1011,14 +1053,27 @@ function renderMarkdown(raw) {
   text = text.replace(/(<li>[\s\S]*?<\/li>)/gim, "<ul>$1</ul>");
 
   // Paragraphs
-  text = text.split("\n\n").map((p) => {
-    p = p.trim();
-    if (!p) return "";
-    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<div") || p.startsWith("<table") || p.startsWith("<ul") || p.startsWith("<blockquote") || p.startsWith("<details") || p.startsWith("__CB_") || p.startsWith("__MEDIA_")) {
-      return p;
-    }
-    return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
-  }).join("\n");
+  text = text
+    .split("\n\n")
+    .map((p) => {
+      p = p.trim();
+      if (!p) return "";
+      if (
+        p.startsWith("<h") ||
+        p.startsWith("<pre") ||
+        p.startsWith("<div") ||
+        p.startsWith("<table") ||
+        p.startsWith("<ul") ||
+        p.startsWith("<blockquote") ||
+        p.startsWith("<details") ||
+        p.startsWith("__CB_") ||
+        p.startsWith("__MEDIA_")
+      ) {
+        return p;
+      }
+      return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
+    })
+    .join("\n");
 
   // Restore code blocks with rich header, copy button, and architecture diagram support
   text = text.replace(/__CB_(\d+)__/g, (_, idx) => {
@@ -1263,7 +1318,7 @@ function setupDiagramInteractions(root = document) {
   });
 }
 
-window.openSlackMediaModal = function(src, caption) {
+window.openSlackMediaModal = function (src, caption) {
   const modal = $("#modal-slack-lightbox");
   const img = $("#lightbox-image");
   const cap = $("#lightbox-caption");
@@ -1277,25 +1332,34 @@ window.openSlackMediaModal = function(src, caption) {
 function renderA2UI(obj) {
   const comp = obj.component || obj.type;
   if (comp === "decision-card" || comp === "decision") {
-    const metrics = (obj.metrics || []).map((m) => `
+    const metrics = (obj.metrics || [])
+      .map(
+        (m) => `
       <div class="a2ui-metric-box">
         <span>${esc(m.label)}</span>
         <strong>${esc(m.value)}</strong>
       </div>
-    `).join("");
+    `,
+      )
+      .join("");
 
-    const sections = (obj.sections || []).map((sec) => `
+    const sections = (obj.sections || [])
+      .map(
+        (sec) => `
       <div style="margin-top:10px;">
         <strong style="font-size:10.5px; text-transform:uppercase; color:var(--text-muted); font-family:var(--font-mono); letter-spacing:0.08em;">${esc(sec.title)}</strong>
         <ul style="margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--text-main);">
           ${(sec.items || []).map((item) => `<li>${esc(item)}</li>`).join("")}
         </ul>
       </div>
-    `).join("");
+    `,
+      )
+      .join("");
 
-    const statusBadge = obj.status === "CAUTION"
-      ? '<span class="sheet-badge error" style="font-weight:600;">CAUTION</span>'
-      : '<span class="sheet-badge done" style="font-weight:600;">APPROVED</span>';
+    const statusBadge =
+      obj.status === "CAUTION"
+        ? '<span class="sheet-badge error" style="font-weight:600;">CAUTION</span>'
+        : '<span class="sheet-badge done" style="font-weight:600;">APPROVED</span>';
 
     return `
       <div class="a2ui-card" style="border-left: 3px solid var(--accent-emerald);">
@@ -1313,13 +1377,17 @@ function renderA2UI(obj) {
   }
   if (comp === "metric" || comp === "metrics") {
     const items = Array.isArray(obj.items) ? obj.items : [obj];
-    const boxes = items.map((m) => `
+    const boxes = items
+      .map(
+        (m) => `
       <div class="a2ui-metric-box">
         <span>${esc(m.label || m.title || "Metric")}</span>
         <strong>${esc(m.value ?? "-")}</strong>
         ${m.change ? `<small style="color:var(--accent-emerald)">${esc(m.change)}</small>` : ""}
       </div>
-    `).join("");
+    `,
+      )
+      .join("");
     return `<div class="a2ui-card"><div class="a2ui-header"><strong>${esc(obj.title || "Metrics")}</strong></div><div class="a2ui-metric-grid">${boxes}</div></div>`;
   }
   if (comp === "card") {
@@ -1333,7 +1401,8 @@ function renderA2UI(obj) {
     </div>`;
   }
   if (comp === "alert") {
-    const levelClass = obj.level === "error" ? "callout-danger" : obj.level === "warning" ? "callout-warn" : "callout-info";
+    const levelClass =
+      obj.level === "error" ? "callout-danger" : obj.level === "warning" ? "callout-warn" : "callout-info";
     return `<div class="a2ui-card"><blockquote class="${levelClass}"><strong>${esc(obj.title || obj.level || "Alert")}:</strong> ${esc(obj.message || "")}</blockquote></div>`;
   }
   return `<div class="a2ui-card"><pre><code>${esc(JSON.stringify(obj, null, 2))}</code></pre></div>`;
@@ -1350,13 +1419,34 @@ function markdownToA2UIDecision(text) {
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (line.startsWith("## Decision")) { currentSec = "decision"; continue; }
-    if (line.startsWith("## Consensus")) { currentSec = "consensus"; continue; }
-    if (line.startsWith("## Disagreements")) { currentSec = "disagreements"; continue; }
-    if (line.startsWith("## Risks")) { currentSec = "risks"; continue; }
-    if (line.startsWith("## Next actions")) { currentSec = "actions"; continue; }
-    if (line.startsWith("## Open questions")) { currentSec = "questions"; continue; }
-    if (line.startsWith("## ")) { currentSec = ""; continue; }
+    if (line.startsWith("## Decision")) {
+      currentSec = "decision";
+      continue;
+    }
+    if (line.startsWith("## Consensus")) {
+      currentSec = "consensus";
+      continue;
+    }
+    if (line.startsWith("## Disagreements")) {
+      currentSec = "disagreements";
+      continue;
+    }
+    if (line.startsWith("## Risks")) {
+      currentSec = "risks";
+      continue;
+    }
+    if (line.startsWith("## Next actions")) {
+      currentSec = "actions";
+      continue;
+    }
+    if (line.startsWith("## Open questions")) {
+      currentSec = "questions";
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      currentSec = "";
+      continue;
+    }
 
     if (currentSec === "decision" && line && !line.startsWith("#")) {
       verdict = line;
@@ -1408,10 +1498,26 @@ let currentChatTarget = {
 };
 
 let chatChannels = [
-  { id: "general-war-room", title: "general-war-room", desc: "Central office channel: all tab models and CLI agents collaborate here." },
-  { id: "code-review", title: "code-review", desc: "Code quality checks, diff analysis, and architecture patterns." },
-  { id: "architecture", title: "architecture", desc: "High-level design decisions, RFCs, and API boundaries." },
-  { id: "qa-testing", title: "qa-testing", desc: "Automated test suites, reproduction steps, and edge-cases." },
+  {
+    id: "general-war-room",
+    title: "general-war-room",
+    desc: "Central office channel: all tab models and CLI agents collaborate here.",
+  },
+  {
+    id: "code-review",
+    title: "code-review",
+    desc: "Code quality checks, diff analysis, and architecture patterns.",
+  },
+  {
+    id: "architecture",
+    title: "architecture",
+    desc: "High-level design decisions, RFCs, and API boundaries.",
+  },
+  {
+    id: "qa-testing",
+    title: "qa-testing",
+    desc: "Automated test suites, reproduction steps, and edge-cases.",
+  },
   { id: "random", title: "random", desc: "Team water-cooler banter, coffee breaks, and casual chat." },
 ];
 
@@ -1421,40 +1527,68 @@ let customContacts = [];
 /* ------------------------------------------------- Quirky Names & Personas */
 
 const QUIRKY_NAME_POOL = [
-  "sparky", "nova", "quill", "blitz", "dex", "atlas", "sage", "echo",
-  "pixel", "byte", "neo", "cosmo", "finch", "juno", "orion", "vesper",
-  "ziggy", "rico", "tux", "cinder", "moxie", "scout", "whiz", "volt", "kairo"
+  "sparky",
+  "nova",
+  "quill",
+  "blitz",
+  "dex",
+  "atlas",
+  "sage",
+  "echo",
+  "pixel",
+  "byte",
+  "neo",
+  "cosmo",
+  "finch",
+  "juno",
+  "orion",
+  "vesper",
+  "ziggy",
+  "rico",
+  "tux",
+  "cinder",
+  "moxie",
+  "scout",
+  "whiz",
+  "volt",
+  "kairo",
 ];
 
 const DEFAULT_PERSONAS = {
   claude: {
     role: "Staff Software Architect & Adversarial Reviewer",
-    persona: "Specializes in deep reasoning, clean system boundaries, adversarial code reviews, architectural trade-offs, and edge case detection.",
+    persona:
+      "Specializes in deep reasoning, clean system boundaries, adversarial code reviews, architectural trade-offs, and edge case detection.",
     avatar: "🤖",
   },
   gemini: {
     role: "Lead Research Scientist & Multimodal Specialist",
-    persona: "Specializes in massive context analysis, real-time documentation retrieval, cross-domain synthesis, and multimodal reasoning.",
+    persona:
+      "Specializes in massive context analysis, real-time documentation retrieval, cross-domain synthesis, and multimodal reasoning.",
     avatar: "⚡",
   },
   chatgpt: {
     role: "Principal Full-Stack Engineer & Prototyper",
-    persona: "Specializes in rapid prototyping, clean algorithm design, API integrations, and modular code implementation.",
+    persona:
+      "Specializes in rapid prototyping, clean algorithm design, API integrations, and modular code implementation.",
     avatar: "🧠",
   },
   mistral: {
     role: "High-Velocity Systems Engineer",
-    persona: "Specializes in high-speed, concise execution, low-latency code generation, and systems programming.",
+    persona:
+      "Specializes in high-speed, concise execution, low-latency code generation, and systems programming.",
     avatar: "🦊",
   },
   opencode: {
     role: "Autonomous Terminal & Codebase Specialist",
-    persona: "Specializes in executing terminal commands, running test suites, inspecting git worktrees, and modifying files on disk.",
+    persona:
+      "Specializes in executing terminal commands, running test suites, inspecting git worktrees, and modifying files on disk.",
     avatar: "💻",
   },
   agy: {
     role: "Autonomous Subagent Orchestrator",
-    persona: "Specializes in fanning out parallel research tasks, tool execution, and strategic plan synthesis.",
+    persona:
+      "Specializes in fanning out parallel research tasks, tool execution, and strategic plan synthesis.",
     avatar: "🚀",
   },
   acp: {
@@ -1469,7 +1603,8 @@ const DEFAULT_PERSONAS = {
   },
   web: {
     role: "Web Intelligence Agent",
-    persona: "Specializes in web page context extraction, DOM inspection, and authenticated web session automation.",
+    persona:
+      "Specializes in web page context extraction, DOM inspection, and authenticated web session automation.",
     avatar: "🌐",
   },
 };
@@ -1554,13 +1689,11 @@ function getAgentMeta(id, rawCategory, fallbackTitle, tabUrl) {
       let matchedPersistent = null;
       if (tabUrl) {
         matchedPersistent = Array.from(persistentAgentsMap.values()).find((a) =>
-          (a.urls || []).some((u) => u === tabUrl || tabUrl.startsWith(u))
+          (a.urls || []).some((u) => u === tabUrl || tabUrl.startsWith(u)),
         );
       }
       if (!matchedPersistent && rawCategory) {
-        matchedPersistent = Array.from(persistentAgentsMap.values()).find((a) =>
-          a.category === category
-        );
+        matchedPersistent = Array.from(persistentAgentsMap.values()).find((a) => a.category === category);
       }
 
       let quirky = "";
@@ -1733,7 +1866,10 @@ function renderSlackNav() {
   }
 
   document.querySelectorAll("#slack-channel-list .slack-nav-item").forEach((item) => {
-    item.classList.toggle("active", currentChatTarget.type === "channel" && currentChatTarget.id === item.dataset.id);
+    item.classList.toggle(
+      "active",
+      currentChatTarget.type === "channel" && currentChatTarget.id === item.dataset.id,
+    );
   });
 
   const expItem = $("#nav-item-experiments");
@@ -1774,29 +1910,36 @@ function renderSlackHeader() {
   const descEl = $("#slack-current-desc");
   const inputEl = $("#slack-input");
 
-  if (iconEl) iconEl.textContent = currentChatTarget.icon || (currentChatTarget.type === "channel" ? "#" : "@");
+  if (iconEl)
+    iconEl.textContent = currentChatTarget.icon || (currentChatTarget.type === "channel" ? "#" : "@");
   if (titleEl) titleEl.textContent = currentChatTarget.title;
   if (badgeEl) badgeEl.textContent = currentChatTarget.type === "channel" ? "Channel" : "Direct Message";
   if (descEl) descEl.textContent = currentChatTarget.desc || "";
-  if (inputEl) inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
+  if (inputEl)
+    inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
 }
 
 async function loadSlackMessages(targetType, targetId) {
   const targetKey = `${targetType}_${targetId}`;
   try {
-    const res = await fetch(`/api/messages?targetType=${encodeURIComponent(targetType)}&targetId=${encodeURIComponent(targetId)}&limit=100`);
+    const res = await fetch(
+      `/api/messages?targetType=${encodeURIComponent(targetType)}&targetId=${encodeURIComponent(targetId)}&limit=100`,
+    );
     if (res.ok) {
       const data = await res.json();
       if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
-        chatMessages.set(targetKey, data.messages.map((m) => ({
-          id: m.id,
-          author: m.author,
-          avatar: m.avatar,
-          tag: m.tag,
-          time: m.time,
-          text: m.text,
-          isUser: Boolean(m.isUser),
-        })));
+        chatMessages.set(
+          targetKey,
+          data.messages.map((m) => ({
+            id: m.id,
+            author: m.author,
+            avatar: m.avatar,
+            tag: m.tag,
+            time: m.time,
+            text: m.text,
+            isUser: Boolean(m.isUser),
+          })),
+        );
         renderSlackMessages();
         return;
       }
@@ -1806,25 +1949,26 @@ async function loadSlackMessages(targetType, targetId) {
   }
 
   if (!chatMessages.has(targetKey)) {
-    const seedMsg = targetType === "channel"
-      ? {
-          id: `seed_${targetId}`,
-          author: "Melon Office Bot",
-          avatar: "🍈",
-          tag: "BOT",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          text: `Welcome to **#${targetId}**! You can chat with all connected agents, or type \`@chatgpt\`, \`@gemini\`, \`@claude\`, \`@opencode\` to direct questions.`,
-          isUser: false,
-        }
-      : {
-          id: `seed_${targetId}`,
-          author: targetId,
-          avatar: "🤖",
-          tag: "AGENT",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          text: `Direct message thread with **@${targetId}**. Send a prompt to query this agent directly.`,
-          isUser: false,
-        };
+    const seedMsg =
+      targetType === "channel"
+        ? {
+            id: `seed_${targetId}`,
+            author: "Melon Office Bot",
+            avatar: "🍈",
+            tag: "BOT",
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            text: `Welcome to **#${targetId}**! You can chat with all connected agents, or type \`@chatgpt\`, \`@gemini\`, \`@claude\`, \`@opencode\` to direct questions.`,
+            isUser: false,
+          }
+        : {
+            id: `seed_${targetId}`,
+            author: targetId,
+            avatar: "🤖",
+            tag: "AGENT",
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            text: `Direct message thread with **@${targetId}**. Send a prompt to query this agent directly.`,
+            isUser: false,
+          };
     chatMessages.set(targetKey, [seedMsg]);
   }
   renderSlackMessages();
@@ -1902,12 +2046,13 @@ function resolveTabForMessage(msg) {
   }
   // 2. Match against Slack contacts by name, handle, or tag
   const contacts = typeof getSlackContacts === "function" ? getSlackContacts() : [];
-  const contact = contacts.find((c) =>
-    c.name === msg.author ||
-    c.id === msg.author ||
-    c.handle === msg.author ||
-    c.tag === msg.tag ||
-    (msg.author && c.name && msg.author.toLowerCase().includes(c.name.toLowerCase()))
+  const contact = contacts.find(
+    (c) =>
+      c.name === msg.author ||
+      c.id === msg.author ||
+      c.handle === msg.author ||
+      c.tag === msg.tag ||
+      (msg.author && c.name && msg.author.toLowerCase().includes(c.name.toLowerCase())),
   );
   if (contact?.tabId) {
     const tab = tabList.find((t) => String(t.id) === String(contact.tabId));
@@ -1920,10 +2065,15 @@ function resolveTabForMessage(msg) {
   const matchedTab = tabList.find((t) => {
     const title = (t.title || "").toLowerCase();
     const adapter = (t.adapter || "").toLowerCase();
-    return authorStr.includes(adapter) ||
+    return (
+      authorStr.includes(adapter) ||
       tagStr.includes(adapter) ||
       title.includes(authorStr) ||
-      (adapter && ["chatgpt", "claude", "gemini", "mistral"].some((k) => (authorStr.includes(k) || tagStr.includes(k)) && (adapter.includes(k) || title.includes(k))));
+      (adapter &&
+        ["chatgpt", "claude", "gemini", "mistral"].some(
+          (k) => (authorStr.includes(k) || tagStr.includes(k)) && (adapter.includes(k) || title.includes(k)),
+        ))
+    );
   });
   if (matchedTab) return matchedTab;
 
@@ -1953,7 +2103,10 @@ async function reextractMessageFromTab(msgId) {
 
   const tab = resolveTabForMessage(msg);
   if (!tab) {
-    toast(`No active browser tab found for @${msg.author}. Open an AI tab (ChatGPT, Claude, Gemini) first.`, true);
+    toast(
+      `No active browser tab found for @${msg.author}. Open an AI tab (ChatGPT, Claude, Gemini) first.`,
+      true,
+    );
     return;
   }
 
@@ -2042,11 +2195,14 @@ function copyMessageText(msgId, markdownOnly = false) {
   if (!msg || !msg.text) return;
 
   const content = markdownOnly ? msg.text : msg.text.replace(/<[^>]+>/g, "");
-  navigator.clipboard.writeText(content).then(() => {
-    toast(markdownOnly ? "Copied raw markdown to clipboard!" : "Copied message to clipboard!");
-  }).catch(() => {
-    toast("Failed to copy", true);
-  });
+  navigator.clipboard
+    .writeText(content)
+    .then(() => {
+      toast(markdownOnly ? "Copied raw markdown to clipboard!" : "Copied message to clipboard!");
+    })
+    .catch(() => {
+      toast("Failed to copy", true);
+    });
 }
 
 function openForwardMessageModal(msgId) {
@@ -2062,7 +2218,8 @@ function openForwardMessageModal(msgId) {
   const authorEl = $("#forward-preview-author");
   const textEl = $("#forward-preview-text");
   if (authorEl) authorEl.textContent = msg.author || "Message";
-  if (textEl) textEl.textContent = (msg.text || "").slice(0, 160) + ((msg.text || "").length > 160 ? "..." : "");
+  if (textEl)
+    textEl.textContent = (msg.text || "").slice(0, 160) + ((msg.text || "").length > 160 ? "..." : "");
 
   renderForwardDestinations();
   modal.hidden = false;
@@ -2073,32 +2230,46 @@ function renderForwardDestinations(filter = "") {
   if (!listEl) return;
   const term = filter.toLowerCase().trim();
 
-  const channels = chatChannels.filter((c) => !term || c.title.toLowerCase().includes(term) || c.id.toLowerCase().includes(term));
-  const contacts = (typeof getSlackContacts === "function" ? getSlackContacts() : []).filter((c) =>
-    !term || c.name.toLowerCase().includes(term) || c.id.toLowerCase().includes(term) || (c.role && c.role.toLowerCase().includes(term))
+  const channels = chatChannels.filter(
+    (c) => !term || c.title.toLowerCase().includes(term) || c.id.toLowerCase().includes(term),
+  );
+  const contacts = (typeof getSlackContacts === "function" ? getSlackContacts() : []).filter(
+    (c) =>
+      !term ||
+      c.name.toLowerCase().includes(term) ||
+      c.id.toLowerCase().includes(term) ||
+      (c.role && c.role.toLowerCase().includes(term)),
   );
 
   let html = "";
   if (channels.length > 0) {
     html += `<div style="font-size:10.5px; font-weight:700; color:var(--text-muted); margin:6px 0 2px; text-transform:uppercase; letter-spacing:0.04em;">Channels</div>`;
-    html += channels.map((c) => `
+    html += channels
+      .map(
+        (c) => `
       <div class="forward-dest-item" data-dest-type="channel" data-dest-id="${esc(c.id)}" data-dest-title="${esc(c.title)}">
         <span style="font-size:14px; color:var(--accent);">#</span>
         <strong style="color:var(--text-main);">${esc(c.title)}</strong>
         <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">${esc(c.desc || "")}</span>
       </div>
-    `).join("");
+    `,
+      )
+      .join("");
   }
 
   if (contacts.length > 0) {
     html += `<div style="font-size:10.5px; font-weight:700; color:var(--text-muted); margin:10px 0 2px; text-transform:uppercase; letter-spacing:0.04em;">Direct Messages</div>`;
-    html += contacts.map((c) => `
+    html += contacts
+      .map(
+        (c) => `
       <div class="forward-dest-item" data-dest-type="dm" data-dest-id="${esc(c.id)}" data-dest-title="${esc(c.name)}">
         <span style="font-size:14px;">${c.avatar || "🤖"}</span>
         <strong style="color:var(--text-main);">${esc(c.name)}</strong>
         <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">${esc(c.role || c.tag || "")}</span>
       </div>
-    `).join("");
+    `,
+      )
+      .join("");
   }
 
   if (!channels.length && !contacts.length) {
@@ -2193,7 +2364,10 @@ function setupForwardModal() {
     if (!pendingForwardMsg) return;
     const composer = $("#slack-input");
     if (composer) {
-      const quoted = pendingForwardMsg.text.split("\n").map((l) => `> ${l}`).join("\n");
+      const quoted = pendingForwardMsg.text
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n");
       composer.value = `${quoted}\n\n` + composer.value;
       composer.focus();
     }
@@ -2208,25 +2382,26 @@ function renderSlackMessages() {
 
   const targetKey = `${currentChatTarget.type}_${currentChatTarget.id}`;
   if (!chatMessages.has(targetKey)) {
-    const seedMsg = currentChatTarget.type === "channel"
-      ? {
-          id: `seed_${currentChatTarget.id}`,
-          author: "Melon Office Bot",
-          avatar: "🍈",
-          tag: "BOT",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          text: `Welcome to **#${currentChatTarget.title}**! You can chat with all connected agents, or type \`@chatgpt\`, \`@gemini\`, \`@claude\`, \`@opencode\` to direct questions.`,
-          isUser: false,
-        }
-      : {
-          id: `seed_${currentChatTarget.id}`,
-          author: currentChatTarget.title,
-          avatar: currentChatTarget.icon || "🤖",
-          tag: "AGENT",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          text: `Direct message thread with **@${currentChatTarget.title}**. Send a prompt to query this agent directly.`,
-          isUser: false,
-        };
+    const seedMsg =
+      currentChatTarget.type === "channel"
+        ? {
+            id: `seed_${currentChatTarget.id}`,
+            author: "Melon Office Bot",
+            avatar: "🍈",
+            tag: "BOT",
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            text: `Welcome to **#${currentChatTarget.title}**! You can chat with all connected agents, or type \`@chatgpt\`, \`@gemini\`, \`@claude\`, \`@opencode\` to direct questions.`,
+            isUser: false,
+          }
+        : {
+            id: `seed_${currentChatTarget.id}`,
+            author: currentChatTarget.title,
+            avatar: currentChatTarget.icon || "🤖",
+            tag: "AGENT",
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            text: `Direct message thread with **@${currentChatTarget.title}**. Send a prompt to query this agent directly.`,
+            isUser: false,
+          };
     chatMessages.set(targetKey, [seedMsg]);
   }
 
@@ -2247,34 +2422,41 @@ function renderSlackMessages() {
 
     let reactionsHtml = "";
     if (reactionEntries.length > 0) {
-      reactionsHtml = `<div class="msg-reactions-bar">` +
-        reactionEntries.map(([emoji, r]) => {
-          const count = typeof r === "number" ? r : r.count;
-          const userReacted = typeof r === "object" ? r.userReacted : false;
-          return `<button type="button" class="reaction-chip ${userReacted ? 'active' : ''}" data-emoji="${esc(emoji)}" title="Reacted with ${esc(emoji)}">${emoji} <span class="reaction-count">${count}</span></button>`;
-        }).join("") +
+      reactionsHtml =
+        `<div class="msg-reactions-bar">` +
+        reactionEntries
+          .map(([emoji, r]) => {
+            const count = typeof r === "number" ? r : r.count;
+            const userReacted = typeof r === "object" ? r.userReacted : false;
+            return `<button type="button" class="reaction-chip ${userReacted ? "active" : ""}" data-emoji="${esc(emoji)}" title="Reacted with ${esc(emoji)}">${emoji} <span class="reaction-count">${count}</span></button>`;
+          })
+          .join("") +
         `<button type="button" class="btn-add-reaction" title="Add reaction">+ 😀</button>` +
         `</div>`;
     }
 
     const badgeLabel = isUser
       ? "YOU"
-      : (tab ? (tab.adapter ? `${tab.adapter.toUpperCase()} TAB` : "AI TAB") : (msg.tag || "AGENT"));
+      : tab
+        ? tab.adapter
+          ? `${tab.adapter.toUpperCase()} TAB`
+          : "AI TAB"
+        : msg.tag || "AGENT";
 
     item.innerHTML = `
       <div class="slack-msg-avatar">
         ${msg.avatar || (isUser ? "👤" : "💬")}
-        ${tab ? '<span class="avatar-online-dot" title="Active browser tab connected"></span>' : ''}
+        ${tab ? '<span class="avatar-online-dot" title="Active browser tab connected"></span>' : ""}
       </div>
       <div class="slack-msg-content">
         <div class="slack-msg-header">
           <span class="slack-msg-author">${esc(msg.author)}</span>
-          <span class="openwebui-badge ${isUser ? 'user-badge' : 'agent-badge'} ${tab ? 'online' : ''}">${esc(badgeLabel)}</span>
-          ${msg.pinned ? '<span class="pinned-badge">📌 Pinned</span>' : ''}
+          <span class="openwebui-badge ${isUser ? "user-badge" : "agent-badge"} ${tab ? "online" : ""}">${esc(badgeLabel)}</span>
+          ${msg.pinned ? '<span class="pinned-badge">📌 Pinned</span>' : ""}
           <span class="slack-msg-time">${esc(msg.time)}</span>
         </div>
         <div class="slack-msg-body">
-          ${msg.text ? renderMarkdown(msg.text) : (msg.streaming ? '<span class="typing-bubble"></span> Thinking...' : '')}
+          ${msg.text ? renderMarkdown(msg.text) : msg.streaming ? '<span class="typing-bubble"></span> Thinking...' : ""}
         </div>
         ${reactionsHtml}
       </div>
@@ -2282,7 +2464,7 @@ function renderSlackMessages() {
       <!-- Slack / Open WebUI Floating Action Toolbar -->
       <div class="msg-actions-bar" role="toolbar" aria-label="Message actions">
         <button type="button" class="msg-action-btn btn-msg-react" data-msg-id="${esc(msg.id)}" title="Add reaction">😀</button>
-        ${!isUser ? `<button type="button" class="msg-action-btn btn-msg-reextract ${canReextract ? 'can-reextract' : ''}" data-msg-id="${esc(msg.id)}" title="${canReextract ? `Re-extract latest from ${esc(tab.title || tab.adapter || 'tab')}` : 'Re-extract from tab'}">⟳</button>` : ''}
+        ${!isUser ? `<button type="button" class="msg-action-btn btn-msg-reextract ${canReextract ? "can-reextract" : ""}" data-msg-id="${esc(msg.id)}" title="${canReextract ? `Re-extract latest from ${esc(tab.title || tab.adapter || "tab")}` : "Re-extract from tab"}">⟳</button>` : ""}
         <button type="button" class="msg-action-btn btn-msg-copy" data-msg-id="${esc(msg.id)}" title="Copy message text">📋</button>
         <button type="button" class="msg-action-btn btn-msg-forward" data-msg-id="${esc(msg.id)}" title="Forward message">↗️</button>
         <button type="button" class="msg-action-btn btn-msg-a2ui" data-msg-id="${esc(msg.id)}" title="Open in A2UI Expand Sheet">⛶</button>
@@ -2301,7 +2483,7 @@ function renderSlackMessages() {
 
         <!-- Slack-Style Options Dropdown (Hidden by default) -->
         <div class="msg-options-dropdown" hidden>
-          ${!isUser ? `<button type="button" class="msg-dropdown-item opt-reextract" data-msg-id="${esc(msg.id)}">⟳ Re-extract from Tab</button>` : ''}
+          ${!isUser ? `<button type="button" class="msg-dropdown-item opt-reextract" data-msg-id="${esc(msg.id)}">⟳ Re-extract from Tab</button>` : ""}
           <button type="button" class="msg-dropdown-item opt-copy-text" data-msg-id="${esc(msg.id)}">📋 Copy Plain Text</button>
           <button type="button" class="msg-dropdown-item opt-copy-md" data-msg-id="${esc(msg.id)}">📝 Copy Raw Markdown</button>
           <button type="button" class="msg-dropdown-item opt-forward" data-msg-id="${esc(msg.id)}">↗️ Forward Message...</button>
@@ -2358,7 +2540,9 @@ function renderSlackMessages() {
       const btn = item.querySelector(".btn-msg-copy");
       if (btn) {
         btn.textContent = "✓";
-        setTimeout(() => { btn.textContent = "📋"; }, 1500);
+        setTimeout(() => {
+          btn.textContent = "📋";
+        }, 1500);
       }
     });
     item.querySelector(".opt-copy-text")?.addEventListener("click", (e) => {
@@ -2544,11 +2728,15 @@ function renderSlackProfilePane(agent) {
       <span class="profile-field-label">Adapter / Model</span>
       <span class="profile-field-value"><code>${esc(agent.adapter)}</code></span>
     </div>
-    ${agent.url ? `
+    ${
+      agent.url
+        ? `
     <div class="profile-field-group">
       <span class="profile-field-label">Live Tab Session</span>
       <span class="profile-field-value"><a href="${esc(agent.url)}" target="_blank" class="slack-chat-link">Open in Chrome ↗</a></span>
-    </div>` : ""}
+    </div>`
+        : ""
+    }
     <div class="profile-field-group">
       <span class="profile-field-label">Presence</span>
       <span class="profile-field-value"><span class="presence-dot ${agent.status}"></span> ${esc(agent.status.toUpperCase())}</span>
@@ -2562,12 +2750,16 @@ function renderSlackProfilePane(agent) {
         Tabs matching these URLs retain @${esc(agent.handle)} identity across browser restarts.
       </p>
       <div class="profile-urls-list">
-        ${(agent.urls || []).map((u, i) => `
+        ${(agent.urls || [])
+          .map(
+            (u, i) => `
           <div class="profile-url-item">
             <span class="profile-url-text" title="${esc(u)}">${esc(u)}</span>
             <button type="button" class="profile-url-remove" data-url-idx="${i}" title="Remove / Clear context URL">✕</button>
           </div>
-        `).join("")}
+        `,
+          )
+          .join("")}
       </div>
       <div class="profile-url-add-row">
         <input type="text" id="input-add-agent-url" placeholder="Add URL (or clear context & advance)..." />
@@ -2675,11 +2867,12 @@ async function sendSlackMessage() {
     if (mentionMatch) {
       const handle = mentionMatch[1].toLowerCase();
       promptText = mentionMatch[2] || raw;
-      agentTarget = contacts.find((c) =>
-        c.handle.toLowerCase() === handle ||
-        c.quirky?.toLowerCase() === handle ||
-        c.category?.toLowerCase() === handle ||
-        c.adapter.toLowerCase().includes(handle)
+      agentTarget = contacts.find(
+        (c) =>
+          c.handle.toLowerCase() === handle ||
+          c.quirky?.toLowerCase() === handle ||
+          c.category?.toLowerCase() === handle ||
+          c.adapter.toLowerCase().includes(handle),
       );
     }
     if (!agentTarget && contacts.length > 0) {
@@ -2750,9 +2943,10 @@ async function sendSlackMessage() {
     },
   });
 
-  const runTarget = agentTarget.type === "tab"
-    ? { type: "extension", tabId: agentTarget.tabId, adapter: agentTarget.adapter || "auto" }
-    : { type: agentTarget.type };
+  const runTarget =
+    agentTarget.type === "tab"
+      ? { type: "extension", tabId: agentTarget.tabId, adapter: agentTarget.adapter || "auto" }
+      : { type: agentTarget.type };
 
   try {
     const res = await fetch("/api/runs", {
@@ -2858,11 +3052,12 @@ function setupMentionAutocomplete() {
     }
     const contacts = getSlackContacts();
     const query = info.query;
-    const filtered = contacts.filter((c) =>
-      c.handle.toLowerCase().includes(query) ||
-      c.quirky?.toLowerCase().includes(query) ||
-      c.category?.toLowerCase().includes(query) ||
-      c.name.toLowerCase().includes(query)
+    const filtered = contacts.filter(
+      (c) =>
+        c.handle.toLowerCase().includes(query) ||
+        c.quirky?.toLowerCase().includes(query) ||
+        c.category?.toLowerCase().includes(query) ||
+        c.name.toLowerCase().includes(query),
     );
     activeIndex = 0;
     renderPopover(filtered);
@@ -3036,7 +3231,9 @@ function setupSlackComposerButtons() {
   });
 
   $("#btn-quick-switcher")?.addEventListener("click", () => {
-    const target = prompt("Quick Switch: Jump to channel or agent (e.g. #general-war-room or @sparky-claude):");
+    const target = prompt(
+      "Quick Switch: Jump to channel or agent (e.g. #general-war-room or @sparky-claude):",
+    );
     if (!target) return;
     const clean = target.replace(/^[@#]/, "").toLowerCase();
     const ch = chatChannels.find((c) => c.id === clean);
@@ -3157,9 +3354,11 @@ function setupSlackChat() {
     document.addEventListener("click", (e) => {
       if (!eraseDropdown.hidden) eraseDropdown.hidden = true;
       if (!e.target.closest(".msg-actions-bar")) {
-        document.querySelectorAll(".quick-reaction-picker:not([hidden]), .msg-options-dropdown:not([hidden])").forEach((el) => {
-          el.hidden = true;
-        });
+        document
+          .querySelectorAll(".quick-reaction-picker:not([hidden]), .msg-options-dropdown:not([hidden])")
+          .forEach((el) => {
+            el.hidden = true;
+          });
       }
     });
   }
@@ -3261,7 +3460,16 @@ function setupAddContactModal() {
       type,
       name,
       handle: cleanHandle,
-      avatar: type === "tab" ? "🌐" : type === "opencode" ? "💻" : type === "agy" ? "🚀" : type === "acp" ? "🛰️" : "🔮",
+      avatar:
+        type === "tab"
+          ? "🌐"
+          : type === "opencode"
+            ? "💻"
+            : type === "agy"
+              ? "🚀"
+              : type === "acp"
+                ? "🛰️"
+                : "🔮",
       adapter: type === "tab" ? "auto" : type,
       status: "online",
       tag: type === "tab" ? "TAB" : "CLI",
@@ -3396,7 +3604,8 @@ function renderOfficeDesks() {
   grid.replaceChildren();
 
   const agentNodes = nodes.filter((n) => n.kind === "agent");
-  if (countEl) countEl.textContent = `${agentNodes.length} agent${agentNodes.length === 1 ? "" : "s"} on the floor`;
+  if (countEl)
+    countEl.textContent = `${agentNodes.length} agent${agentNodes.length === 1 ? "" : "s"} on the floor`;
 
   if (agentNodes.length === 0) {
     grid.innerHTML = `
@@ -3455,10 +3664,14 @@ function createDeskCard(node) {
         ${charCount ? `${charCount.toLocaleString()} chars · ${wordCount} words` : persona.adapter}
       </span>
       <div class="desk-actions">
-        ${node.config?.extTabId ? `
+        ${
+          node.config?.extTabId
+            ? `
           <button type="button" class="tiny ghost btn-extract-desk" data-id="${node.id}" title="Re-extract latest response from bridged tab">⟳ Extract</button>
           <button type="button" class="tiny primary btn-continue-desk" data-id="${node.id}" title="Extract from tab and continue downstream workflow">▶ Continue</button>
-        ` : ""}
+        `
+            : ""
+        }
         <button type="button" class="tiny ghost btn-expand-desk" data-id="${node.id}" title="Expand full response with A2UI & code artifacts">
           ⛶ Expand
         </button>
@@ -3476,8 +3689,16 @@ function createDeskCard(node) {
   `;
 
   card.querySelector(".btn-expand-desk")?.addEventListener("click", () => openA2UISheet(node));
-  card.querySelector(".btn-extract-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }));
-  card.querySelector(".btn-continue-desk")?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }));
+  card
+    .querySelector(".btn-extract-desk")
+    ?.addEventListener("click", () =>
+      reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }),
+    );
+  card
+    .querySelector(".btn-continue-desk")
+    ?.addEventListener("click", () =>
+      reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }),
+    );
   card.querySelector(".btn-tap-desk")?.addEventListener("click", () => openTapModal(node));
   card.querySelector(".btn-inspect-desk")?.addEventListener("click", () => {
     selectNode(node.id);
@@ -3522,7 +3743,9 @@ function updateOfficeDesk(node) {
   const bubble = $(`#desk-bubble-${node.id}`);
   if (bubble) {
     const text = rec?.text || "";
-    bubble.innerHTML = text ? renderMarkdown(text) : '<span class="desk-bubble-empty">Awaiting brief or peer assignment...</span>';
+    bubble.innerHTML = text
+      ? renderMarkdown(text)
+      : '<span class="desk-bubble-empty">Awaiting brief or peer assignment...</span>';
     bubble.scrollTop = bubble.scrollHeight;
   }
 
@@ -3532,7 +3755,9 @@ function updateOfficeDesk(node) {
     const charCount = text.length;
     const wordCount = text ? text.trim().split(/\s+/).length : 0;
     const persona = getAgentPersona(node);
-    stats.textContent = charCount ? `${charCount.toLocaleString()} chars · ${wordCount} words` : persona.adapter;
+    stats.textContent = charCount
+      ? `${charCount.toLocaleString()} chars · ${wordCount} words`
+      : persona.adapter;
   }
 
   renderWarRoomSeats();
@@ -3551,7 +3776,10 @@ function syncWarRoomDecision() {
 
   const items = [];
   for (const { persona, text } of agentOutputs) {
-    const cleanLines = text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+    const cleanLines = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
     const snippet = cleanLines.slice(0, 2).join(" ").slice(0, 160);
     items.push(`@${persona.handle} (${persona.label}): ${snippet || "Findings recorded."}`);
   }
@@ -3599,7 +3827,10 @@ function syncWarRoomDecision() {
 /* ------------------------------------------------ Dynamic Agent Roster */
 
 function hireAgent({ label, handle, adapter, worktree, instructions }) {
-  const cleanHandle = String(handle || "").trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, "");
+  const cleanHandle = String(handle || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-zA-Z0-9_-]/g, "");
   if (!cleanHandle) {
     toast("Handle must contain valid alphanumeric characters", true);
     return false;
@@ -3788,7 +4019,9 @@ function detectPeerDelegation(senderNode, responseText, command) {
     const targetPersona = getAgentPersona(targetNode);
     log("info", `Office: ${senderPersona.label} tapped @${targetPersona.handle} on the shoulder`);
 
-    const snippet = responseText.slice(Math.max(0, match.index - 20), Math.min(responseText.length, match.index + 240)).trim();
+    const snippet = responseText
+      .slice(Math.max(0, match.index - 20), Math.min(responseText.length, match.index + 240))
+      .trim();
 
     triggerPeerTurn({
       fromNode: senderNode,
@@ -3808,12 +4041,16 @@ function openA2UISheet(nodeOrMsg) {
   if (!modal || !nodeOrMsg) return;
 
   const isMsg = Boolean(nodeOrMsg.author || (!nodeOrMsg.kind && nodeOrMsg.id));
-  const rawText = isMsg ? (nodeOrMsg.text || "") : (nodeOrMsg.runtime?.text || "");
+  const rawText = isMsg ? nodeOrMsg.text || "" : nodeOrMsg.runtime?.text || "";
   const persona = !isMsg ? getAgentPersona(nodeOrMsg) : null;
-  const avatar = isMsg ? (nodeOrMsg.avatar || "💬") : (persona?.avatar || "🧑‍💻");
-  const title = isMsg ? `${nodeOrMsg.author} (${nodeOrMsg.tag || "MSG"})` : `${persona.label} (@${persona.handle})`;
-  const sub = isMsg ? `Message turn from ${currentChatTarget?.title || "chat"} · ${nodeOrMsg.time || ""}` : `${persona.adapter} · ${nodeOrMsg.config?.prompt ? nodeOrMsg.config.prompt.slice(0, 70) : "Autonomous Desk"}`;
-  const status = isMsg ? (nodeOrMsg.isUser ? "user" : "done") : (nodeOrMsg.runtime?.status || "idle");
+  const avatar = isMsg ? nodeOrMsg.avatar || "💬" : persona?.avatar || "🧑‍💻";
+  const title = isMsg
+    ? `${nodeOrMsg.author} (${nodeOrMsg.tag || "MSG"})`
+    : `${persona.label} (@${persona.handle})`;
+  const sub = isMsg
+    ? `Message turn from ${currentChatTarget?.title || "chat"} · ${nodeOrMsg.time || ""}`
+    : `${persona.adapter} · ${nodeOrMsg.config?.prompt ? nodeOrMsg.config.prompt.slice(0, 70) : "Autonomous Desk"}`;
+  const status = isMsg ? (nodeOrMsg.isUser ? "user" : "done") : nodeOrMsg.runtime?.status || "idle";
 
   const avatarEl = $("#a2ui-sheet-avatar");
   const titleEl = $("#a2ui-sheet-title");
@@ -3853,7 +4090,9 @@ function openA2UISheet(nodeOrMsg) {
   const panelArtifacts = $("#a2ui-tab-artifacts");
   if (panelArtifacts) {
     if (artifacts.length > 0) {
-      panelArtifacts.innerHTML = artifacts.map((art) => `
+      panelArtifacts.innerHTML = artifacts
+        .map(
+          (art) => `
         <div class="task-card" style="margin-bottom:12px; background:var(--bg-surface); padding:12px; border-radius:8px; border:1px solid var(--border);">
           <div class="task-card-head" style="display:flex; justify-content:space-between; align-items:center;">
             <strong style="font-family:var(--font-mono); font-size:12px; color:var(--accent-indigo);">📄 ${esc(art.path || art.filename || "file")}</strong>
@@ -3861,14 +4100,19 @@ function openA2UISheet(nodeOrMsg) {
           </div>
           <pre style="margin:8px 0 0; background:var(--canvas-bg); padding:10px; border-radius:6px; font-size:11px; max-height:220px; overflow:auto;"><code>${esc(art.content)}</code></pre>
         </div>
-      `).join("");
+      `,
+        )
+        .join("");
       panelArtifacts.querySelectorAll(".btn-copy-art").forEach((btn) => {
         btn.addEventListener("click", () => {
-          navigator.clipboard.writeText(btn.dataset.copy || "").then(() => toast("Copied artifact to clipboard!"));
+          navigator.clipboard
+            .writeText(btn.dataset.copy || "")
+            .then(() => toast("Copied artifact to clipboard!"));
         });
       });
     } else {
-      panelArtifacts.innerHTML = '<div class="office-empty-state"><p>No code artifacts detected in this desk\'s response.</p></div>';
+      panelArtifacts.innerHTML =
+        '<div class="office-empty-state"><p>No code artifacts detected in this desk\'s response.</p></div>';
     }
   }
 
@@ -3934,7 +4178,9 @@ function setupA2UISheet() {
 
   tabBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
-      tabBtns.forEach((b) => b.classList.remove("active"));
+      tabBtns.forEach((b) => {
+        b.classList.remove("active");
+      });
       btn.classList.add("active");
       const target = btn.dataset.tab;
       document.querySelectorAll(".a2ui-tab-panel").forEach((panel) => {
@@ -4119,17 +4365,20 @@ function renderInspector() {
     : `<pre class="result-preview">${esc((rec?.text || "").slice(-5000)) || "No output yet."}</pre>`;
 
   const harvestedArtifacts = rec?.text ? extractArtifactsFromText(rec.text) : [];
-  const artifactsHtml = harvestedArtifacts.length > 0 ? `
+  const artifactsHtml =
+    harvestedArtifacts.length > 0
+      ? `
     <div class="field" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; padding: 10px; margin-top: 8px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <label style="color:#34d399; font-weight:700; margin:0;">📦 Harvested Artifacts (${harvestedArtifacts.length})</label>
         <button type="button" id="f-export-artifacts" class="primary" style="font-size:10.5px; padding:3px 8px; font-weight:600;">💾 Export to Project</button>
       </div>
       <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
-        ${harvestedArtifacts.map(a => `<span class="badge" style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-size:11px;" title="${esc(a.size)} chars">📄 ${esc(a.filename)}</span>`).join("")}
+        ${harvestedArtifacts.map((a) => `<span class="badge" style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-size:11px;" title="${esc(a.size)} chars">📄 ${esc(a.filename)}</span>`).join("")}
       </div>
     </div>
-  ` : "";
+  `
+      : "";
 
   fields.innerHTML = `
     <div class="field"><label>Label</label><input id="f-label" value="${esc(node.label)}" /></div>
@@ -4164,7 +4413,10 @@ function renderInspector() {
       <label>Result format</label>
       <select id="f-format">
         ${["a2ui", "markdown", "text", "json", "image"]
-          .map((value) => `<option value="${value}" ${value === formatForNode(node) ? "selected" : ""}>${esc(value)}</option>`)
+          .map(
+            (value) =>
+              `<option value="${value}" ${value === formatForNode(node) ? "selected" : ""}>${esc(value)}</option>`,
+          )
           .join("")}
       </select>
       <p class="note">Declares how the result should be read. Adapter output is not converted automatically.</p>
@@ -4320,7 +4572,10 @@ function renderInspector() {
     bumpWorkflowVersion("concurrency changed");
   });
 
-  for (const [sel, key] of [["#f-inputs", "inputs"], ["#f-outputs", "outputs"]]) {
+  for (const [sel, key] of [
+    ["#f-inputs", "inputs"],
+    ["#f-outputs", "outputs"],
+  ]) {
     $(sel, fields).addEventListener("change", (event) => {
       const ports = parsePorts(event.target.value);
       if (!ports.length && key === "inputs" && node.kind !== "source") {
@@ -4344,8 +4599,12 @@ function renderInspector() {
   $("#f-run-node", fields)?.addEventListener("click", () => rerunNode(node, { downstream: false }));
   $("#f-run-here", fields)?.addEventListener("click", () => rerunNode(node, { downstream: true }));
   $("#f-open", fields)?.addEventListener("click", () => openAgent(demoRole));
-  $("#f-reextract", fields)?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }));
-  $("#f-reextract-continue", fields)?.addEventListener("click", () => reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }));
+  $("#f-reextract", fields)?.addEventListener("click", () =>
+    reextractFromTab(node.config.extTabId, node.id, { continueGraph: false }),
+  );
+  $("#f-reextract-continue", fields)?.addEventListener("click", () =>
+    reextractFromTab(node.config.extTabId, node.id, { continueGraph: true }),
+  );
   $("#f-delete", fields).addEventListener("click", () => deleteNode(node.id));
 
   for (const button of $$("[data-record]", fields)) {
@@ -4408,13 +4667,7 @@ function deleteNode(id) {
 function addNode(kind) {
   const role = kind === "agent" ? nextDemoRole() : "";
   const label =
-    kind === "agent"
-      ? roleLabel(role)
-      : kind === "source"
-        ? "Brief"
-        : kind === "join"
-          ? "Join"
-          : "Decision";
+    kind === "agent" ? roleLabel(role) : kind === "source" ? "Brief" : kind === "join" ? "Join" : "Decision";
   const position = 70 + (nodes.length % 4) * 300;
   const y = 90 + Math.floor(nodes.length / 4) * 230;
   const node = makeNode(kind, {
@@ -4848,7 +5101,7 @@ async function rerankInputs(node, inputs, query) {
   const result = await kevRerank(
     query || goalText() || node.label,
     entries.map((entry) => ({ id: entry.port, text: entry.text.slice(0, 2400) })),
-    { topK: Math.min(6, entries.length) }
+    { topK: Math.min(6, entries.length) },
   );
   if (!result?.ranked?.length) return inputs;
 
@@ -4873,9 +5126,7 @@ async function runAgent(node, command) {
   command.inputs = await rerankInputs(node, command.inputs, goalText());
   if (command.__gen !== generation) return;
   const taint =
-    adapter === "ext" || inputsTainted(command.inputs) || inputsTainted(command.context)
-      ? "untrusted"
-      : null;
+    adapter === "ext" || inputsTainted(command.inputs) || inputsTainted(command.context) ? "untrusted" : null;
   if (taint && command.__record) {
     command.__record.taint = taint;
     updateNodeRecordView(node);
@@ -5244,8 +5495,7 @@ function runPassthrough(node, command) {
   if (format === "a2ui" && text && !text.trim().startsWith("{")) {
     text = markdownToA2UIDecision(text);
   }
-  const taint =
-    inputsTainted(command.inputs) || inputsTainted(command.context) ? "untrusted" : null;
+  const taint = inputsTainted(command.inputs) || inputsTainted(command.context) ? "untrusted" : null;
   if (taint && command.__record) {
     command.__record.taint = taint;
     updateNodeRecordView(node);
@@ -5434,7 +5684,9 @@ function renderExtTabs() {
   $("#ext-count").textContent = String(tabs.length);
   if (!tabs.length) {
     list.innerHTML = `<p class="empty">${
-      hub.online ? "No bridged tabs. Load the extension and open a supported site." : "Hub offline. Start the local hub to bridge real tabs."
+      hub.online
+        ? "No bridged tabs. Load the extension and open a supported site."
+        : "Hub offline. Start the local hub to bridge real tabs."
     }</p>`;
   } else {
     list.replaceChildren(
@@ -5456,9 +5708,15 @@ function renderExtTabs() {
             <button class="tiny" data-shot ${tab.supported === false ? "disabled" : ""}>Shot</button>
           </div>
         `;
-        item.querySelector("button:not([data-shot]):not([data-extract]):not([data-extract-continue])").addEventListener("click", () => bindExtTab(tab));
-        item.querySelector("[data-extract]").addEventListener("click", () => reextractFromTab(tab.id, null, { continueGraph: false }));
-        item.querySelector("[data-extract-continue]").addEventListener("click", () => reextractFromTab(tab.id, null, { continueGraph: true }));
+        item
+          .querySelector("button:not([data-shot]):not([data-extract]):not([data-extract-continue])")
+          .addEventListener("click", () => bindExtTab(tab));
+        item
+          .querySelector("[data-extract]")
+          .addEventListener("click", () => reextractFromTab(tab.id, null, { continueGraph: false }));
+        item
+          .querySelector("[data-extract-continue]")
+          .addEventListener("click", () => reextractFromTab(tab.id, null, { continueGraph: true }));
         item.querySelector("[data-shot]").addEventListener("click", () => insertScreenshot(tab));
         return item;
       }),
@@ -5490,9 +5748,7 @@ function bindExtTab(tab) {
 function updateStatus() {
   const coreChip = $("#chip-core");
   if (core) {
-    coreChip.textContent = activeJobs.size
-      ? `core: wasm · ${activeJobs.size} active`
-      : "core: wasm · ready";
+    coreChip.textContent = activeJobs.size ? `core: wasm · ${activeJobs.size} active` : "core: wasm · ready";
     coreChip.classList.remove("bad");
     coreChip.classList.add("ok");
   }
@@ -5546,7 +5802,9 @@ function renderToolRequests() {
           <button class="danger" data-act="deny">Deny</button>
         </div>
       `;
-      item.querySelector('[data-act="approve"]').addEventListener("click", () => decideTool(request.id, "approve"));
+      item
+        .querySelector('[data-act="approve"]')
+        .addEventListener("click", () => decideTool(request.id, "approve"));
       item.querySelector('[data-act="modify"]').addEventListener("click", () => {
         const next = prompt("Approved command", request.command);
         if (next && next.trim() && next !== request.command) decideTool(request.id, "approve", next.trim());
@@ -5589,7 +5847,11 @@ function renderBlackboard() {
 
 async function insertScreenshot(tab) {
   const name = tab.controlId || `tab ${tab.id}`;
-  if (!confirm(`Capture the visible ${name} tab and insert it into its composer? Nothing is sent until you press send in that tab.`)) {
+  if (
+    !confirm(
+      `Capture the visible ${name} tab and insert it into its composer? Nothing is sent until you press send in that tab.`,
+    )
+  ) {
     return;
   }
   const response = await fetch(`/api/tabs/${encodeURIComponent(tab.id)}/screenshot`, { method: "POST" });
@@ -5606,7 +5868,7 @@ async function reextractFromTab(tabId, targetNodeId, { continueGraph = false } =
     toast("Hub offline. Start server/hub.mjs first.", true);
     return;
   }
-  const node = targetNodeId ? nodeById(targetNodeId) : (selectedId ? nodeById(selectedId) : null);
+  const node = targetNodeId ? nodeById(targetNodeId) : selectedId ? nodeById(selectedId) : null;
   toast(`Re-extracting response from tab ${tabId}...`);
   log("info", `Requesting response extraction from tab ${tabId}...`);
   try {
@@ -5652,7 +5914,9 @@ async function reextractFromTab(tabId, targetNodeId, { continueGraph = false } =
           for (const edge of outgoing) {
             pump(core.call({ op: "input", node: edge.to.node, port: edge.to.port, message: stamped }));
           }
-          toast(`Continuing workflow from ${node.label} (${outgoing.length} branch${outgoing.length > 1 ? "es" : ""})`);
+          toast(
+            `Continuing workflow from ${node.label} (${outgoing.length} branch${outgoing.length > 1 ? "es" : ""})`,
+          );
         } else {
           toast(`Extracted ${text.length.toLocaleString()} chars into ${node.label}`);
         }
@@ -5722,7 +5986,10 @@ function connectHub() {
           }
         }
       } else if (message.type === "screenshot.result") {
-        log("hub", message.ok ? "screenshot inserted into tab" : `screenshot failed: ${message.error || "unknown"}`);
+        log(
+          "hub",
+          message.ok ? "screenshot inserted into tab" : `screenshot failed: ${message.error || "unknown"}`,
+        );
       } else if (message.type === "telemetry.error") {
         const err = message.record || {};
         log("warn", `telemetry: [${err.subsystem || "hub"}] ${err.message}`);
@@ -5922,10 +6189,9 @@ function setupUi() {
     log("info", `workspace cleared · workflow v${workflowVersion}`);
   });
   $("#btn-export").addEventListener("click", () => {
-    const blob = new Blob(
-      [JSON.stringify({ version: 1, workflowVersion, runSeq, nodes, edges }, null, 2)],
-      { type: "application/json" },
-    );
+    const blob = new Blob([JSON.stringify({ version: 1, workflowVersion, runSeq, nodes, edges }, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -5958,9 +6224,9 @@ function setupUi() {
     }
   });
   $("#btn-clear-log").addEventListener("click", () => logEl.replaceChildren());
-  $$("[data-add]").forEach((button) =>
-    button.addEventListener("click", () => addNode(button.dataset.add)),
-  );
+  $$("[data-add]").forEach((button) => {
+    button.addEventListener("click", () => addNode(button.dataset.add));
+  });
   $("#btn-open-claude").addEventListener("click", () => openAgent("claude"));
   $("#btn-open-gemini").addEventListener("click", () => openAgent("gemini"));
 
@@ -6248,14 +6514,17 @@ function setupTournament() {
       };
 
       crownBtn.addEventListener("click", () => {
-        $$(".tournament-col").forEach((c) => c.classList.remove("winner"));
+        $$(".tournament-col").forEach((c) => {
+          c.classList.remove("winner");
+        });
         $(`#${colId}`).classList.add("winner");
         navigator.clipboard.writeText(contestant.text).catch(() => {});
 
         if (selectedId) {
           const targetNode = nodeById(selectedId);
           if (targetNode) {
-            if (!targetNode.runtime) targetNode.runtime = startNodeRecord(targetNode, { status: "done", format: "markdown" });
+            if (!targetNode.runtime)
+              targetNode.runtime = startNodeRecord(targetNode, { status: "done", format: "markdown" });
             targetNode.runtime.text = contestant.text;
             targetNode.runtime.status = "done";
             updateNodeRecordView(targetNode);
@@ -6383,9 +6652,12 @@ function smartBindTabs(interactive = true) {
       if (usedTabIds.has(String(t.id))) return false;
       const tabAdapter = (t.adapter || "").toLowerCase();
       const tabTitle = (t.title || "").toLowerCase();
-      if (label.includes("gpt") || inst.includes("gpt") || adapter.includes("chatgpt")) return tabAdapter === "chatgpt";
-      if (label.includes("gemini") || inst.includes("gemini") || adapter.includes("gemini")) return tabAdapter === "gemini";
-      if (label.includes("claude") || inst.includes("claude") || adapter.includes("claude")) return tabAdapter === "claude";
+      if (label.includes("gpt") || inst.includes("gpt") || adapter.includes("chatgpt"))
+        return tabAdapter === "chatgpt";
+      if (label.includes("gemini") || inst.includes("gemini") || adapter.includes("gemini"))
+        return tabAdapter === "gemini";
+      if (label.includes("claude") || inst.includes("claude") || adapter.includes("claude"))
+        return tabAdapter === "claude";
       return tabAdapter.includes(label) || tabTitle.includes(label);
     });
 
@@ -6409,7 +6681,8 @@ function smartBindTabs(interactive = true) {
     renderEdges();
     if (selectedId) renderInspector();
     if (typeof updateOfficeDeskCards === "function") updateOfficeDeskCards();
-    if (interactive) toast(`⚡ Smart-bound ${boundCount} agent node${boundCount > 1 ? "s" : ""} to live tabs!`);
+    if (interactive)
+      toast(`⚡ Smart-bound ${boundCount} agent node${boundCount > 1 ? "s" : ""} to live tabs!`);
   } else if (interactive) {
     toast("All agent nodes are already bound to active tabs");
   }
@@ -6479,7 +6752,9 @@ function setupOnboarding() {
       const data = await res.json();
       if (data.ok && data.token) {
         navigator.clipboard.writeText(data.token).catch(() => {});
-        toast("Token copied to clipboard! Open chrome-extension options to paste, or click Auto-Pair in options.");
+        toast(
+          "Token copied to clipboard! Open chrome-extension options to paste, or click Auto-Pair in options.",
+        );
       }
     } catch {}
   });
@@ -6725,7 +7000,9 @@ function setupTaskManager() {
 
   filterBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
-      filterBtns.forEach((b) => b.classList.remove("active"));
+      filterBtns.forEach((b) => {
+        b.classList.remove("active");
+      });
       btn.classList.add("active");
       taskFilter = btn.dataset.filter || "all";
       renderTasksList();

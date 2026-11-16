@@ -39,5 +39,8 @@ test("worktree manager creates isolated branches and rejects escapes", { skip: !
   const again = await manager.add({ name: "agent-agy" });
   assert.equal(again.existing, true);
   const list = await manager.list();
-  assert.deepEqual(list.map((item) => item.name), ["agent-agy"]);
+  assert.deepEqual(
+    list.map((item) => item.name),
+    ["agent-agy"],
+  );
 });

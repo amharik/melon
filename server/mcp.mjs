@@ -161,9 +161,10 @@ export function createMcpServer({
     if (message.method === "tools/list") return reply({ tools: MCP_TOOLS });
     if (message.method === "tools/call") {
       const name = String(message.params?.name || "");
-      const args = message.params?.arguments && typeof message.params.arguments === "object"
-        ? message.params.arguments
-        : {};
+      const args =
+        message.params?.arguments && typeof message.params.arguments === "object"
+          ? message.params.arguments
+          : {};
       return reply(await callTool(name, args));
     }
     if (message.method === "shutdown") return reply({});
@@ -173,7 +174,10 @@ export function createMcpServer({
   return { handle, callTool, tools: MCP_TOOLS, hubUrl: base };
 }
 
-export function serveMcpStdio(server, { input = process.stdin, output = process.stdout, error = process.stderr } = {}) {
+export function serveMcpStdio(
+  server,
+  { input = process.stdin, output = process.stdout, error = process.stderr } = {},
+) {
   const lines = readline.createInterface({ input, crlfDelay: Infinity });
   lines.on("line", async (line) => {
     if (!line.trim()) return;
@@ -181,7 +185,9 @@ export function serveMcpStdio(server, { input = process.stdin, output = process.
     try {
       message = JSON.parse(line);
     } catch {
-      output.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`);
+      output.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`,
+      );
       return;
     }
     try {
@@ -241,7 +247,9 @@ export function createMcpClient({
       child = null;
     });
     child.on("exit", (code, signal) => {
-      rejectAll(new Error(`MCP server exited (${signal || code})${stderr ? `: ${stderr.slice(-1000)}` : ""}`));
+      rejectAll(
+        new Error(`MCP server exited (${signal || code})${stderr ? `: ${stderr.slice(-1000)}` : ""}`),
+      );
       child = null;
       lines?.close();
       lines = null;
@@ -279,10 +287,13 @@ export function createMcpClient({
     const id = nextId;
     nextId += 1;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error(`MCP ${method} timed out`));
-      }, Math.max(1000, Number(requestTimeoutMs) || timeoutMs));
+      const timer = setTimeout(
+        () => {
+          pending.delete(id);
+          reject(new Error(`MCP ${method} timed out`));
+        },
+        Math.max(1000, Number(requestTimeoutMs) || timeoutMs),
+      );
       timer.unref?.();
       pending.set(id, { resolve, reject, timer });
       try {

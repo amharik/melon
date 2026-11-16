@@ -156,7 +156,7 @@ function makeCertificate(dir, hosts) {
       "-addext",
       `subjectAltName=${hosts.map((host) => `DNS:${host}`).join(",")}`,
     ],
-    { cwd: dir, encoding: "utf8" }
+    { cwd: dir, encoding: "utf8" },
   );
   if (result.status !== 0) {
     throw new Error(`openssl failed: ${result.stderr || result.stdout}`);
@@ -240,9 +240,7 @@ class CDP {
     });
     if (result.exceptionDetails) {
       const text =
-        result.exceptionDetails.exception?.description ||
-        result.exceptionDetails.text ||
-        "evaluation failed";
+        result.exceptionDetails.exception?.description || result.exceptionDetails.text || "evaluation failed";
       throw new Error(text);
     }
     return result.result?.value;
@@ -278,10 +276,15 @@ async function sseQueue(response) {
   })();
   return {
     next(predicate, timeout = 20000) {
-      return waitFor(() => {
-        const index = events.findIndex(predicate);
-        return index >= 0 ? events.splice(index, 1)[0] : null;
-      }, "SSE event", timeout, 50);
+      return waitFor(
+        () => {
+          const index = events.findIndex(predicate);
+          return index >= 0 ? events.splice(index, 1)[0] : null;
+        },
+        "SSE event",
+        timeout,
+        50,
+      );
     },
     close() {
       reader.cancel().catch(() => {});
@@ -309,12 +312,9 @@ async function main() {
     await Promise.all(
       SITES.map(async (site) => [
         site.host,
-        await fs.readFile(
-          path.join(ROOT, "test", "fixtures", "site", site.fixture),
-          "utf8"
-        ),
-      ])
-    )
+        await fs.readFile(path.join(ROOT, "test", "fixtures", "site", site.fixture), "utf8"),
+      ]),
+    ),
   );
   const hosts = SITES.map((site) => site.host);
   makeCertificate(tmp, hosts);
@@ -402,7 +402,7 @@ async function main() {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
-    }
+    },
   );
   let chromeLogs = "";
   chrome.stdout.on("data", (data) => (chromeLogs += data));
@@ -422,15 +422,19 @@ async function main() {
     log(`hub ${hubBase}`);
 
     log(`Chromium pid ${chrome.pid} debug port ${debugPort}`);
-    await waitFor(async () => {
-      let port = debugPort;
-      try {
-        const active = await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8");
-        port = Number(active.split("\n")[0]) || port;
-      } catch {}
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`).catch(() => null);
-      return response?.ok;
-    }, "Chromium DevTools", 30000);
+    await waitFor(
+      async () => {
+        let port = debugPort;
+        try {
+          const active = await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8");
+          port = Number(active.split("\n")[0]) || port;
+        } catch {}
+        const response = await fetch(`http://127.0.0.1:${port}/json/version`).catch(() => null);
+        return response?.ok;
+      },
+      "Chromium DevTools",
+      30000,
+    );
     log(`Chromium ${chromePath}`);
 
     const workerTarget = await waitFor(async () => {
@@ -438,7 +442,7 @@ async function main() {
       return list.find(
         (target) =>
           target.type === "service_worker" &&
-          target.url === `chrome-extension://${extensionId}/background.js`
+          target.url === `chrome-extension://${extensionId}/background.js`,
       );
     }, "extension service worker");
     log(`extension worker ${workerTarget.url}`);
@@ -456,7 +460,7 @@ async function main() {
     await waitFor(
       () => optionsCdp.evaluate(`typeof chrome !== "undefined" && !!chrome.storage?.local`),
       "extension options context",
-      8000
+      8000,
     );
     await optionsCdp.evaluate(`(async () => {
       await chrome.storage.local.set({
@@ -467,12 +471,16 @@ async function main() {
       });
       return true;
     })()`);
-    const packState = await waitFor(async () => {
-      const result = await optionsCdp.evaluate(
-        `chrome.runtime.sendMessage({ type: "melon.adapters.pack" })`
-      );
-      return result?.ok && result.version === 2 ? result : null;
-    }, "signed adapter pack verification", 10000);
+    const packState = await waitFor(
+      async () => {
+        const result = await optionsCdp.evaluate(
+          `chrome.runtime.sendMessage({ type: "melon.adapters.pack" })`,
+        );
+        return result?.ok && result.version === 2 ? result : null;
+      },
+      "signed adapter pack verification",
+      10000,
+    );
     const packedAdapters = packState.pack?.adapters || [];
     if (!["chatgpt", "claude", "gemini", "mistral"].every((id) => packedAdapters.includes(id))) {
       throw new Error(`adapter pack missing built-ins: ${JSON.stringify(packedAdapters)}`);
@@ -489,9 +497,7 @@ async function main() {
       fixtureTarget = await browserCdp.send("Target.createTarget", { url: pageUrl });
       await waitFor(async () => {
         const list = await targets(debugPort);
-        return list.find(
-          (target) => target.id === fixtureTarget.targetId && target.type === "page"
-        );
+        return list.find((target) => target.id === fixtureTarget.targetId && target.type === "page");
       }, `${site.adapter} fixture page target`);
 
       const tab = await waitFor(async () => {
@@ -502,7 +508,7 @@ async function main() {
             item.adapter === site.adapter &&
             item.supported &&
             item.health?.fields?.composer?.ok &&
-            item.health?.fields?.send?.ok
+            item.health?.fields?.send?.ok,
         );
       }, `healthy ${site.adapter} fixture tab`);
       log(`tab ${tab.controlId} adapter=${tab.adapter} host=${site.host}`);
@@ -537,7 +543,7 @@ async function main() {
         () => pageCdp.evaluate(`!!document.querySelector("melon-control")`),
         `${site.adapter} in-page control badge`,
         8000,
-        100
+        100,
       );
       if (!sawBadge) throw new Error(`${site.adapter} control badge did not appear`);
       log(`run ${runId} started; control badge visible`);
@@ -548,13 +554,11 @@ async function main() {
           event.type === "run.event" &&
           event.runId === runId &&
           ["done", "error", "cancelled"].includes(event.event?.type),
-        25000
+        25000,
       );
       if (terminal.event?.type !== "done") {
         throw new Error(
-          `${site.adapter} run ended with ${terminal.event?.type}: ${JSON.stringify(
-            terminal.event
-          )}`
+          `${site.adapter} run ended with ${terminal.event?.type}: ${JSON.stringify(terminal.event)}`,
         );
       }
       log(`done: ${String(terminal.event.text || "").slice(0, 80)}…`);
@@ -563,7 +567,7 @@ async function main() {
         () => pageCdp.evaluate(`!document.querySelector("melon-control")`),
         `${site.adapter} control badge removal`,
         8000,
-        100
+        100,
       );
       const state = await pageCdp.evaluate(`(() => ({
         composer: ${site.composer},
@@ -578,10 +582,7 @@ async function main() {
       if (!state.composer.includes(prompt)) {
         throw new Error(`${site.adapter} composer did not retain prompt: ${state.composer}`);
       }
-      if (
-        !state.response.includes("Fixture reply to:") ||
-        !state.response.includes(prompt)
-      ) {
+      if (!state.response.includes("Fixture reply to:") || !state.response.includes(prompt)) {
         throw new Error(`${site.adapter} unexpected page response: ${state.response}`);
       }
       if (state.badge) throw new Error(`${site.adapter} control badge was not removed`);
@@ -604,8 +605,7 @@ async function main() {
         list.find((item) => item.id === fixtureTarget?.targetId) ||
         list.find(
           (item) =>
-            item.type === "page" &&
-            SITES.some((site) => item.url.startsWith(`https://${site.host}/`))
+            item.type === "page" && SITES.some((site) => item.url.startsWith(`https://${site.host}/`)),
         );
       console.error(`[page] ${JSON.stringify(target ? { url: target.url, title: target.title } : null)}`);
       if (target) {
@@ -619,8 +619,8 @@ async function main() {
               text: document.body?.innerText?.slice(0, 300) || "",
               composer: !!document.querySelector('textarea, [contenteditable="true"]'),
               melon: !!document.querySelector("melon-control"),
-            })`)
-          )}`
+            })`),
+          )}`,
         );
         cdp.close();
       }

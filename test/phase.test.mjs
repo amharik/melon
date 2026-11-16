@@ -141,8 +141,14 @@ test("phase 0-3: threads, agy, approvals, worktrees, blackboard, screenshots", a
   assert.equal(start.status, 202);
   assert.equal((await start.json()).threadId, "thread-1");
 
-  assert.equal((await sse.next((event) => event.type === "run.status" && event.status === "thinking")).status, "thinking");
-  assert.equal((await sse.next((event) => event.type === "run.status" && event.status === "streaming")).status, "streaming");
+  assert.equal(
+    (await sse.next((event) => event.type === "run.status" && event.status === "thinking")).status,
+    "thinking",
+  );
+  assert.equal(
+    (await sse.next((event) => event.type === "run.status" && event.status === "streaming")).status,
+    "streaming",
+  );
   const doneStatus = await sse.next((event) => event.type === "run.status" && event.status === "done");
   assert.equal(doneStatus.status, "done");
   const done = await sse.next(
@@ -170,7 +176,11 @@ test("phase 0-3: threads, agy, approvals, worktrees, blackboard, screenshots", a
   assert.equal(request.status, "pending");
   assert.equal(request.taint, "untrusted");
   assert.equal(path.resolve(request.cwd), path.resolve(worktreeRoot));
-  assert.equal((await sse.next((event) => event.type === "tool.request" && event.request.id === request.id)).request.status, "pending");
+  assert.equal(
+    (await sse.next((event) => event.type === "tool.request" && event.request.id === request.id)).request
+      .status,
+    "pending",
+  );
 
   const approved = await fetch(`${base}/api/tool-requests/${request.id}/decision`, {
     method: "POST",
@@ -182,14 +192,18 @@ test("phase 0-3: threads, agy, approvals, worktrees, blackboard, screenshots", a
   assert.equal(approvedBody.request.status, "done");
   assert.equal(approvedBody.request.exitCode, 0);
   assert.equal(approvedBody.request.output, "hello");
-  const toolResult = await sse.next((event) => event.type === "tool.result" && event.request.id === request.id);
+  const toolResult = await sse.next(
+    (event) => event.type === "tool.result" && event.request.id === request.id,
+  );
   assert.equal(toolResult.request.taint, "untrusted");
 
-  const deniedRequest = await (await fetch(`${base}/api/tool-requests`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ command: "echo no" }),
-  })).json();
+  const deniedRequest = await (
+    await fetch(`${base}/api/tool-requests`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command: "echo no" }),
+    })
+  ).json();
   const denied = await fetch(`${base}/api/tool-requests/${deniedRequest.request.id}/decision`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -235,8 +249,12 @@ test("phase 0-3: threads, agy, approvals, worktrees, blackboard, screenshots", a
   assert.equal(shot.status, 202);
   const shotMessage = await waitForMessage(messages, (message) => message.type === "agent.screenshot");
   assert.equal(shotMessage.tabId, "77");
-  ws.send(JSON.stringify({ type: "screenshot.result", requestId: shotMessage.requestId, tabId: 77, ok: true }));
-  const shotResult = await sse.next((event) => event.type === "screenshot.result" && event.requestId === shotMessage.requestId);
+  ws.send(
+    JSON.stringify({ type: "screenshot.result", requestId: shotMessage.requestId, tabId: 77, ok: true }),
+  );
+  const shotResult = await sse.next(
+    (event) => event.type === "screenshot.result" && event.requestId === shotMessage.requestId,
+  );
   assert.equal(shotResult.ok, true);
 
   ws.send(

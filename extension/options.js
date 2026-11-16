@@ -103,7 +103,7 @@ async function load() {
   setAiStatus(
     settings.aiEnabled
       ? "Checking local model host..."
-      : "Local AI is off. Deterministic adapters are unaffected."
+      : "Local AI is off. Deterministic adapters are unaffected.",
   );
   updateAiButtons();
   if (settings.aiEnabled) refreshAiStatus();
@@ -126,10 +126,8 @@ async function save() {
   hubInput.value = hubUrl;
   const consentNote = consentVersion ? "" : " Real-tab runs stay blocked until consent is accepted.";
   setStatus(
-    token
-      ? `Saved. Reconnecting the bridge.${consentNote}`
-      : `Saved. Add a token to connect.${consentNote}`,
-    token && consentVersion ? "good" : ""
+    token ? `Saved. Reconnecting the bridge.${consentNote}` : `Saved. Add a token to connect.${consentNote}`,
+    token && consentVersion ? "good" : "",
   );
   return true;
 }
@@ -148,7 +146,7 @@ async function test() {
   } catch (err) {
     setStatus(
       `Cannot reach ${hubUrl}: ${String(err.message || err)}\nIs the hub running on that port?`,
-      "bad"
+      "bad",
     );
   }
 }
@@ -210,16 +208,13 @@ function renderAiState(state) {
     setAiStatus(`Downloading and loading ${selected?.label || modelLabel(selectedId)}${file}${amount}`, "");
   } else if (aiState.status === "ready" && loadedId === selectedId) {
     aiProgress.hidden = true;
-    setAiStatus(
-      `Ready: ${loaded?.label || modelLabel(loadedId)} on ${aiState.device || "WebGPU"}.`,
-      "good"
-    );
+    setAiStatus(`Ready: ${loaded?.label || modelLabel(loadedId)} on ${aiState.device || "WebGPU"}.`, "good");
   } else if (aiState.status === "ready") {
     aiProgress.hidden = true;
     setAiStatus(
       `Loaded: ${loaded?.label || modelLabel(loadedId)}. Selected: ${
         selected?.label || modelLabel(selectedId)
-      }. Choose Download & load to switch.`
+      }. Choose Download & load to switch.`,
     );
   } else if (aiState.status === "error") {
     aiProgress.hidden = true;
@@ -229,9 +224,9 @@ function renderAiState(state) {
     setAiStatus(
       selected
         ? `${selected.label} is not loaded. Choose Download & load to fetch ~${formatBytes(
-            selected.approxBytes
+            selected.approxBytes,
           )}.`
-        : "Local AI is off."
+        : "Local AI is off.",
     );
   }
   updateAiButtons();
@@ -288,7 +283,7 @@ async function downloadModel() {
     const granted = await chrome.permissions.request({ origins: AI.HF_ORIGINS });
     if (!granted) {
       throw new Error(
-        "Model download permission was denied. Allow access to huggingface.co to download a model."
+        "Model download permission was denied. Allow access to huggingface.co to download a model.",
       );
     }
     setAiStatus(`Starting ${model.label} download...`);
@@ -350,8 +345,8 @@ aiModelInput.addEventListener("change", async () => {
   if (aiState?.status === "ready" && aiState.modelId !== aiModelInput.value) {
     setAiStatus(
       `Loaded: ${modelLabel(aiState.modelId)}. Selected: ${modelLabel(
-        aiModelInput.value
-      )}. Choose Download & load to switch.`
+        aiModelInput.value,
+      )}. Choose Download & load to switch.`,
     );
   }
   updateAiButtons();

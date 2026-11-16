@@ -33,7 +33,7 @@ const EXTENSION_MAP = {
 
 /**
  * Extract artifacts (code files, diffs, documents) from markdown text.
- * @param {string} text 
+ * @param {string} text
  * @returns {Array<{ id: string, filename: string, language: string, content: string, size: number, type: string }>}
  */
 export function extractArtifactsFromText(text) {
@@ -44,7 +44,8 @@ export function extractArtifactsFromText(text) {
   let index = 1;
 
   // 1. Claude Artifact tag extraction: <antArtifact identifier="..." type="..." title="...">
-  const claudeArtifactRegex = /<antArtifact\s+[^>]*?title=["']([^"']+)["'][^>]*?(?:language=["']([^"']+)["'])?[^>]*?>([\s\S]*?)<\/antArtifact>/gi;
+  const claudeArtifactRegex =
+    /<antArtifact\s+[^>]*?title=["']([^"']+)["'][^>]*?(?:language=["']([^"']+)["'])?[^>]*?>([\s\S]*?)<\/antArtifact>/gi;
   let match;
   while ((match = claudeArtifactRegex.exec(text)) !== null) {
     const rawTitle = match[1].trim();
@@ -70,7 +71,8 @@ export function extractArtifactsFromText(text) {
 
   // 2. Code blocks extraction with filename indicators
   // Matches ```lang[:filename] or ```lang filename="foo"
-  const codeBlockRegex = /(?:###?[ \t]+([^\n`]+)\r?\n[ \t]*)?```([a-zA-Z0-9_-]+)?(?:[ \t]+(?:filepath=|filename=|file:)?([^\r\n`]+))?\r?\n([\s\S]*?)```/g;
+  const codeBlockRegex =
+    /(?:###?[ \t]+([^\n`]+)\r?\n[ \t]*)?```([a-zA-Z0-9_-]+)?(?:[ \t]+(?:filepath=|filename=|file:)?([^\r\n`]+))?\r?\n([\s\S]*?)```/g;
   while ((match = codeBlockRegex.exec(text)) !== null) {
     const precedingHeader = (match[1] || "").trim();
     const lang = (match[2] || "").trim().toLowerCase();
@@ -88,7 +90,9 @@ export function extractArtifactsFromText(text) {
     if (!detectedName) {
       const lines = content.split("\n").slice(0, 3);
       for (const line of lines) {
-        const fileCommentMatch = line.match(/(?:(?:\/\/|#|--|\/\*))\s*(?:file(?:path)?:?|filename:?)\s*([a-zA-Z0-9_\-./\\]+)/i);
+        const fileCommentMatch = line.match(
+          /(?:(?:\/\/|#|--|\/\*))\s*(?:file(?:path)?:?|filename:?)\s*([a-zA-Z0-9_\-./\\]+)/i,
+        );
         if (fileCommentMatch) {
           detectedName = fileCommentMatch[1].trim();
           break;

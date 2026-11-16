@@ -16,7 +16,11 @@ test("tracer writes bounded start and end spans with parent links", () => {
   const child = tracer.span("tool", { commandId: "tool-1", command: "echo secret" }, root);
   child.end({ status: "done", exitCode: 0, sandbox: "srt" });
   root.end({ status: "done", chars: 12 });
-  const lines = fs.readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const lines = fs
+    .readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
   assert.equal(lines.length, 4);
   const start = lines.find((line) => line.type === "span.start" && line.name === "run");
   const childEnd = lines.find((line) => line.type === "span.end" && line.name === "tool");
@@ -36,7 +40,11 @@ test("tracer records errors once and ignores repeated ends", () => {
   const span = tracer.span("run", { runId: "run-2" });
   span.error(new Error("boom"));
   span.end({ status: "done" });
-  const lines = fs.readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const lines = fs
+    .readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
   assert.equal(lines.length, 2);
   assert.equal(lines[1].status, "error");
   assert.equal(lines[1].attrs.error, "boom");

@@ -217,7 +217,9 @@ async function handleTabs(opts) {
     }
     if (tabs.length === 0) {
       console.log("No bridged tabs connected to Melon Hub.");
-      console.log("Make sure Chrome has the Melon extension active and tabs open (ChatGPT, Claude, Gemini, etc.).");
+      console.log(
+        "Make sure Chrome has the Melon extension active and tabs open (ChatGPT, Claude, Gemini, etc.).",
+      );
       return;
     }
     console.log(`Connected Bridged Tabs (${tabs.length}):\n`);
@@ -238,7 +240,9 @@ async function resolveTargetTab(hubUrl, opts) {
   const data = await requestJson(`${hubUrl}/api/tabs`, { token: opts.token });
   const tabs = data.tabs || [];
   if (tabs.length === 0) {
-    throw new Error("No browser tabs connected. Open ChatGPT, Claude, or Gemini in Chrome with Melon extension.");
+    throw new Error(
+      "No browser tabs connected. Open ChatGPT, Claude, or Gemini in Chrome with Melon extension.",
+    );
   }
 
   // 1. Exact tab ID match
@@ -260,7 +264,9 @@ async function resolveTargetTab(hubUrl, opts) {
       return adapter.includes(filter) || title.includes(filter) || url.includes(filter);
     });
     if (match) return match;
-    throw new Error(`No connected tab matches role/adapter "${filter}". Run \`melon tabs\` to view active tabs.`);
+    throw new Error(
+      `No connected tab matches role/adapter "${filter}". Run \`melon tabs\` to view active tabs.`,
+    );
   }
 
   // 3. Default to first connected tab
@@ -314,7 +320,9 @@ async function handleAsk(opts) {
   }
 
   if (!prompt || !prompt.trim()) {
-    console.error(`❌ Error: prompt is required. Example: melon ask "Explain async generators" or pipe stdin.`);
+    console.error(
+      `❌ Error: prompt is required. Example: melon ask "Explain async generators" or pipe stdin.`,
+    );
     process.exit(1);
   }
 
@@ -605,7 +613,7 @@ async function handleDo(opts) {
     if (opts.autoExec && !opts.allowUntrusted) {
       console.error(
         "\n⚠️  --yes/--exec alone no longer auto-runs commands from a web tab.\n" +
-          "   Re-run with --allow-untrusted-exec to opt into executing untrusted model output."
+          "   Re-run with --allow-untrusted-exec to opt into executing untrusted model output.",
       );
     }
     if (!proceed) {
@@ -625,7 +633,9 @@ async function handleDo(opts) {
     }
 
     if (retriesRemaining > 0) {
-      console.log(`\n⚠️  Command failed (exit code ${result.code}). Triggering auto-healing loop (${retriesRemaining} retries left)...`);
+      console.log(
+        `\n⚠️  Command failed (exit code ${result.code}). Triggering auto-healing loop (${retriesRemaining} retries left)...`,
+      );
       currentPrompt = `The previous command \`${commandToRun}\` failed with exit code ${result.code}.\n\nOutput / Error:\n${(result.stderr || result.stdout).slice(-2000)}\n\nPlease analyze this error, explain the root cause, and provide the corrected command/code.`;
       retriesRemaining--;
     } else {
@@ -672,7 +682,9 @@ async function handleDecide(opts) {
       const rank = `#${score.rank}`.padEnd(6);
       console.log(`${rank}${prob}"${cand}"`);
     }
-    console.log(`\nSelected winner: ${res.selected?.[0]} (Confidence: ${res.confidence ? `${(res.confidence * 100).toFixed(1)}%` : "N/A"})\n`);
+    console.log(
+      `\nSelected winner: ${res.selected?.[0]} (Confidence: ${res.confidence ? `${(res.confidence * 100).toFixed(1)}%` : "N/A"})\n`,
+    );
   } catch (err) {
     console.error(`❌ Decision query failed: ${err.message}`);
     process.exit(1);
@@ -749,7 +761,9 @@ async function handleDoctor(opts) {
   let health = null;
   try {
     health = await requestJson(`${hubUrl}/api/health`, { token: opts.token });
-    console.log(`  [✔] Local Hub Server:       Online at ${hubUrl} (v${health.version}, uptime: ${health.uptime}s)`);
+    console.log(
+      `  [✔] Local Hub Server:       Online at ${hubUrl} (v${health.version}, uptime: ${health.uptime}s)`,
+    );
   } catch (err) {
     console.log(`  [✗] Local Hub Server:       Offline at ${hubUrl} (${err.message})`);
     console.log(`      ↳ Start the hub with:   node server/hub.mjs`);
@@ -786,11 +800,15 @@ async function handleDoctor(opts) {
         console.log(`  [✔] Bridged AI Tabs:        ${tabs.length} open tab${tabs.length > 1 ? "s" : ""}`);
         for (const t of tabs) {
           const ready = t.health?.fields?.composer?.ok ? "ready" : "attached";
-          console.log(`      • [${ready}] ${t.title ? t.title.slice(0, 35) : "Untitled"} (${t.adapter || "auto"})`);
+          console.log(
+            `      • [${ready}] ${t.title ? t.title.slice(0, 35) : "Untitled"} (${t.adapter || "auto"})`,
+          );
         }
       } else {
         console.log(`  [!] Bridged AI Tabs:        0 open AI tabs detected`);
-        console.log(`      ↳ Open tabs:            Open ChatGPT (https://chatgpt.com) or Claude (https://claude.ai)`);
+        console.log(
+          `      ↳ Open tabs:            Open ChatGPT (https://chatgpt.com) or Claude (https://claude.ai)`,
+        );
         issues++;
       }
     } catch (err) {
@@ -805,7 +823,9 @@ async function handleDoctor(opts) {
 
   // 8. Telemetry & Errors
   if (health && health.telemetryErrors > 0) {
-    console.log(`  [!] Telemetry & Errors:     ${health.telemetryErrors} captured issue(s) (run \`melon errors\` to inspect)`);
+    console.log(
+      `  [!] Telemetry & Errors:     ${health.telemetryErrors} captured issue(s) (run \`melon errors\` to inspect)`,
+    );
     issues++;
   } else if (health) {
     console.log(`  [✔] Telemetry & Errors:     Clean (0 active errors)`);
@@ -815,7 +835,9 @@ async function handleDoctor(opts) {
   if (issues === 0) {
     console.log(`  🎉 All systems operational! Ready to run graphs, tournaments, or \`melon ask\`.\n`);
   } else {
-    console.log(`  ⚠️  ${issues} item${issues > 1 ? "s" : ""} need attention. Follow the tips above to get 100% operational.\n`);
+    console.log(
+      `  ⚠️  ${issues} item${issues > 1 ? "s" : ""} need attention. Follow the tips above to get 100% operational.\n`,
+    );
   }
 }
 
@@ -853,18 +875,31 @@ async function handleTasks(opts) {
   const hubUrl = getHubUrl(opts.hub);
   try {
     const filter = opts.filter || "all";
-    const data = await requestJson(`${hubUrl}/api/tasks?status=${encodeURIComponent(filter)}`, { token: opts.token });
+    const data = await requestJson(`${hubUrl}/api/tasks?status=${encodeURIComponent(filter)}`, {
+      token: opts.token,
+    });
     if (opts.json) {
       console.log(JSON.stringify(data, null, 2));
       return;
     }
     const tasks = data.tasks || [];
     if (!tasks.length) {
-      console.log(`\n📋 No tasks found (filter: ${filter}). Active: ${data.activeCount || 0}, Total: ${data.historyCount || 0}`);
+      console.log(
+        `\n📋 No tasks found (filter: ${filter}). Active: ${data.activeCount || 0}, Total: ${data.historyCount || 0}`,
+      );
       return;
     }
     console.log(`\n📋 Melon Tasks (Active: ${data.activeCount || 0}, Filter: ${filter}):\n`);
-    console.log("ID".padEnd(20) + "TARGET".padEnd(16) + "STATUS".padEnd(12) + "CHARS".padStart(7) + "  " + "ELAPSED".padEnd(10) + "RESUMABLE".padEnd(11) + "PREVIEW");
+    console.log(
+      "ID".padEnd(20) +
+        "TARGET".padEnd(16) +
+        "STATUS".padEnd(12) +
+        "CHARS".padStart(7) +
+        "  " +
+        "ELAPSED".padEnd(10) +
+        "RESUMABLE".padEnd(11) +
+        "PREVIEW",
+    );
     console.log("―".repeat(95));
     for (const t of tasks) {
       const id = (t.id || "").slice(0, 18).padEnd(20);
@@ -874,7 +909,9 @@ async function handleTasks(opts) {
       const elapsed = (t.durationMs ? `${(t.durationMs / 1000).toFixed(1)}s` : "-").padEnd(10);
       const resumable = (t.resumable ? "⚡ YES" : "-").padEnd(11);
       const preview = (t.text || t.target?.prompt || "").replace(/\s+/g, " ").trim().slice(0, 25);
-      console.log(`${id}${target}${status}${chars}  ${elapsed}${resumable}${preview ? `"${preview}..."` : ""}`);
+      console.log(
+        `${id}${target}${status}${chars}  ${elapsed}${resumable}${preview ? `"${preview}..."` : ""}`,
+      );
     }
     console.log("");
   } catch (err) {
@@ -888,7 +925,9 @@ async function handleResume(opts) {
   const hubUrl = getHubUrl(opts.hub);
   const taskId = opts.taskId;
   if (!taskId) {
-    console.error("❌ Error: Task ID is required. Usage: melon resume <taskId> [optional continuation prompt]");
+    console.error(
+      "❌ Error: Task ID is required. Usage: melon resume <taskId> [optional continuation prompt]",
+    );
     process.exit(1);
   }
   try {
@@ -906,7 +945,9 @@ async function handleResume(opts) {
       return;
     }
     if (res.method === "extracted") {
-      console.log(`\n✨ Successfully recovered task ${taskId} directly from tab! (${res.task?.chars || 0} characters)`);
+      console.log(
+        `\n✨ Successfully recovered task ${taskId} directly from tab! (${res.task?.chars || 0} characters)`,
+      );
       if (res.task?.text) {
         console.log(`\n${res.task.text}\n`);
       }
@@ -1062,4 +1103,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { parseCliArgs, formatTabRow, resolveTargetTab, handleDoctor, handleErrors, handleTasks, handleResume, handleAbort, handleDo, handleDecide, extractShellCommands };
+export {
+  parseCliArgs,
+  formatTabRow,
+  resolveTargetTab,
+  handleDoctor,
+  handleErrors,
+  handleTasks,
+  handleResume,
+  handleAbort,
+  handleDo,
+  handleDecide,
+  extractShellCommands,
+};

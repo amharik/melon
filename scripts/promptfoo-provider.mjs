@@ -10,6 +10,9 @@ const mode = input.config?.mode || "moderator";
 const output =
   mode === "single"
     ? buildResponse("claude", goal)
-    : buildResponse("moderator", `${goal}\n\nrev1\n${buildResponse("claude", goal)}\n\nrev2\n${buildResponse("gemini", goal)}`);
+    : buildResponse(
+        "moderator",
+        `${goal}\n\nrev1\n${buildResponse("claude", goal)}\n\nrev2\n${buildResponse("gemini", goal)}`,
+      );
 
 process.stdout.write(JSON.stringify({ output }));

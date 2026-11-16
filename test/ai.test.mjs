@@ -51,7 +51,15 @@ test("extension exposes an optional offscreen AI model picker", async () => {
   assert.doesNotMatch(manifest.content_security_policy.extension_pages, /worker-src[^;]*blob:/);
 
   const options = await fs.readFile(path.join(EXT, "options.html"), "utf8");
-  for (const id of ["ai-enabled", "ai-model", "ai-download", "ai-test", "ai-unload", "ai-progress", "consent"]) {
+  for (const id of [
+    "ai-enabled",
+    "ai-model",
+    "ai-download",
+    "ai-test",
+    "ai-unload",
+    "ai-progress",
+    "consent",
+  ]) {
     assert.match(options, new RegExp(`id="${id}"`));
   }
   assert.match(options, /ai\/models\.js/);

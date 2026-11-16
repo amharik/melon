@@ -13,11 +13,7 @@
       fields: {
         composer: {
           required: true,
-          candidates: [
-            "#prompt-textarea",
-            'div.ProseMirror[contenteditable="true"]',
-            "textarea",
-          ],
+          candidates: ["#prompt-textarea", 'div.ProseMirror[contenteditable="true"]', "textarea"],
         },
         send: {
           required: false,
@@ -27,7 +23,7 @@
             'button[type="submit"]',
             'button[aria-label*="send" i]',
             'button[aria-label*="Submit" i]',
-            'button.bg-composer-primary',
+            "button.bg-composer-primary",
             'button[class*="composer-primary"]',
             'button[class*="SendButton"]',
           ],
@@ -57,10 +53,10 @@
             '[class*="MarkdownRoot"]',
             '[class*="DilResponseRoot"]',
             '[class*="DilRenderer"]',
-            '.agent-turn .markdown',
-            '.agent-turn',
-            'div[data-message-model-slug]',
-            'div.markdown',
+            ".agent-turn .markdown",
+            ".agent-turn",
+            "div[data-message-model-slug]",
+            "div.markdown",
           ],
         },
       },
@@ -73,10 +69,7 @@
       fields: {
         composer: {
           required: true,
-          candidates: [
-            'div[contenteditable="true"].ProseMirror',
-            'div[contenteditable="true"]',
-          ],
+          candidates: ['div[contenteditable="true"].ProseMirror', 'div[contenteditable="true"]'],
         },
         send: {
           required: false,
@@ -191,7 +184,9 @@
       const inner = typeof el.innerText === "string" ? el.innerText.trim() : "";
       raw = inner || (typeof el.textContent === "string" ? el.textContent.trim() : "");
     }
-    return String(raw || "").replace(/\u200b/g, "").trim();
+    return String(raw || "")
+      .replace(/\u200b/g, "")
+      .trim();
   }
 
   /* ------------------------------------------------- Rich DOM Extraction */
@@ -204,13 +199,14 @@
     }
 
     const isRichItself =
-      root.tagName &&
-      /^(table|img|svg|canvas|pre|code|ul|ol|blockquote|h[1-6])$/i.test(root.tagName);
+      root.tagName && /^(table|img|svg|canvas|pre|code|ul|ol|blockquote|h[1-6])$/i.test(root.tagName);
     const hasRichElements =
       isRichItself ||
       Boolean(
         root.querySelector &&
-        root.querySelector("table, img, svg, canvas, pre, code, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .katex, [data-tex]")
+          root.querySelector(
+            "table, img, svg, canvas, pre, code, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .katex, [data-tex]",
+          ),
       );
     if (!hasRichElements && (!root.childNodes || root.childNodes.length <= 1)) {
       const fallback = textOf(root);
@@ -303,22 +299,41 @@
           }
         }
         if (!lang) {
-          lang = codeEl.getAttribute?.("data-language") ||
-                 node.getAttribute?.("data-language") ||
-                 node.getAttribute?.("data-code-language") ||
-                 "";
+          lang =
+            codeEl.getAttribute?.("data-language") ||
+            node.getAttribute?.("data-language") ||
+            node.getAttribute?.("data-code-language") ||
+            "";
         }
         if (!lang) {
           const headerSpan = node.parentElement?.querySelector?.("span, div");
           const headerText = (headerSpan?.textContent || "").trim().toLowerCase();
-          if (["mermaid", "svg", "plantuml", "dot", "python", "javascript", "json", "yaml", "html", "bash", "sql"].includes(headerText)) {
+          if (
+            [
+              "mermaid",
+              "svg",
+              "plantuml",
+              "dot",
+              "python",
+              "javascript",
+              "json",
+              "yaml",
+              "html",
+              "bash",
+              "sql",
+            ].includes(headerText)
+          ) {
             lang = headerText;
           }
         }
         const rawCode = codeEl.innerText || codeEl.textContent || "";
         if (!lang) {
           const trimmedCode = rawCode.trim();
-          if (/^(graph\s+[A-Z]{2}|flowchart\s+[A-Z]{2}|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|architecture|block-beta|C4Context|C4Container|C4Component)\b/i.test(trimmedCode)) {
+          if (
+            /^(graph\s+[A-Z]{2}|flowchart\s+[A-Z]{2}|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|architecture|block-beta|C4Context|C4Container|C4Component)\b/i.test(
+              trimmedCode,
+            )
+          ) {
             lang = "mermaid";
           } else if (trimmedCode.startsWith("<svg") && trimmedCode.includes("</svg>")) {
             lang = "svg";
@@ -368,22 +383,27 @@
         try {
           const w = node.clientWidth || parseFloat(node.getAttribute?.("width") || "0");
           const h = node.clientHeight || parseFloat(node.getAttribute?.("height") || "0");
-          const paths = node.querySelectorAll?.("path, circle, rect, polygon, line, text, polyline, ellipse")?.length || 0;
-          const isButtonIcon = Boolean(node.closest?.("button, [role='button'], .btn, .copy-button, [aria-label*='Copy']"));
+          const paths =
+            node.querySelectorAll?.("path, circle, rect, polygon, line, text, polyline, ellipse")?.length ||
+            0;
+          const isButtonIcon = Boolean(
+            node.closest?.("button, [role='button'], .btn, .copy-button, [aria-label*='Copy']"),
+          );
           const isMermaid = Boolean(
             node.id?.includes("mermaid") ||
-            node.classList?.contains("mermaid") ||
-            node.closest?.('[class*="mermaid"], [id*="mermaid"], .chart-container, .diagram, .artifact, [data-testid*="diagram"]')
+              node.classList?.contains("mermaid") ||
+              node.closest?.(
+                '[class*="mermaid"], [id*="mermaid"], .chart-container, .diagram, .artifact, [data-testid*="diagram"]',
+              ),
           );
           const hasTextLabels = (node.querySelectorAll?.("text, tspan")?.length || 0) > 0;
           const isIllustration =
-            !isButtonIcon && (
-              isMermaid ||
+            !isButtonIcon &&
+            (isMermaid ||
               hasTextLabels ||
               (w >= 36 && h >= 36) ||
               paths >= 3 ||
-              node.hasAttribute?.("viewBox")
-            );
+              node.hasAttribute?.("viewBox"));
 
           if (isIllustration && typeof XMLSerializer !== "undefined") {
             const clone = node.cloneNode(true);
@@ -393,10 +413,14 @@
             if (!clone.getAttribute("viewBox") && w > 0 && h > 0) {
               clone.setAttribute("viewBox", `0 0 ${w} ${h}`);
             }
-            const label = (node.getAttribute?.("aria-label") ||
+            const label = (
+              node.getAttribute?.("aria-label") ||
               node.querySelector?.("title")?.textContent ||
               node.getAttribute?.("data-title") ||
-              (isMermaid ? "Mermaid Diagram" : "Vector Diagram")).replace(/[\r\n\[\]]/g, " ").trim();
+              (isMermaid ? "Mermaid Diagram" : "Vector Diagram")
+            )
+              .replace(/[\r\n\[\]]/g, " ")
+              .trim();
             const serialized = new XMLSerializer().serializeToString(clone);
             const encoded = encodeURIComponent(serialized);
             return `\n\n![${label}](data:image/svg+xml;utf8,${encoded})\n\n`;
@@ -497,11 +521,7 @@
     if (typeof getComputedStyle === "function") {
       try {
         const style = getComputedStyle(el);
-        if (
-          style?.display === "none" ||
-          style?.visibility === "hidden" ||
-          style?.opacity === "0"
-        ) {
+        if (style?.display === "none" || style?.visibility === "hidden" || style?.opacity === "0") {
           return false;
         }
       } catch {}
@@ -663,12 +683,7 @@
         ...item,
         score: scoreCandidate(item, fieldName, options),
       }))
-      .sort(
-        (a, b) =>
-          b.score - a.score ||
-          a.index - b.index ||
-          compareDocumentOrder(a.el, b.el)
-      )
+      .sort((a, b) => b.score - a.score || a.index - b.index || compareDocumentOrder(a.el, b.el))
       .filter((item) => item.score >= 0)
       .map((item, rank) => ({
         ...item,
@@ -697,10 +712,8 @@
       (item) =>
         !items.some(
           (other) =>
-            other.el !== item.el &&
-            typeof other.el.contains === "function" &&
-            other.el.contains(item.el)
-        )
+            other.el !== item.el && typeof other.el.contains === "function" && other.el.contains(item.el),
+        ),
     );
     const unique = [];
     for (const item of topLevel) {
@@ -717,8 +730,9 @@
     let text = "";
     if (element) {
       const inner =
-        element.querySelector?.('.markdown, .prose, message-content, [class*="markdown"], [class*="prose"], .model-response-text') ||
-        element;
+        element.querySelector?.(
+          '.markdown, .prose, message-content, [class*="markdown"], [class*="prose"], .model-response-text',
+        ) || element;
       text = domToRichMarkdown(inner) || domToRichMarkdown(element) || textOf(inner) || textOf(element);
     }
     return {

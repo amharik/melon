@@ -51,16 +51,13 @@ const LOGIN = process.env.MELON_LIVE_LOGIN === "1";
 const HEADLESS = LOGIN ? false : process.env.MELON_LIVE_HEADLESS !== "0";
 const SEND = process.env.MELON_LIVE_SEND === "1";
 const STRICT = process.env.MELON_LIVE_STRICT === "1";
-const PROMPT =
-  process.env.MELON_LIVE_PROMPT || "Reply with exactly: MELON_LIVE_OK";
+const PROMPT = process.env.MELON_LIVE_PROMPT || "Reply with exactly: MELON_LIVE_OK";
 const SETTLE_MS = Math.max(500, Number(process.env.MELON_LIVE_SETTLE_MS) || 3000);
 const PAGE_TIMEOUT = Math.max(5000, Number(process.env.MELON_LIVE_PAGE_TIMEOUT) || 20000);
 const RUN_TIMEOUT = Math.max(30000, Number(process.env.MELON_LIVE_RUN_TIMEOUT) || 180000);
 const TOTAL_TIMEOUT =
-  Math.max(30000, Number(process.env.MELON_LIVE_TOTAL_TIMEOUT) || 0) ||
-  (SEND || LOGIN ? 900000 : 240000);
-const PROFILE =
-  process.env.MELON_LIVE_PROFILE || path.join(os.homedir(), ".cache", "melon-live", "profile");
+  Math.max(30000, Number(process.env.MELON_LIVE_TOTAL_TIMEOUT) || 0) || (SEND || LOGIN ? 900000 : 240000);
+const PROFILE = process.env.MELON_LIVE_PROFILE || path.join(os.homedir(), ".cache", "melon-live", "profile");
 const COOKIES_FILE = process.env.MELON_LIVE_COOKIES || null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,7 +65,7 @@ const selectedSites = process.env.MELON_LIVE_SITES
   ? new Set(
       process.env.MELON_LIVE_SITES.split(",")
         .map((value) => value.trim().toLowerCase())
-        .filter(Boolean)
+        .filter(Boolean),
     )
   : null;
 
@@ -78,9 +75,7 @@ function log(message) {
 
 function selected(site) {
   if (!selectedSites) return true;
-  return [site.id, site.host, ...site.aliases].some((value) =>
-    selectedSites.has(value.toLowerCase())
-  );
+  return [site.id, site.host, ...site.aliases].some((value) => selectedSites.has(value.toLowerCase()));
 }
 
 function extensionIdForPath(dir) {
@@ -208,9 +203,7 @@ class CDP {
     });
     if (result.exceptionDetails) {
       const text =
-        result.exceptionDetails.exception?.description ||
-        result.exceptionDetails.text ||
-        "evaluation failed";
+        result.exceptionDetails.exception?.description || result.exceptionDetails.text || "evaluation failed";
       throw new Error(text);
     }
     return result.result?.value;
@@ -321,7 +314,7 @@ async function sseQueue(response) {
         },
         "SSE event",
         timeout,
-        50
+        50,
       );
     },
     close() {
@@ -332,11 +325,9 @@ async function sseQueue(response) {
 }
 
 async function readPage(cdp) {
-  await waitFor(
-    () => cdp.evaluate(`document.readyState === "complete"`),
-    "page load",
-    PAGE_TIMEOUT
-  ).catch(() => {});
+  await waitFor(() => cdp.evaluate(`document.readyState === "complete"`), "page load", PAGE_TIMEOUT).catch(
+    () => {},
+  );
   await sleep(SETTLE_MS);
   return cdp.evaluate(`(() => {
     const text = String(document.body?.innerText || "").replace(/\\s+/g, " ").trim();
@@ -455,7 +446,7 @@ async function runPrompt(sse, base, site, tab) {
       event.type === "run.event" &&
       event.runId === runId &&
       ["done", "error", "cancelled"].includes(event.event?.type),
-    RUN_TIMEOUT + 15000
+    RUN_TIMEOUT + 15000,
   );
 
   return {
@@ -528,7 +519,7 @@ async function main() {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
-    }
+    },
   );
   let chromeLogs = "";
   chrome.stdout.on("data", (data) => (chromeLogs += data));
@@ -607,25 +598,26 @@ async function main() {
     log(`hub ${base}`);
     log(`Chromium pid ${chrome.pid} debug port ${debugPort} headless=${HEADLESS}`);
 
-    await waitFor(async () => {
-      let port = debugPort;
-      try {
-        const active = await fs.readFile(
-          path.join(PROFILE, "DevToolsActivePort"),
-          "utf8"
-        );
-        port = Number(active.split("\n")[0]) || port;
-      } catch {}
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`).catch(() => null);
-      return response?.ok;
-    }, "Chromium DevTools", 30000);
+    await waitFor(
+      async () => {
+        let port = debugPort;
+        try {
+          const active = await fs.readFile(path.join(PROFILE, "DevToolsActivePort"), "utf8");
+          port = Number(active.split("\n")[0]) || port;
+        } catch {}
+        const response = await fetch(`http://127.0.0.1:${port}/json/version`).catch(() => null);
+        return response?.ok;
+      },
+      "Chromium DevTools",
+      30000,
+    );
 
     const worker = await waitFor(async () => {
       const list = await targets(debugPort);
       return list.find(
         (target) =>
           target.type === "service_worker" &&
-          target.url === `chrome-extension://${extensionId}/background.js`
+          target.url === `chrome-extension://${extensionId}/background.js`,
       );
     }, "extension service worker");
     log(`extension worker ${worker.url}`);
@@ -643,7 +635,7 @@ async function main() {
     await waitFor(
       () => optionsCdp.evaluate(`typeof chrome !== "undefined" && !!chrome.storage?.local`),
       "extension options context",
-      8000
+      8000,
     );
     await optionsCdp.evaluate(`(async () => {
       await chrome.storage.local.set({
@@ -746,12 +738,16 @@ async function main() {
         if (!result.page?.challenge) {
           stepAt = Date.now();
           result.tab =
-            (await waitFor(async () => {
-              const data = await json(`${base}/api/tabs`);
-              const tab = data.tabs.find((item) => matchesSite(item, site));
-              if (!tab) return null;
-              return tab.health || !tab.supported ? tab : null;
-            }, `${site.id} extension health`, 20000).catch(async () => {
+            (await waitFor(
+              async () => {
+                const data = await json(`${base}/api/tabs`);
+                const tab = data.tabs.find((item) => matchesSite(item, site));
+                if (!tab) return null;
+                return tab.health || !tab.supported ? tab : null;
+              },
+              `${site.id} extension health`,
+              20000,
+            ).catch(async () => {
               const data = await json(`${base}/api/tabs`);
               return data.tabs.find((item) => matchesSite(item, site)) || null;
             })) || null;
@@ -767,7 +763,7 @@ async function main() {
                   `chrome.scripting.executeScript({
                     target: { tabId: ${Number(result.tab.id)} },
                     files: ["adapters.js", "content.js"],
-                  }).then(() => "injected").catch((err) => String(err?.message || err))`
+                  }).then(() => "injected").catch((err) => String(err?.message || err))`,
                 )
                 .catch((err) => String(err?.message || err));
               await sleep(500);
@@ -776,8 +772,8 @@ async function main() {
               }));
               log(
                 `${site.id}: inject=${result.bridgeInjection} bridgeAfter=${JSON.stringify(
-                  result.bridgeAfter
-                )}`
+                  result.bridgeAfter,
+                )}`,
               );
             }
           }
@@ -787,9 +783,7 @@ async function main() {
         if (result.status === "challenge") await sleep(2500);
         const classifiedShot = await screenshot(pageCdp, site, `02-${result.status}`).catch(() => null);
         if (classifiedShot) result.screenshots.push(classifiedShot);
-        log(
-          `${summarize(result)} timings=${JSON.stringify(result.timings)}`
-        );
+        log(`${summarize(result)} timings=${JSON.stringify(result.timings)}`);
 
         if (SEND && result.status === "ready" && result.tab) {
           log(`${site.id}: sending live prompt`);
@@ -802,7 +796,7 @@ async function main() {
           result.screenshotAfter = await screenshot(pageCdp, site, "04-run-after").catch(() => null);
           if (result.screenshotAfter) result.screenshots.push(result.screenshotAfter);
           log(
-            `${site.id}: run ${result.run.status} in ${result.run.durationMs}ms, ${result.run.text.length} chars`
+            `${site.id}: run ${result.run.status} in ${result.run.durationMs}ms, ${result.run.text.length} chars`,
           );
         }
       } catch (err) {
@@ -820,16 +814,12 @@ async function main() {
 
     const ready = report.sites.filter((site) => site.status === "ready").length;
     const blocked = report.sites.filter((site) =>
-      ["login-required", "challenge", "unsupported", "no-tab", "health-error"].includes(
-        site.status
-      )
+      ["login-required", "challenge", "unsupported", "no-tab", "health-error"].includes(site.status),
     ).length;
     log(`${ready}/${report.sites.length} sites ready; ${blocked} blocked or degraded`);
 
     if (SEND) {
-      const failed = report.sites.filter(
-        (site) => site.run && site.run.status !== "done"
-      );
+      const failed = report.sites.filter((site) => site.run && site.run.status !== "done");
       if (failed.length) {
         process.exitCode = 1;
         log(`${failed.length} live run(s) failed`);

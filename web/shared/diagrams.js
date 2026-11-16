@@ -5,7 +5,9 @@
 export function isMermaidCode(text) {
   if (!text) return false;
   const trimmed = text.trim();
-  return /^\s*(graph\s+[A-Z]{2}|flowchart\s+[A-Z]{2}|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|architecture|block-beta|C4Context|C4Container|C4Component)\b/i.test(trimmed);
+  return /^\s*(graph\s+[A-Z]{2}|flowchart\s+[A-Z]{2}|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|architecture|block-beta|C4Context|C4Container|C4Component)\b/i.test(
+    trimmed,
+  );
 }
 
 export function isBoxDiagram(text) {
@@ -111,10 +113,7 @@ export function sanitizeSvgXml(svgText) {
   clean = clean.replace(/<!ENTITY[^>]*>/gi, "");
   // Remove executable/scriptable elements, including unclosed variants.
   for (const tag of SVG_DANGEROUS_TAGS) {
-    clean = clean.replace(
-      new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "gi"),
-      ""
-    );
+    clean = clean.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "gi"), "");
     clean = clean.replace(new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi"), "");
   }
   // Remove inline event handlers (quoted, unquoted, or bare).
@@ -122,11 +121,11 @@ export function sanitizeSvgXml(svgText) {
   // Remove scriptable URL schemes from href/xlink:href.
   clean = clean.replace(
     /\s(?:xlink:href|href)\s*=\s*("|')\s*(?:javascript|vbscript|data:text\/html|livescript|mocha):[^"']*\1/gi,
-    ""
+    "",
   );
   clean = clean.replace(
     /\s(?:xlink:href|href)\s*=\s*(?:javascript|vbscript|data:text\/html|livescript|mocha):[^\s>]+/gi,
-    ""
+    "",
   );
   // Remove CSS-based script/exfiltration vectors.
   clean = clean.replace(/@import\s[^;]*;?/gi, "");
@@ -151,7 +150,10 @@ export function sanitizeSvgXml(svgText) {
 
   // Ensure responsive style attributes
   if (!/style\s*=/i.test(clean)) {
-    clean = clean.replace(/<svg\b/i, '<svg style="width:100%; height:auto; display:block; max-height:560px;"');
+    clean = clean.replace(
+      /<svg\b/i,
+      '<svg style="width:100%; height:auto; display:block; max-height:560px;"',
+    );
   }
 
   return clean;
@@ -159,14 +161,61 @@ export function sanitizeSvgXml(svgText) {
 
 function chooseNodeIcon(id, label) {
   const s = `${id} ${label}`.toLowerCase();
-  if (s.includes("db") || s.includes("database") || s.includes("sql") || s.includes("redis") || s.includes("mongo") || s.includes("store")) return "🗄️";
-  if (s.includes("gateway") || s.includes("proxy") || s.includes("router") || s.includes("ingress")) return "⚡";
-  if (s.includes("client") || s.includes("browser") || s.includes("frontend") || s.includes("ui") || s.includes("web") || s.includes("app")) return "💻";
+  if (
+    s.includes("db") ||
+    s.includes("database") ||
+    s.includes("sql") ||
+    s.includes("redis") ||
+    s.includes("mongo") ||
+    s.includes("store")
+  )
+    return "🗄️";
+  if (s.includes("gateway") || s.includes("proxy") || s.includes("router") || s.includes("ingress"))
+    return "⚡";
+  if (
+    s.includes("client") ||
+    s.includes("browser") ||
+    s.includes("frontend") ||
+    s.includes("ui") ||
+    s.includes("web") ||
+    s.includes("app")
+  )
+    return "💻";
   if (s.includes("user") || s.includes("actor") || s.includes("human") || s.includes("customer")) return "👤";
-  if (s.includes("auth") || s.includes("security") || s.includes("oauth") || s.includes("jwt") || s.includes("key")) return "🔒";
-  if (s.includes("queue") || s.includes("kafka") || s.includes("mq") || s.includes("rabbit") || s.includes("pubsub") || s.includes("event")) return "📨";
-  if (s.includes("cloud") || s.includes("aws") || s.includes("gcp") || s.includes("azure") || s.includes("cluster")) return "☁️";
-  if (s.includes("ai") || s.includes("llm") || s.includes("model") || s.includes("claude") || s.includes("gpt") || s.includes("gemini")) return "🧠";
+  if (
+    s.includes("auth") ||
+    s.includes("security") ||
+    s.includes("oauth") ||
+    s.includes("jwt") ||
+    s.includes("key")
+  )
+    return "🔒";
+  if (
+    s.includes("queue") ||
+    s.includes("kafka") ||
+    s.includes("mq") ||
+    s.includes("rabbit") ||
+    s.includes("pubsub") ||
+    s.includes("event")
+  )
+    return "📨";
+  if (
+    s.includes("cloud") ||
+    s.includes("aws") ||
+    s.includes("gcp") ||
+    s.includes("azure") ||
+    s.includes("cluster")
+  )
+    return "☁️";
+  if (
+    s.includes("ai") ||
+    s.includes("llm") ||
+    s.includes("model") ||
+    s.includes("claude") ||
+    s.includes("gpt") ||
+    s.includes("gemini")
+  )
+    return "🧠";
   return "⚙️";
 }
 
@@ -177,9 +226,13 @@ function chooseNodeIcon(id, label) {
  */
 export function renderBuiltInSvgDiagram(code, { width = 800, isDarkMode = true } = {}) {
   const trimmed = String(code || "").trim();
-  const lines = trimmed.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("%%"));
+  const lines = trimmed
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("%%"));
 
-  if (!lines.length) return `<svg viewBox="0 0 200 60"><text x="10" y="35" fill="#888">Empty diagram</text></svg>`;
+  if (!lines.length)
+    return `<svg viewBox="0 0 200 60"><text x="10" y="35" fill="#888">Empty diagram</text></svg>`;
 
   const header = lines[0].toLowerCase();
 
@@ -193,7 +246,8 @@ export function renderBuiltInSvgDiagram(code, { width = 800, isDarkMode = true }
   const nodes = new Map(); // id -> { id, label, shape, icon }
   const edges = []; // { from, to, label, style }
 
-  const nodeDeclRegex = /([a-zA-Z0-9_-]+)\s*(\[\(([\s\S]*?)\)\]|\(\(([\s\S]*?)\)\)|\[\[([\s\S]*?)\]\]|\[([\s\S]*?)\]|\(([\s\S]*?)\)|\{([\s\S]*?)\})/g;
+  const nodeDeclRegex =
+    /([a-zA-Z0-9_-]+)\s*(\[\(([\s\S]*?)\)\]|\(\(([\s\S]*?)\)\)|\[\[([\s\S]*?)\]\]|\[([\s\S]*?)\]|\(([\s\S]*?)\)|\{([\s\S]*?)\})/g;
 
   function ensureNode(id, label = id, shape = "box") {
     const cleanId = id.trim();
@@ -214,7 +268,12 @@ export function renderBuiltInSvgDiagram(code, { width = 800, isDarkMode = true }
     const line = lines[i];
 
     // Check for subgraph declaration or end
-    if (line.startsWith("subgraph") || line === "end" || line.startsWith("classDef") || line.startsWith("style")) {
+    if (
+      line.startsWith("subgraph") ||
+      line === "end" ||
+      line.startsWith("classDef") ||
+      line.startsWith("style")
+    ) {
       continue;
     }
 
@@ -224,17 +283,32 @@ export function renderBuiltInSvgDiagram(code, { width = 800, isDarkMode = true }
       const id = declMatch[1];
       let shape = "box";
       let label = id;
-      if (declMatch[3] !== undefined) { shape = "cylinder"; label = declMatch[3]; }
-      else if (declMatch[4] !== undefined) { shape = "circle"; label = declMatch[4]; }
-      else if (declMatch[5] !== undefined) { shape = "subroutine"; label = declMatch[5]; }
-      else if (declMatch[6] !== undefined) { shape = "box"; label = declMatch[6]; }
-      else if (declMatch[7] !== undefined) { shape = "rounded"; label = declMatch[7]; }
-      else if (declMatch[8] !== undefined) { shape = "diamond"; label = declMatch[8]; }
+      if (declMatch[3] !== undefined) {
+        shape = "cylinder";
+        label = declMatch[3];
+      } else if (declMatch[4] !== undefined) {
+        shape = "circle";
+        label = declMatch[4];
+      } else if (declMatch[5] !== undefined) {
+        shape = "subroutine";
+        label = declMatch[5];
+      } else if (declMatch[6] !== undefined) {
+        shape = "box";
+        label = declMatch[6];
+      } else if (declMatch[7] !== undefined) {
+        shape = "rounded";
+        label = declMatch[7];
+      } else if (declMatch[8] !== undefined) {
+        shape = "diamond";
+        label = declMatch[8];
+      }
       ensureNode(id, label, shape);
     }
 
     // Check for edges: A --> B, A -->|text| B, A -- text --> B, A ==> B, A -.-> B
-    const edgeMatch = line.match(/([a-zA-Z0-9_-]+)\s*(?:(?:--|==|-\.)(?:([^->=]+?)(?:-->|==>|-\.->|--)|>|->|->>|==>|-\.->))\s*(?:\|([^|]+)\|)?\s*([a-zA-Z0-9_-]+)/);
+    const edgeMatch = line.match(
+      /([a-zA-Z0-9_-]+)\s*(?:(?:--|==|-\.)(?:([^->=]+?)(?:-->|==>|-\.->|--)|>|->|->>|==>|-\.->))\s*(?:\|([^|]+)\|)?\s*([a-zA-Z0-9_-]+)/,
+    );
     if (edgeMatch) {
       const fromId = edgeMatch[1].trim();
       const edgeLabel = (edgeMatch[2] || edgeMatch[3] || "").trim();
@@ -501,8 +575,14 @@ function renderBuiltInSequenceDiagram(lines, { width = 800, isDarkMode = true } 
       const to = msgMatch[3].trim();
       const text = msgMatch[4].trim();
 
-      if (!pMap.has(from)) { pMap.set(from, { id: from, name: from }); participants.push(from); }
-      if (!pMap.has(to)) { pMap.set(to, { id: to, name: to }); participants.push(to); }
+      if (!pMap.has(from)) {
+        pMap.set(from, { id: from, name: from });
+        participants.push(from);
+      }
+      if (!pMap.has(to)) {
+        pMap.set(to, { id: to, name: to });
+        participants.push(to);
+      }
 
       messages.push({ from, to, text, isDashed: arrow.includes("--") });
     }
@@ -564,14 +644,10 @@ function renderBuiltInSequenceDiagram(lines, { width = 800, isDarkMode = true } 
 /**
  * Creates the HTML card for an interactive architecture diagram.
  */
-export function createDiagramCardHtml({
-  id,
-  type = "mermaid",
-  title = "",
-  rawCode = "",
-  inlineSvg = "",
-}) {
-  const dynamicTitle = title || extractDiagramTitle(rawCode || inlineSvg, type === "svg" ? "Vector Diagram" : "Architecture Diagram");
+export function createDiagramCardHtml({ id, type = "mermaid", title = "", rawCode = "", inlineSvg = "" }) {
+  const dynamicTitle =
+    title ||
+    extractDiagramTitle(rawCode || inlineSvg, type === "svg" ? "Vector Diagram" : "Architecture Diagram");
   const cleanCode = escapeHtml(rawCode);
   const cleanTitle = escapeHtml(dynamicTitle);
   const badgeLabel = type === "svg" ? "SVG" : type === "box" ? "Monospace" : "Mermaid";
@@ -606,10 +682,14 @@ export function createDiagramCardHtml({
       <div class="arch-diagram-body" id="diagram-body-${id}">
         ${inlineSvg ? sanitizeSvgXml(inlineSvg) : `<div class="arch-diagram-loading"><span class="typing-bubble"></span> Rendering ${cleanTitle}...</div>`}
       </div>
-      ${rawCode ? `
+      ${
+        rawCode
+          ? `
       <div class="arch-diagram-source" id="diagram-source-${id}" hidden>
         <pre><code>${cleanCode}</code></pre>
-      </div>` : ""}
+      </div>`
+          : ""
+      }
       <script type="application/json" class="diagram-meta">${metaJson}</script>
     </div>
   `;

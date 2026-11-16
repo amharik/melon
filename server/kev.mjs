@@ -36,14 +36,12 @@ export function normalizeCandidates(candidates) {
     const remaining = MAX_TOTAL_CANDIDATE_TEXT - total;
     if (remaining <= 0) break;
     const text = cleanText(
-      typeof item === "string" ? item : item?.text ?? item?.content ?? "",
-      Math.min(MAX_CANDIDATE_TEXT, remaining)
+      typeof item === "string" ? item : (item?.text ?? item?.content ?? ""),
+      Math.min(MAX_CANDIDATE_TEXT, remaining),
     );
     if (!text) continue;
     const id =
-      typeof item?.id === "string" && item.id.trim()
-        ? cleanText(item.id, 120)
-        : `candidate-${index + 1}`;
+      typeof item?.id === "string" && item.id.trim() ? cleanText(item.id, 120) : `candidate-${index + 1}`;
     out.push({ id, text, index: out.length });
     total += text.length;
   }
@@ -99,7 +97,7 @@ export function localEmbeddedRerank(query, candidates, options = {}) {
   }
 
   const queryTokens = new Set(
-    (state.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || []).filter((w) => w.length > 1)
+    (state.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || []).filter((w) => w.length > 1),
   );
 
   const rawScores = list.map((cand) => {
@@ -158,14 +156,12 @@ export function createKevClient({
   fetchImpl = fetch,
   allowLocalFallback = true,
 } = {}) {
-  const base = String(url || "").trim().replace(/\/+$/, "");
-  const endpoint = base
-    ? base.endsWith("/v1/systemone")
-      ? base
-      : `${base}/v1/systemone`
-    : "";
+  const base = String(url || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const endpoint = base ? (base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`) : "";
   const enabled = !!endpoint || allowLocalFallback;
-  const selectedModel = endpoint ? (String(model || "kev").trim() || "kev") : "local-embedded";
+  const selectedModel = endpoint ? String(model || "kev").trim() || "kev" : "local-embedded";
 
   async function rerank(query, candidates, options = {}) {
     if (!endpoint) {

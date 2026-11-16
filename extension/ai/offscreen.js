@@ -69,7 +69,7 @@ function postState(force = false) {
         target: BACKGROUND_TARGET,
         type: "ai.state",
         state: publicState(),
-      })
+      }),
     ).catch(() => {});
   } catch {}
 }
@@ -99,7 +99,9 @@ async function wgpuSettings(model) {
     return { device: "wasm", dtype: model.dtype || "q4" };
   }
   if (!navigator.gpu) {
-    throw new Error("WebGPU is unavailable in this browser. Local AI requires a WebGPU-capable Chromium build.");
+    throw new Error(
+      "WebGPU is unavailable in this browser. Local AI requires a WebGPU-capable Chromium build.",
+    );
   }
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   if (!adapter) {
@@ -258,7 +260,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           ok: false,
           error: String(err?.message || err),
           stack: String(err?.stack || ""),
-        })
+        }),
       );
     return true;
   }

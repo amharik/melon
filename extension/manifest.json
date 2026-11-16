@@ -3,13 +3,7 @@
   "name": "Melon Agent Bridge",
   "version": "0.1.0",
   "description": "Connects real ChatGPT, Claude, Gemini and Mistral tabs to the Melon local agent hub.",
-  "permissions": [
-    "tabs",
-    "scripting",
-    "storage",
-    "activeTab",
-    "offscreen"
-  ],
+  "permissions": ["tabs", "scripting", "storage", "activeTab", "offscreen"],
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
@@ -35,11 +29,7 @@
         "https://gemini.google.com/*",
         "https://chat.mistral.ai/*"
       ],
-      "js": [
-        "vendor/readability.js",
-        "adapters.js",
-        "content.js"
-      ],
+      "js": ["vendor/readability.js", "adapters.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
@@ -50,10 +40,7 @@
     "https://*.huggingface.co/*"
   ],
   "externally_connectable": {
-    "matches": [
-      "http://127.0.0.1:*/*",
-      "http://localhost:*/*"
-    ]
+    "matches": ["http://127.0.0.1:*/*", "http://localhost:*/*"]
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://huggingface.co https://*.hf.co https://*.huggingface.co"

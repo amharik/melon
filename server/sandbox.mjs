@@ -71,6 +71,7 @@ export function createSandbox({
   settingsFile = process.env.MELON_SANDBOX_SETTINGS || "",
 } = {}) {
   const normalized = ["auto", "required", "off"].includes(mode) ? mode : "auto";
+  /** @type {{ available: boolean | null, disabled?: boolean, version?: string, error?: string } | null} */
   let probeResult = normalized === "off" ? { available: false, disabled: true } : null;
 
   async function probe() {
@@ -81,7 +82,9 @@ export function createSandbox({
     } catch (err) {
       probeResult = {
         available: false,
-        error: String(err.stderr || err.message || err).trim().slice(0, 300),
+        error: String(err.stderr || err.message || err)
+          .trim()
+          .slice(0, 300),
       };
     }
     return probeResult;
@@ -108,7 +111,7 @@ export function createSandbox({
       timeout: options.timeout,
       maxBuffer: options.maxBuffer,
       env: options.env,
-      killSignal: "SIGKILL",
+      killSignal: /** @type {NodeJS.Signals} */ ("SIGKILL"),
     };
 
     if (normalized === "off") {
@@ -140,7 +143,11 @@ export function createSandbox({
 
     const file = settingsPath(options.cwd);
     try {
-      const result = await execFile(command, ["--settings", file, "--", "/bin/sh", "-c", commandLine], execOptions);
+      const result = await execFile(
+        command,
+        ["--settings", file, "--", "/bin/sh", "-c", commandLine],
+        execOptions,
+      );
       return { result, sandbox: "srt" };
     } catch (err) {
       if (err?.code === "ENOENT" || String(err?.syscall || "").startsWith("spawn")) {

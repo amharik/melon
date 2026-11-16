@@ -64,9 +64,7 @@ const AGY_ARGS = process.env.AGY_ARGS
 const AGY_INPUT_FORMAT = process.env.AGY_INPUT_FORMAT || "stream-json";
 const ACP_CMD = process.env.ACP_CMD || "";
 const ACP_ARGS = process.env.ACP_ARGS ? splitArgs(process.env.ACP_ARGS) : [];
-const WORKTREE_ROOT = path.resolve(
-  process.env.MELON_WORKTREE_ROOT || path.join(ROOT, ".melon", "worktrees"),
-);
+const WORKTREE_ROOT = path.resolve(process.env.MELON_WORKTREE_ROOT || path.join(ROOT, ".melon", "worktrees"));
 const BLACKBOARD_FILE = process.env.MELON_BLACKBOARD
   ? path.resolve(process.env.MELON_BLACKBOARD)
   : path.join(ROOT, ".melon", "blackboard.md");
@@ -251,8 +249,7 @@ function finishRun(id, event) {
   if (!run) return;
   clearTimeout(run.timer);
   run.controller.abort();
-  const status =
-    event.type === "done" ? "done" : event.type === "cancelled" ? "cancelled" : "error";
+  const status = event.type === "done" ? "done" : event.type === "cancelled" ? "cancelled" : "error";
   if (run.threadId) {
     if (status === "done") {
       threads.append(run.threadId, {
@@ -355,7 +352,9 @@ function abortRun(id) {
   } else if (run.target.type === "opencode" && run.sessionId) {
     const base = run.base || OPENCODE_URL;
     fetch(`${base}/session/${encodeURIComponent(run.sessionId)}/abort`, { method: "POST" }).catch(() =>
-      fetch(`${base}/api/session/${encodeURIComponent(run.sessionId)}/abort`, { method: "POST" }).catch(() => {}),
+      fetch(`${base}/api/session/${encodeURIComponent(run.sessionId)}/abort`, { method: "POST" }).catch(
+        () => {},
+      ),
     );
     finishRun(id, { type: "error", error: { message: "cancelled by user" } });
   } else if (run.target.type === "agy") {
@@ -462,7 +461,8 @@ function toolEnv(cwd) {
 async function decideToolRequest(id, decision, commandOverride) {
   const record = toolRequests.get(String(id));
   if (!record) return { ok: false, status: 404, error: "tool request not found" };
-  if (record.status !== "pending") return { ok: false, status: 409, error: `request already ${record.status}` };
+  if (record.status !== "pending")
+    return { ok: false, status: 409, error: `request already ${record.status}` };
   if (decision !== "approve" && decision !== "deny") {
     return { ok: false, status: 400, error: "decision must be approve or deny" };
   }
@@ -874,7 +874,7 @@ async function choosePlan(goal, valid) {
       {
         topK: 1,
         instructions: "Which candidate graph best satisfies the goal with a coherent, minimal dataflow?",
-      }
+      },
     );
     const chosenId = result.selected[0];
     const index = valid.findIndex((_, i) => `plan-${i + 1}` === chosenId);
@@ -1367,7 +1367,11 @@ async function handleApi(req, res, url) {
     url.pathname === "/api/artifacts/export" ||
     url.pathname === "/api/telemetry" ||
     /^\/api\/tool-requests\/[^/]+\/decision$/.test(url.pathname);
-  if (needsJson && req.method === "POST" && !String(req.headers["content-type"] || "").startsWith("application/json")) {
+  if (
+    needsJson &&
+    req.method === "POST" &&
+    !String(req.headers["content-type"] || "").startsWith("application/json")
+  ) {
     return json(res, 415, { ok: false, error: "content-type must be application/json" });
   }
 
@@ -1469,7 +1473,11 @@ async function handleApi(req, res, url) {
       const record = readPackFile(ADAPTER_PACK_PUB_FILE);
       return json(res, 200, record);
     } catch (err) {
-      return json(res, 404, { ok: false, error: "adapter pack public key unavailable", detail: err.code || err.message });
+      return json(res, 404, {
+        ok: false,
+        error: "adapter pack public key unavailable",
+        detail: err.code || err.message,
+      });
     }
   }
 
@@ -1600,9 +1608,7 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === "/api/tool-requests" && req.method === "GET") {
-    const list = [...toolRequests.values()]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map(publicToolRequest);
+    const list = [...toolRequests.values()].sort((a, b) => b.createdAt - a.createdAt).map(publicToolRequest);
     return json(res, 200, { ok: true, requests: list });
   }
 
@@ -1629,11 +1635,7 @@ async function handleApi(req, res, url) {
     } catch (err) {
       return json(res, 400, { ok: false, error: err.message });
     }
-    const result = await decideToolRequest(
-      decodeURIComponent(decisionMatch[1]),
-      body.decision,
-      body.command,
-    );
+    const result = await decideToolRequest(decodeURIComponent(decisionMatch[1]), body.decision, body.command);
     return json(res, result.status || (result.ok ? 200 : 400), result);
   }
 
@@ -1688,14 +1690,20 @@ async function handleApi(req, res, url) {
       }
       const plan = validatePlanGraph(parsed, { goal });
       if (plan.ok) valid.push({ graph: plan.graph, warnings: plan.warnings, text });
-      else invalid.push({ candidate: index + 1, error: "invalid graph", errors: plan.errors, raw: text.slice(0, 1200) });
+      else
+        invalid.push({
+          candidate: index + 1,
+          error: "invalid graph",
+          errors: plan.errors,
+          raw: text.slice(0, 1200),
+        });
     }
 
     if (!valid.length) {
       const errors = invalid.flatMap((item) =>
         item.errors?.length
           ? item.errors.map((error) => `candidate ${item.candidate}: ${error}`)
-          : [`candidate ${item.candidate}: ${item.error}`]
+          : [`candidate ${item.candidate}: ${item.error}`],
       );
       return json(res, 422, {
         ok: false,
@@ -1800,7 +1808,12 @@ async function handleApi(req, res, url) {
       return json(res, 400, { ok: false, error: err.message });
     }
     const runId = body.runId || "";
-    let files = Array.isArray(body.files) && body.files.length > 0 ? body.files : (runId ? runArtifacts.get(runId) : null);
+    let files =
+      Array.isArray(body.files) && body.files.length > 0
+        ? body.files
+        : runId
+          ? runArtifacts.get(runId)
+          : null;
     if (!files || files.length === 0) {
       return json(res, 400, { ok: false, error: "no artifacts found to export" });
     }
@@ -1904,7 +1917,10 @@ async function handleApi(req, res, url) {
     const task = taskStore.get(taskId);
     if (!task) return json(res, 404, { ok: false, error: `task ${taskId} not found` });
     if (!task.resumable && task.status !== "error" && task.status !== "cancelled") {
-      return json(res, 400, { ok: false, error: `task ${taskId} is currently ${task.status} and cannot be resumed` });
+      return json(res, 400, {
+        ok: false,
+        error: `task ${taskId} is currently ${task.status} and cannot be resumed`,
+      });
     }
 
     const mode = body.mode || "auto"; // auto | extract | continue
@@ -1914,7 +1930,11 @@ async function handleApi(req, res, url) {
       if ((mode === "extract" || mode === "auto") && tabConnected) {
         try {
           const extRes = await requestExtract(task.target.tabId, task.target.adapter || "auto");
-          if (extRes.ok && extRes.text && extRes.text.trim().length > (task.partialText || task.text || "").trim().length) {
+          if (
+            extRes.ok &&
+            extRes.text &&
+            extRes.text.trim().length > (task.partialText || task.text || "").trim().length
+          ) {
             taskStore.finish(taskId, { status: "done", text: extRes.text });
             const finished = taskStore.get(taskId);
             broadcast({ type: "task.finish", task: finished });
@@ -1935,9 +1955,11 @@ async function handleApi(req, res, url) {
     taskStore.markResumed(taskId);
     const resumeRunId = `${taskId}_r${task.resumeCount || 1}`;
     const anchor = task.partialText ? task.partialText.slice(-300).trim() : "";
-    const continuationPrompt = body.prompt || (anchor
-      ? `Continue directly from where you left off. Do not repeat what was already written. The previous text ended with:\n"...${anchor}"\n\nContinue now:`
-      : task.target.prompt);
+    const continuationPrompt =
+      body.prompt ||
+      (anchor
+        ? `Continue directly from where you left off. Do not repeat what was already written. The previous text ended with:\n"...${anchor}"\n\nContinue now:`
+        : task.target.prompt);
 
     const resumedTarget = {
       ...task.target,
@@ -2135,7 +2157,10 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
     return;
   }
-  const accept = crypto.createHash("sha1").update(key + WS_GUID).digest("base64");
+  const accept = crypto
+    .createHash("sha1")
+    .update(key + WS_GUID)
+    .digest("base64");
   socket.write(
     [
       "HTTP/1.1 101 Switching Protocols",
@@ -2183,9 +2208,7 @@ server.on("upgrade", (req, socket, head) => {
   });
   if (head?.length) parseFrames(client, head);
   sendWs(client, { type: "hello", version: VERSION, name: "melon-hub" });
-  console.log(
-    `[hub] extension connected (${extClients.size} client${extClients.size === 1 ? "" : "s"})`,
-  );
+  console.log(`[hub] extension connected (${extClients.size} client${extClients.size === 1 ? "" : "s"})`);
 });
 
 setInterval(() => {
@@ -2234,9 +2257,13 @@ server.listen(PORT, HOST, () => {
         : `auto fallback (${result.error || "srt not installed"})`;
     console.log(`  sandbox     ${state}`);
   });
-  console.log(`  blackboard  ${readBlackboard({ file: BLACKBOARD_FILE }).ok ? BLACKBOARD_FILE : "not found (optional)"}`);
+  console.log(
+    `  blackboard  ${readBlackboard({ file: BLACKBOARD_FILE }).ok ? BLACKBOARD_FILE : "not found (optional)"}`,
+  );
   console.log(`  llm         ${LLM_URL && LLM_MODEL ? `${LLM_MODEL} @ ${LLM_URL}` : "not configured"}`);
-  console.log(`  kev         ${kev.enabled ? `${kev.model} @ ${kev.endpoint}` : "not configured (set KEV_URL)"}`);
+  console.log(
+    `  kev         ${kev.enabled ? `${kev.model} @ ${kev.endpoint}` : "not configured (set KEV_URL)"}`,
+  );
   console.log(`  audit       ${audit.enabled ? audit.file : "off (set MELON_AUDIT=1 or MELON_AUDIT_LOG)"}`);
   console.log(`  tracing     ${tracer.enabled ? tracer.file : "off (set MELON_TRACE=1 or MELON_TRACE_LOG)"}`);
   console.log("");

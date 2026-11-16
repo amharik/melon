@@ -82,16 +82,20 @@ function parseEmbedding(value) {
 }
 
 function ftsQuery(query) {
-  const tokens = String(query || "")
-    .toLowerCase()
-    .match(/[a-z0-9_]+/g) || [];
+  const tokens =
+    String(query || "")
+      .toLowerCase()
+      .match(/[a-z0-9_]+/g) || [];
   const unique = [...new Set(tokens.filter((token) => token.length > 1))].slice(0, 32);
   if (!unique.length) return null;
   return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" AND ");
 }
 
 function contentHash(text) {
-  return crypto.createHash("sha256").update(String(text || "")).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(String(text || ""))
+    .digest("hex");
 }
 
 function addColumnIfMissing(db, table, column, definition) {
@@ -188,9 +192,7 @@ const MIGRATIONS = [
 
 function normalizeClient(client) {
   const remote =
-    typeof client?.remote === "boolean"
-      ? client.remote
-      : String(client?.provider || "hash") !== "hash";
+    typeof client?.remote === "boolean" ? client.remote : String(client?.provider || "hash") !== "hash";
   return {
     client,
     remote,
@@ -247,7 +249,8 @@ export function createMessageStore({
     if (!connection) return 0;
     try {
       return Number(
-        connection.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE embedding_status = 'pending'").get()?.n || 0
+        connection.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE embedding_status = 'pending'").get()
+          ?.n || 0,
       );
     } catch {
       return 0;
@@ -258,7 +261,8 @@ export function createMessageStore({
     if (!connection) return 0;
     try {
       return Number(
-        connection.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE embedding_status = 'error'").get()?.n || 0
+        connection.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE embedding_status = 'error'").get()
+          ?.n || 0,
       );
     } catch {
       return 0;
@@ -267,10 +271,13 @@ export function createMessageStore({
 
   function scheduleEmbedding(delay = 0) {
     if (closed || !connection || embeddingTimer) return;
-    embeddingTimer = setTimeout(() => {
-      embeddingTimer = null;
-      void processPending();
-    }, Math.max(0, Number(delay) || 0));
+    embeddingTimer = setTimeout(
+      () => {
+        embeddingTimer = null;
+        void processPending();
+      },
+      Math.max(0, Number(delay) || 0),
+    );
     embeddingTimer.unref?.();
   }
 
@@ -394,7 +401,9 @@ export function createMessageStore({
     const author = String(msg.author || "User");
     const avatar = String(msg.avatar || "💬");
     const tag = String(msg.tag || "MSG");
-    const time = String(msg.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    const time = String(
+      msg.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    );
     const text = String(msg.text || "");
     const isUser = msg.isUser ? 1 : 0;
     const createdAt = Number.isFinite(Number(msg.createdAt)) ? Number(msg.createdAt) : Date.now();
@@ -685,7 +694,9 @@ export function createMessageStore({
 
   function savePersistentAgent(agent = {}) {
     const store = ensure();
-    const handle = String(agent.handle || "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const handle = String(agent.handle || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "");
     if (!handle) return null;
 
     const quirky = String(agent.quirky || handle.split("-")[0]);
@@ -745,13 +756,16 @@ export function createMessageStore({
     // 2. Same category / adapter match
     const categoryMatch = agents.find((a) => {
       if (adapter.includes(a.category)) return true;
-      if (a.urls.some((u) => {
-        try {
-          return new URL(u).hostname === new URL(tabUrl).hostname;
-        } catch {
-          return false;
-        }
-      })) return true;
+      if (
+        a.urls.some((u) => {
+          try {
+            return new URL(u).hostname === new URL(tabUrl).hostname;
+          } catch {
+            return false;
+          }
+        })
+      )
+        return true;
       return false;
     });
 

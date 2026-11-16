@@ -106,13 +106,13 @@
         bytesFromBase64(options.publicKey),
         { name: ALGORITHM },
         false,
-        ["verify"]
+        ["verify"],
       );
       const valid = await crypto.subtle.verify(
         ALGORITHM,
         key,
         bytesFromBase64(envelope.signature),
-        new TextEncoder().encode(canonical)
+        new TextEncoder().encode(canonical),
       );
       if (!valid) errors.push("signature verification failed");
     } catch (err) {
@@ -122,7 +122,7 @@
     if (pack.expiresAt && Date.parse(pack.expiresAt) < now) errors.push("adapter pack has expired");
     if (pack.minExtensionVersion && !semverAtLeast(options.extensionVersion, pack.minExtensionVersion)) {
       errors.push(
-        `extension ${options.extensionVersion || "unknown"} is older than required ${pack.minExtensionVersion}`
+        `extension ${options.extensionVersion || "unknown"} is older than required ${pack.minExtensionVersion}`,
       );
     }
     const currentVersion = Number(options.currentVersion) || 0;

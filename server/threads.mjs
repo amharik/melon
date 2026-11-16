@@ -13,7 +13,11 @@ function clone(value) {
   }
 }
 
-export function createThreadStore({ now = () => Date.now(), maxThreads = MAX_THREADS, maxMessages = MAX_MESSAGES } = {}) {
+export function createThreadStore({
+  now = () => Date.now(),
+  maxThreads = MAX_THREADS,
+  maxMessages = MAX_MESSAGES,
+} = {}) {
   const threads = new Map();
 
   function record(id) {
@@ -43,7 +47,8 @@ export function createThreadStore({ now = () => Date.now(), maxThreads = MAX_THR
   function ensure(id, options = {}) {
     const existing = record(id);
     if (existing) {
-      if (options.title && existing.title === "Office thread") existing.title = String(options.title).slice(0, 160);
+      if (options.title && existing.title === "Office thread")
+        existing.title = String(options.title).slice(0, 160);
       return clone(existing);
     }
     return create({ ...options, id });

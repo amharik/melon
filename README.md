@@ -501,8 +501,11 @@ cd core-runtime && cargo test
 # Rebuild the WASM artifact into web/wasm/
 ./scripts/build.sh
 
-# Syntax-check every runtime, UI, extension, script, and test file
+# Syntax-check, type-check the new server modules, and lint
 npm run lint
+
+# Apply Biome formatting
+npm run format
 
 # Hub, WASM, extension, AI catalog and simulator tests
 npm test

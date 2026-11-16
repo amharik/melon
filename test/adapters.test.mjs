@@ -178,7 +178,7 @@ test("resolver falls back to lower-priority selectors", () => {
   assert.equal(A.resolveElement(doc, adapter, "composer", { visible }).selector, "textarea");
   assert.equal(
     A.resolveElement(doc, adapter, "send", { visible, composer }).selector,
-    'button[type="submit"]'
+    'button[type="submit"]',
   );
 
   const status = A.health(doc, adapter, { visible });

@@ -79,7 +79,9 @@ Valid two-reviewer example:
   ];
 
   function messagesForGoal(goal, variant = 0) {
-    const clean = String(goal || "").trim().slice(0, MAX_GOAL);
+    const clean = String(goal || "")
+      .trim()
+      .slice(0, MAX_GOAL);
     if (!clean) throw new Error("A planning goal is required.");
     const style = VARIANTS[Math.abs(Number(variant) || 0) % VARIANTS.length];
     return [

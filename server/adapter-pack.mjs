@@ -151,13 +151,7 @@ export function createSignedPack({ pack, privateKey, keyId }) {
 
 export function verifySignedPack(
   envelope,
-  {
-    publicKey,
-    keyId,
-    currentVersion = 0,
-    minExtensionVersion = "0.1.0",
-    now = Date.now(),
-  } = {}
+  { publicKey, keyId, currentVersion = 0, minExtensionVersion = "0.1.0", now = Date.now() } = {},
 ) {
   const errors = [];
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {

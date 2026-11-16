@@ -10,20 +10,23 @@ test("audit log writes metadata only and ignores prompts or output", async () =>
   const file = path.join(dir, "nested", "audit.jsonl");
   const audit = createAuditLog({ file, now: () => new Date("2026-01-02T03:04:05Z") });
   assert.equal(audit.enabled, true);
-  assert.equal(audit.write({
-    event: "run.end",
-    runId: "run-1",
-    target: "extension",
-    node: "reviewer",
-    adapter: "claude",
-    tabId: 42,
-    controlId: "T-16",
-    status: "done",
-    durationMs: 123,
-    chars: 11,
-    prompt: "secret prompt",
-    text: "secret output",
-  }), true);
+  assert.equal(
+    audit.write({
+      event: "run.end",
+      runId: "run-1",
+      target: "extension",
+      node: "reviewer",
+      adapter: "claude",
+      tabId: 42,
+      controlId: "T-16",
+      status: "done",
+      durationMs: 123,
+      chars: 11,
+      prompt: "secret prompt",
+      text: "secret output",
+    }),
+    true,
+  );
 
   const lines = (await fs.readFile(file, "utf8")).trim().split("\n");
   assert.equal(lines.length, 1);

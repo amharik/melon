@@ -64,7 +64,10 @@ test("SQLite message store persists turns, erases back, and searches vectors", a
   assert.equal(all[2].id, "m3");
 
   // 3. Vector search
-  const searchResults = await store.searchMessages("vector similarity search", { targetType: "channel", targetId: "general-war-room" });
+  const searchResults = await store.searchMessages("vector similarity search", {
+    targetType: "channel",
+    targetId: "general-war-room",
+  });
   assert.ok(searchResults.length > 0);
   assert.equal(searchResults[0].id, "m1");
 
@@ -185,7 +188,10 @@ test("migrates a legacy JSON-embedding database and rebuilds FTS", async () => {
   store.close();
 
   const migrated = new DatabaseSync(dbPath);
-  const columns = migrated.prepare("PRAGMA table_info(messages)").all().map((item) => item.name);
+  const columns = migrated
+    .prepare("PRAGMA table_info(messages)")
+    .all()
+    .map((item) => item.name);
   assert.ok(columns.includes("embedding_blob"));
   assert.ok(columns.includes("embedding_status"));
   assert.ok(columns.includes("content_hash"));

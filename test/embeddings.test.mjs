@@ -77,7 +77,12 @@ test("Ollama embeddings use /api/embed batches", async () => {
       ok: true,
       status: 200,
       async text() {
-        return JSON.stringify({ embeddings: [[1, 0, 0], [0, 1, 0]] });
+        return JSON.stringify({
+          embeddings: [
+            [1, 0, 0],
+            [0, 1, 0],
+          ],
+        });
       },
     };
   };
@@ -103,9 +108,7 @@ test("remote embeddings are written in the background and become searchable", as
     remote: true,
     async embed(texts) {
       return {
-        vectors: texts.map((text) =>
-          Float32Array.from(text.includes("vector") ? [1, 0, 0] : [0, 1, 0]),
-        ),
+        vectors: texts.map((text) => Float32Array.from(text.includes("vector") ? [1, 0, 0] : [0, 1, 0])),
         model: "test-v1",
         dim: 3,
         provider: "test",
@@ -146,7 +149,10 @@ test("remote embeddings are written in the background and become searchable", as
   assert.equal(store.embedding.failed, 0);
   assert.equal(store.embedding.model, "test-v1");
 
-  const results = await store.searchMessages("vector", { targetType: "channel", targetId: "general-war-room" });
+  const results = await store.searchMessages("vector", {
+    targetType: "channel",
+    targetId: "general-war-room",
+  });
   assert.equal(results[0].id, "a");
   assert.ok(results[0].sources.includes("vector"));
 

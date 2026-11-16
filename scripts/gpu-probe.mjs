@@ -94,8 +94,7 @@ try {
 <p>Remote Chromium probe used for the hardware WebGPU milestone.</p>
 <table>${rows
     .map(
-      ([label, value]) =>
-        `<tr><td>${escapeHtml(label)}</td><td><code>${escapeHtml(value)}</code></td></tr>`
+      ([label, value]) => `<tr><td>${escapeHtml(label)}</td><td><code>${escapeHtml(value)}</code></td></tr>`,
     )
     .join("")}</table>
 <div class="note">A <code>google/swiftshader</code> adapter is CPU-backed. It does not satisfy the hardware WebGPU milestone.</div>`);

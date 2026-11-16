@@ -131,9 +131,9 @@
     const pool = ranked.slice(0, 6);
     const result = await kevRerank(
       `Choose the best ${field} control for ${adapter.label} on ${location.hostname}. ${String(
-        options.query || ""
+        options.query || "",
       ).slice(0, 800)}`,
-      pool.map((item, index) => ({ id: `c${index}`, text: item.description }))
+      pool.map((item, index) => ({ id: `c${index}`, text: item.description })),
     );
     const chosen = result?.selected?.[0];
     const index = chosen ? Number(String(chosen).replace(/^c/, "")) : NaN;
@@ -160,7 +160,10 @@
     const key = selectorCacheKey(adapter, field);
     const entry = selectorCache[key];
     if (!entry || typeof entry.selector !== "string") return null;
-    if (Date.now() - Number(entry.at || 0) > SELECTOR_TTL_MS || Number(entry.packVersion || 0) !== packVersion) {
+    if (
+      Date.now() - Number(entry.at || 0) > SELECTOR_TTL_MS ||
+      Number(entry.packVersion || 0) !== packVersion
+    ) {
       delete selectorCache[key];
       return null;
     }
@@ -263,7 +266,7 @@
     if (field === "composer") {
       const candidates = [
         ...document.querySelectorAll(
-          'textarea, input[type="text"], input:not([type]), [contenteditable="true"], [role="textbox"]'
+          'textarea, input[type="text"], input:not([type]), [contenteditable="true"], [role="textbox"]',
         ),
       ].filter((el) => visible(el, "composer") && isEditableElement(el));
       const scored = candidates
@@ -351,7 +354,7 @@
     if (chunks.length < 2) return "";
     const result = await kevRerank(
       `Select the page passages most relevant to this task: ${String(prompt).slice(0, 800)}`,
-      chunks.map((text, index) => ({ id: `c${index}`, text }))
+      chunks.map((text, index) => ({ id: `c${index}`, text })),
     );
     const selected = [];
     if (result?.ranked) {
@@ -416,7 +419,7 @@
     try {
       const walker = document.createTreeWalker(
         document.querySelector("main") || document.body,
-        NodeFilter.SHOW_ELEMENT
+        NodeFilter.SHOW_ELEMENT,
       );
       while (walker.nextNode()) {
         const el = walker.currentNode;
@@ -462,7 +465,7 @@
       if (!inserted) {
         composer.textContent = text;
         composer.dispatchEvent(
-          new InputEvent("input", { bubbles: true, inputType: "insertText", data: text })
+          new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }),
         );
       }
     } else {
@@ -474,15 +477,21 @@
     const form = composer.closest?.("form");
     let button = await chooseField("send", adapter, { composer, query: prompt });
     if (!button && form) {
-      button = form.querySelector('button[aria-label*="Send" i], button.bg-composer-primary, button[data-testid="send-button"], button[type="submit"]');
+      button = form.querySelector(
+        'button[aria-label*="Send" i], button.bg-composer-primary, button[data-testid="send-button"], button[type="submit"]',
+      );
     }
     for (let i = 0; i < 25; i++) {
       if (state?.cancelled) return false;
       if (button && !button.disabled && button.getAttribute("aria-disabled") !== "true") {
         const aria = (button.getAttribute("aria-label") || "").toLowerCase();
         if (!aria.includes("voice") && !aria.includes("dictate")) {
-          button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true }));
-          button.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, composed: true }));
+          button.dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true }),
+          );
+          button.dispatchEvent(
+            new MouseEvent("mouseup", { bubbles: true, cancelable: true, composed: true }),
+          );
           button.click();
           return true;
         }
@@ -491,7 +500,9 @@
       if (!button) {
         button = await chooseField("send", adapter, { composer, query: prompt });
         if (!button && form) {
-          button = form.querySelector('button[aria-label*="Send" i], button.bg-composer-primary, button[data-testid="send-button"], button[type="submit"]');
+          button = form.querySelector(
+            'button[aria-label*="Send" i], button.bg-composer-primary, button[data-testid="send-button"], button[type="submit"]',
+          );
         }
       }
     }
@@ -515,7 +526,7 @@
           bubbles: true,
           cancelable: true,
           composed: true,
-        })
+        }),
       );
     }
     return true;
@@ -558,7 +569,7 @@
             command,
             reason: reason.slice(0, 400),
             taint: "untrusted",
-          })
+          }),
         ).catch(() => {});
       } catch {}
       count += 1;
@@ -609,7 +620,7 @@
       try {
         for (const type of ["dragenter", "dragover", "drop"]) {
           composer.dispatchEvent(
-            new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer })
+            new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }),
           );
         }
         handled = true;
@@ -689,8 +700,7 @@
     showControlBadge(message.controlId || "T-?", state);
     try {
       const composer =
-        (await chooseField("composer", adapter, { query: message.prompt })) ||
-        find("composer", adapter);
+        (await chooseField("composer", adapter, { query: message.prompt })) || find("composer", adapter);
       if (state.cancelled) {
         emit(runId, { type: "cancelled" });
         return;

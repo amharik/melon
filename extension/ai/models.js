@@ -58,10 +58,6 @@
     MODELS,
     byId,
     DEFAULT_MODEL_ID,
-    HF_ORIGINS: [
-      "https://huggingface.co/*",
-      "https://*.hf.co/*",
-      "https://*.huggingface.co/*",
-    ],
+    HF_ORIGINS: ["https://huggingface.co/*", "https://*.hf.co/*", "https://*.huggingface.co/*"],
   };
 })();

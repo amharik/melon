@@ -1,11 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import {
-  inputsTainted,
-  isTainted,
-  promptFromInputs,
-} from "../web/shared/protocol.js";
+import { inputsTainted, isTainted, promptFromInputs } from "../web/shared/protocol.js";
 
 test("taint helpers detect browser-tab messages", () => {
   assert.equal(isTainted({ text: "hi" }), false);

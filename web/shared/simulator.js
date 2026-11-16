@@ -12,7 +12,9 @@ function hash(text) {
 }
 
 function subjectOf(prompt) {
-  const clean = String(prompt || "").replace(/\s+/g, " ").trim();
+  const clean = String(prompt || "")
+    .replace(/\s+/g, " ")
+    .trim();
   const subject = clean.match(/(?:subject|review|decision|adr|proposal)\s*[:\-]\s*([^.!?]{3,90})/i);
   if (subject) return subject[1].trim();
   if (!clean) return "the current proposal";
@@ -81,16 +83,23 @@ function synthesizeReviews(prompt) {
     if (match && !consensus.some((item) => similar(item, left))) consensus.push(left);
   }
   for (const item of first.bullets) {
-    if (!consensus.some((entry) => similar(entry, item)) && !disagreements.some((entry) => similar(entry, item))) {
+    if (
+      !consensus.some((entry) => similar(entry, item)) &&
+      !disagreements.some((entry) => similar(entry, item))
+    ) {
       disagreements.push(`rev1 — ${item}`);
     }
   }
   for (const item of second.bullets) {
-    if (!consensus.some((entry) => similar(entry, item)) && !disagreements.some((entry) => similar(entry, item))) {
+    if (
+      !consensus.some((entry) => similar(entry, item)) &&
+      !disagreements.some((entry) => similar(entry, item))
+    ) {
       disagreements.push(`rev2 — ${item}`);
     }
   }
-  const riskWords = /risk|fail|brittle|timeout|cancel|backpressure|security|consent|drift|boundary|throttl|suspend/i;
+  const riskWords =
+    /risk|fail|brittle|timeout|cancel|backpressure|security|consent|drift|boundary|throttl|suspend/i;
   const risks = [
     ...new Set(
       [...first.bullets, ...second.bullets].filter(
@@ -102,7 +111,9 @@ function synthesizeReviews(prompt) {
     ),
   ].slice(0, 4);
   const actionWords = /^(add|ship|land|document|keep|treat|use|do not|make|build|verify|test|pin)\b/i;
-  const actions = [...new Set([...first.bullets, ...second.bullets].filter((item) => actionWords.test(item)))].slice(0, 4);
+  const actions = [
+    ...new Set([...first.bullets, ...second.bullets].filter((item) => actionWords.test(item))),
+  ].slice(0, 4);
   const questions = [...new Set([...first.questions, ...second.questions])].slice(0, 4);
   const decision =
     disagreements.length > 6
@@ -118,7 +129,10 @@ function synthesizeReviews(prompt) {
     bulletList(
       consensus.slice(0, 4).length
         ? consensus.slice(0, 4)
-        : ["The runtime is tractable if transports stay behind adapters.", "Human control must stay visible."],
+        : [
+            "The runtime is tractable if transports stay behind adapters.",
+            "Human control must stay visible.",
+          ],
     ),
     "",
     "## Disagreements",
@@ -150,10 +164,7 @@ function synthesizeReviews(prompt) {
     bulletList(
       questions.length
         ? questions
-        : [
-            "Which tab may see which upstream output?",
-            "What is the fallback when an adapter breaks?",
-          ],
+        : ["Which tab may see which upstream output?", "What is the fallback when an adapter breaks?"],
     ),
     "",
     "## Provenance",

@@ -4,11 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  PLAN_ADAPTERS,
-  extractJsonObject,
-  validatePlanGraph,
-} from "../web/shared/planner.js";
+import { PLAN_ADAPTERS, extractJsonObject, validatePlanGraph } from "../web/shared/planner.js";
 import { MelonCore } from "../web/shared/wasm.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,7 +19,7 @@ const valid = {
       kind: "agent",
       label: "Moderator",
       inputs: ["rev1", "rev2"],
-      config: { adapter: "moderator", instructions: "Synthesize both reviews." }
+      config: { adapter: "moderator", instructions: "Synthesize both reviews." },
     },
     { id: "Decision", kind: "sink", label: "Decision" },
   ],
@@ -53,7 +49,7 @@ test("planner accepts a valid graph and normalizes ids, adapters, and layout", (
   assert.ok(result.graph.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y)));
   assert.deepEqual(
     result.graph.nodes.map((node) => node.kind),
-    ["source", "agent", "agent", "agent", "sink"]
+    ["source", "agent", "agent", "agent", "sink"],
   );
 });
 
@@ -93,7 +89,7 @@ test("planner uses the goal as the source topic when absent", () => {
         { from: { node: "claude", port: "result" }, to: { node: "decision", port: "in" } },
       ],
     },
-    { goal: "Plan a launch review" }
+    { goal: "Plan a launch review" },
   );
   assert.equal(result.ok, true);
   assert.equal(result.graph.nodes[0].config.topic, "Plan a launch review");
@@ -148,7 +144,7 @@ test("planner rejects cycles, unknown adapters, and unreachable nodes", () => {
 });
 
 test("planner extracts fenced JSON and reports missing structure", () => {
-  const parsed = extractJsonObject("Here you go:\n```json\n{\"nodes\":[],\"edges\":[]}\n```");
+  const parsed = extractJsonObject('Here you go:\n```json\n{"nodes":[],"edges":[]}\n```');
   assert.deepEqual(parsed, { nodes: [], edges: [] });
   assert.throws(() => extractJsonObject("no object"), /JSON object/);
 

@@ -33,8 +33,20 @@ test("tournament modal and controls are exposed in DOM and app", async () => {
 
 test("tournament handles multi-model metric computation and crown winner", () => {
   const contestants = [
-    { name: "ChatGPT (o3-mini)", startedAt: 1000, firstToken: 1250, end: 3500, text: "```typescript\nconst x = 1;\n```" },
-    { name: "Gemini 2.0 Pro", startedAt: 1000, firstToken: 1150, end: 2800, text: "```python\ndef solve(): pass\n```" },
+    {
+      name: "ChatGPT (o3-mini)",
+      startedAt: 1000,
+      firstToken: 1250,
+      end: 3500,
+      text: "```typescript\nconst x = 1;\n```",
+    },
+    {
+      name: "Gemini 2.0 Pro",
+      startedAt: 1000,
+      firstToken: 1150,
+      end: 2800,
+      text: "```python\ndef solve(): pass\n```",
+    },
   ];
 
   const results = contestants.map((c) => ({

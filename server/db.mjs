@@ -38,12 +38,7 @@ function assertSafeFile(file) {
   }
 }
 
-export function openDatabase({
-  file,
-  allowExtension = false,
-  timeout = 5000,
-  defensive = true,
-} = {}) {
+export function openDatabase({ file, allowExtension = false, timeout = 5000, defensive = true } = {}) {
   if (!file) throw new Error("database file is required");
   if (!Database) throw new Error("node:sqlite driver unavailable; use Node 24+");
   const memory = file === ":memory:" || file.startsWith("file::memory:");
