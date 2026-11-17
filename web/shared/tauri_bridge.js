@@ -291,7 +291,7 @@ export function buildAuthCheckScript(serviceId = "chatgpt") {
       let hasComposer = false;
       for (const sel of composerSelectors) {
         const el = document.querySelector(sel);
-        if (el && (el.offsetParent !== null || el.getClientRects().length > 0)) {
+        if (el) {
           hasComposer = true;
           break;
         }
@@ -306,8 +306,20 @@ export function buildAuthCheckScript(serviceId = "chatgpt") {
         'button[aria-label*="Log in" i]'
       ];
       const hasLogin = Boolean(document.querySelector(loginSelectors.join(',')));
-      const authenticated = hasComposer && !hasLogin;
-      const state = { ok: true, type: "auth_check", authenticated, hasComposer, hasLogin, serviceId };
+
+      const profileSelectors = [
+        '[data-testid="profile-button"]',
+        '[data-testid="user-menu"]',
+        'button[aria-label*="User profile" i]',
+        'button[aria-label*="Account" i]',
+        'button[aria-label*="Settings" i]',
+        'img[alt*="User" i]'
+      ];
+      const hasProfile = Boolean(document.querySelector(profileSelectors.join(',')));
+
+      // Authenticated if composer or profile is present and not sitting on a pure login page
+      const authenticated = (hasComposer || hasProfile) && !hasLogin;
+      const state = { ok: true, type: "auth_check", authenticated, hasComposer, hasLogin, hasProfile, serviceId };
       try {
         window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));
       } catch(e) {}
@@ -345,7 +357,7 @@ export function buildPromptInjectionScript(prompt, runId, serviceId = "chatgpt")
       let composer = null;
       for (const sel of composerSelectors) {
         const el = document.querySelector(sel);
-        if (el && (el.offsetParent !== null || el.getClientRects().length > 0)) {
+        if (el) {
           composer = el;
           break;
         }
@@ -365,7 +377,7 @@ export function buildPromptInjectionScript(prompt, runId, serviceId = "chatgpt")
         return state;
       }
 
-      // 2. Insert text
+      // 2. Insert text with React 18/19 compatibility
       composer.focus();
       if (composer.isContentEditable) {
         const selection = window.getSelection();
@@ -377,20 +389,22 @@ export function buildPromptInjectionScript(prompt, runId, serviceId = "chatgpt")
         try {
           inserted = document.execCommand("insertText", false, promptText);
         } catch(e) {}
-        if (!inserted) {
+        if (!inserted || !composer.textContent.includes(promptText)) {
           composer.textContent = promptText;
-          composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: promptText }));
         }
+        composer.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: promptText }));
+        composer.dispatchEvent(new Event("change", { bubbles: true }));
       } else {
         const proto = HTMLTextAreaElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
         if (setter) setter.call(composer, promptText);
         else composer.value = promptText;
-        composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: promptText }));
+        composer.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: promptText }));
+        composer.dispatchEvent(new Event("input", { bubbles: true }));
         composer.dispatchEvent(new Event("change", { bubbles: true }));
       }
 
-      // 3. Find send button
+      // 3. Find send button or trigger Enter
       const sendSelectors = [
         '[data-testid="send-button"]',
         'button[aria-label*="Send" i]',
@@ -412,8 +426,12 @@ export function buildPromptInjectionScript(prompt, runId, serviceId = "chatgpt")
         btn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
         btn.click();
       } else {
+        // Fallback: Dispatch Enter keydown on composer
+        composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
         const form = composer.closest("form");
-        if (form) form.requestSubmit();
+        if (form) {
+          try { form.requestSubmit(); } catch(e) {}
+        }
       }
 
       const state = { ok: true, status: "sent", runId, serviceId };
@@ -474,10 +492,11 @@ export function buildResponseExtractScript(runId, serviceId = "chatgpt") {
       }
 
       const isStreaming = Boolean(document.querySelector(
-        '[data-is-streaming="true"], button[aria-label*="Stop" i], [data-testid="stop-button"]'
+        '[data-is-streaming="true"], button[aria-label*="Stop" i], [data-testid="stop-button"], button[aria-label="Stop generating"]'
       ));
 
-      const text = el.innerText || el.textContent || "";
+      const rawInner = typeof el.innerText === "string" ? el.innerText.trim() : "";
+      const text = rawInner.length > 0 ? el.innerText : (el.textContent || "");
       const state = { ok: true, status: "extracted", text, streaming: isStreaming, runId, serviceId };
       try {
         window.location.assign("melon-bridge://" + serviceId + "?data=" + encodeURIComponent(JSON.stringify(state)));

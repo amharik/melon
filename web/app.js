@@ -114,6 +114,13 @@ async function checkWebAgentAuth(serviceId) {
   }
 }
 
+function probeAllWebAgentsAuth() {
+  if (!isTauri()) return;
+  for (const s of ["chatgpt", "claude", "gemini"]) {
+    checkWebAgentAuth(s).catch(() => {});
+  }
+}
+
 const ROOM = "demo";
 const STORAGE_KEY = "melon.graph.v1";
 const THREAD_KEY = "melon.thread.v1";
@@ -1872,7 +1879,6 @@ function renderSlackHeader() {
   if (iconEl)
     iconEl.textContent = currentChatTarget.icon || (currentChatTarget.type === "channel" ? "#" : "@");
   if (titleEl) titleEl.textContent = currentChatTarget.title;
-  if (badgeEl) badgeEl.textContent = currentChatTarget.type === "channel" ? "Channel" : "Direct Message";
   if (descEl) descEl.textContent = currentChatTarget.desc || "";
   if (inputEl)
     inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
@@ -1880,13 +1886,19 @@ function renderSlackHeader() {
   const btnDebate = $("#btn-channel-start-debate");
   if (btnDebate) {
     btnDebate.hidden = currentChatTarget.type !== "channel";
-    btnDebate.onclick = () => openDebateModal(currentChatTarget.id);
+    btnDebate.onclick = () => {
+      const more = $("#chat-more-dropdown");
+      if (more) more.hidden = true;
+      openDebateModal(currentChatTarget.id);
+    };
   }
 
   const btnBlackboard = $("#btn-toggle-blackboard");
   if (btnBlackboard) {
     btnBlackboard.hidden = currentChatTarget.type !== "channel";
     btnBlackboard.onclick = () => {
+      const more = $("#chat-more-dropdown");
+      if (more) more.hidden = true;
       const pane = $("#channel-blackboard-pane");
       if (pane) {
         pane.hidden = !pane.hidden;
@@ -1900,12 +1912,36 @@ function renderSlackHeader() {
   }
 
   const btnAuth = $("#btn-chat-authorize");
+  const contact = currentChatTarget.contact;
+  const isWebAgent =
+    currentChatTarget.type === "dm" &&
+    (contact?.type === "web" ||
+      Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]));
+
+  if (badgeEl) {
+    if (currentChatTarget.type === "channel") {
+      badgeEl.textContent = "Channel";
+      badgeEl.className = "sheet-badge";
+    } else if (isWebAgent) {
+      const agentId = contact?.category || contact?.adapter || "chatgpt";
+      const isAuthed = agentAuthStates.get(agentId);
+      if (isAuthed) {
+        badgeEl.textContent = "🟢 Ready";
+        badgeEl.className = "sheet-badge badge-success";
+      } else {
+        badgeEl.textContent = "🟡 Sign In Required";
+        badgeEl.className = "sheet-badge badge-warning";
+      }
+    } else if (contact?.tag === "CLI") {
+      badgeEl.textContent = "💻 Local CLI";
+      badgeEl.className = "sheet-badge";
+    } else {
+      badgeEl.textContent = "Direct Message";
+      badgeEl.className = "sheet-badge";
+    }
+  }
+
   if (btnAuth) {
-    const contact = currentChatTarget.contact;
-    const isWebAgent =
-      currentChatTarget.type === "dm" &&
-      (contact?.type === "web" ||
-        Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]));
     if (isWebAgent) {
       const agentId = contact?.category || contact?.adapter || "chatgpt";
       const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
@@ -1915,7 +1951,7 @@ function renderSlackHeader() {
       btnAuth.className = `ghost tiny btn-chat-authorize ${isAuthed ? "authed" : "needs-auth"}`;
       btnAuth.innerHTML = isAuthed
         ? `✓ Authenticated`
-        : `🔑 Sign In Required`;
+        : `🔑 Sign In`;
       btnAuth.title = isAuthed
         ? `${contact?.name || defaults.name} session is authenticated and active`
         : `Click to sign in to ${contact?.name || defaults.name}`;
@@ -2643,6 +2679,44 @@ function renderSlackMessages() {
 
   feed.scrollTop = feed.scrollHeight;
   renderAllPendingDiagrams(feed);
+  attachCodeCopyButtons(feed);
+}
+
+function attachCodeCopyButtons(container) {
+  if (!container) return;
+  container.querySelectorAll("pre:not(.has-copy-btn)").forEach((pre) => {
+    pre.classList.add("has-copy-btn");
+    const code = pre.querySelector("code") || pre;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-copy-code-block";
+    btn.textContent = "Copy";
+    btn.title = "Copy code";
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const textToCopy = code.innerText || code.textContent || "";
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(textToCopy);
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = textToCopy;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        }
+        btn.textContent = "Copied!";
+        setTimeout(() => {
+          btn.textContent = "Copy";
+        }, 1800);
+      } catch {
+        btn.textContent = "Failed";
+      }
+    });
+    pre.style.position = "relative";
+    pre.appendChild(btn);
+  });
 }
 
 function updateStreamingMessageDOM(msgId, text) {
@@ -2652,6 +2726,7 @@ function updateStreamingMessageDOM(msgId, text) {
     const feed = $("#slack-messages-feed");
     if (feed) feed.scrollTop = feed.scrollHeight;
     renderAllPendingDiagrams(el);
+    attachCodeCopyButtons(el);
   }
 }
 
@@ -2697,32 +2772,9 @@ function selectSlackTarget(type, id) {
     }
   }
 
-  // Manage native embedded webview bounds in Tauri
+  // In Tauri desktop, keep background helper webviews hidden so the chat is 100% unified inline
   if (isTauri()) {
-    if (type === "dm") {
-      const contact = currentChatTarget.contact;
-      const isWeb =
-        contact?.type === "web" ||
-        Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]);
-      if (isWeb) {
-        const agentId = contact?.category || contact?.adapter || contact?.id || "chatgpt";
-        const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
-        const bounds = getContentBounds();
-        hideAllAgentWindows().then(() => {
-          spawnAgentWebview({
-            id: agentId,
-            title: `${contact?.name || defaults.name} · Native Canvas`,
-            url: contact?.url || defaults.url,
-            visible: true,
-            bounds,
-          });
-        });
-      } else {
-        hideAllAgentWindows();
-      }
-    } else {
-      hideAllAgentWindows();
-    }
+    hideAllAgentWindows().catch(() => {});
   }
 }
 
@@ -2740,7 +2792,7 @@ if (typeof window !== "undefined") {
         if (isWeb) {
           const agentId = contact?.category || contact?.adapter || contact?.id || "chatgpt";
           const bounds = getContentBounds();
-          setAgentWebviewBounds(agentId, bounds);
+          setAgentWebviewBounds(agentId, bounds).catch(() => {});
         }
       }
     }, 150);
@@ -3668,6 +3720,12 @@ async function sendSlackMessage() {
         },
       );
       if (spawned) return;
+
+      // Fail fast if CLI command failed to launch rather than falling through to /api/runs
+      if (runner) {
+        runner.onError(`Could not start CLI agent "${agentTarget.name}". Ensure "${agentTarget.adapter === "agy" ? "agy" : "opencode"}" is installed and in your PATH.`);
+      }
+      return;
     }
 
     const isWebAgent = agentTarget.type === "web" && !agentTarget.tabId;
@@ -3678,7 +3736,19 @@ async function sendSlackMessage() {
       const targetUrl = agentTarget.url || defaults.url;
       const agentTitle = `${agentTarget.name || defaults.name} Agent`;
 
-      // 1. Ensure child webview exists
+      // Fast-path: Check auth state upfront if already known unauthenticated
+      if (agentAuthStates.get(serviceId) === false) {
+        if (typingBar) typingBar.hidden = true;
+        agentMsg.streaming = false;
+        agentMsg.needsAuth = true;
+        agentMsg.agentService = serviceId;
+        agentMsg.text = `🔒 **Authentication required for ${agentTarget.name || defaults.name}**\n\nPlease sign in to **${defaults.name}** to enable autonomous message responses.\n\n*(Your login session is preserved permanently by the native WebView data store across restarts.)*`;
+        slackChatRunners.delete(runId);
+        renderSlackMessages();
+        return;
+      }
+
+      // 1. Ensure child webview exists (kept hidden)
       const isOpen = await isAgentWindowOpen(serviceId);
       if (!isOpen) {
         await spawnAgentWebview({
@@ -3715,6 +3785,7 @@ async function sendSlackMessage() {
       if (payload && payload.status === "needs_auth") {
         agentAuthStates.set(serviceId, false);
         renderSlackHeader();
+        renderSlackNav();
         if (typingBar) typingBar.hidden = true;
         agentMsg.streaming = false;
         agentMsg.needsAuth = true;
@@ -3728,16 +3799,20 @@ async function sendSlackMessage() {
       if (payload && payload.ok) {
         agentAuthStates.set(serviceId, true);
         renderSlackHeader();
+        renderSlackNav();
       }
 
       // 3. Response extraction polling loop
       const runner = slackChatRunners.get(runId);
       let lastText = "";
       let iterations = 0;
-      const maxIterations = 120; // ~60 seconds max
+      const maxIterations = 80; // ~40 seconds with responsive status
 
       const pollInterval = setInterval(async () => {
         iterations++;
+        if (typingText && iterations % 2 === 0) {
+          typingText.textContent = `${agentTarget.name} is thinking (${Math.round(iterations * 0.5)}s)...`;
+        }
         await clearAgentMessage(serviceId);
         const extractScript = buildResponseExtractScript(runId, serviceId);
         await evalAgentScript(serviceId, extractScript);
@@ -3778,7 +3853,7 @@ async function sendSlackMessage() {
           clearInterval(pollInterval);
           if (runner) {
             if (lastText) runner.onDone(lastText);
-            else runner.onError("Response timeout: no response received from agent within 60s.");
+            else runner.onError(`Response timeout: no response received from ${agentTarget.name}. Click "🔑 Sign In" to verify your session.`);
           }
         }
       }, 500);
@@ -4381,6 +4456,27 @@ function setupSlackChat() {
       }
     });
   }
+
+  // Chat More Menu Dropdown
+  const btnChatMore = $("#btn-chat-more-menu");
+  const chatMoreDropdown = $("#chat-more-dropdown");
+  if (btnChatMore && chatMoreDropdown) {
+    btnChatMore.addEventListener("click", (e) => {
+      e.stopPropagation();
+      chatMoreDropdown.hidden = !chatMoreDropdown.hidden;
+    });
+    document.addEventListener("click", (e) => {
+      if (!btnChatMore.contains(e.target) && !chatMoreDropdown.contains(e.target)) {
+        chatMoreDropdown.hidden = true;
+      }
+    });
+  }
+
+  // Formatting bar toggle
+  $("#btn-composer-fmt-toggle")?.addEventListener("click", () => {
+    const bar = $("#slack-format-bar");
+    if (bar) bar.hidden = !bar.hidden;
+  });
 
   setupExperimentsNavigation();
   setupAddContactModal();
@@ -8119,6 +8215,7 @@ async function boot() {
   setupBus();
   connectHub();
   loadPersistentAgents();
+  probeAllWebAgentsAuth();
   loadSlackMessages(currentChatTarget.type, currentChatTarget.id);
 
   if (typeof window !== "undefined" && window.mermaid) {

@@ -303,21 +303,28 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <p id="slack-current-desc">Central company workspace: all tab agents and CLI subprocesses collaborate here.</p>
             </div>
             <div class="slack-header-actions">
-              <button type="button" class="tiny ghost" id="btn-channel-start-debate" title="Launch Autonomous Multi-Agent Debate in this Channel">⚡ Debate</button>
-              <button type="button" class="tiny ghost" id="btn-toggle-blackboard" title="Toggle Channel-Scoped Blackboard & Consensus Drawer">📋 Blackboard</button>
-              <button type="button" class="tiny ghost" id="btn-chat-authorize" title="Sign in or authorize web agent session" hidden>🔑 Sign In</button>
-              <button type="button" class="tiny ghost" id="btn-chat-toggle-webview" title="Open or toggle live AI agent WebView window">🖥️ Live View</button>
-              <button type="button" class="tiny ghost" id="btn-chat-toggle-profile" title="Toggle Agent Persona & Details Inspector">ℹ️ Details</button>
-              <button type="button" class="tiny ghost" id="btn-chat-sync-war" title="Trigger Strategy Consensus War-Room Synthesis">⚡ Sync Consensus</button>
-              <div class="slack-erase-menu-wrapper" style="position:relative; display:inline-block;">
-                <button type="button" class="tiny ghost" id="btn-chat-erase-menu" title="Erase back history">🧹 Erase ▾</button>
-                <div class="slack-erase-dropdown" id="erase-back-menu" hidden>
-                  <button type="button" class="slack-erase-opt" data-erase="5">Erase last 5 turns</button>
-                  <button type="button" class="slack-erase-opt" data-erase="20">Erase last 20 turns</button>
-                  <button type="button" class="slack-erase-opt danger" data-erase="all">Erase all history</button>
+              <button type="button" class="tiny ghost btn-chat-authorize" id="btn-chat-authorize" title="Sign in or authorize web agent session" hidden>🔑 Sign In</button>
+              <button type="button" class="tiny ghost" id="btn-chat-clear" title="Clear message feed">✕ Clear</button>
+              
+              <!-- Clean secondary menu dropdown: houses debate, blackboard, profile, and tools -->
+              <div class="menu-wrap" style="position:relative; display:inline-block;">
+                <button type="button" class="tiny ghost" id="btn-chat-more-menu" title="More Channel & Agent Tools" aria-haspopup="true">•••</button>
+                <div id="chat-more-dropdown" class="menu-dropdown" hidden style="right:0; left:auto; min-width:210px;">
+                  <button type="button" id="btn-channel-start-debate">⚡ Autonomous Debate</button>
+                  <button type="button" id="btn-toggle-blackboard">📋 Channel Blackboard</button>
+                  <button type="button" id="btn-chat-toggle-profile">ℹ️ Agent Persona / Details</button>
+                  <button type="button" id="btn-chat-sync-war">⚡ War-Room Consensus</button>
+                  <button type="button" id="btn-chat-toggle-webview">🖥️ Open Live Window</button>
+                  <div class="slack-erase-menu-wrapper" style="border-top:1px solid var(--border); margin-top:4px; padding-top:4px;">
+                    <button type="button" id="btn-chat-erase-menu" style="width:100%; text-align:left;">🧹 Erase History ▾</button>
+                    <div class="slack-erase-dropdown" id="erase-back-menu" hidden>
+                      <button type="button" class="slack-erase-opt" data-erase="5">Erase last 5 turns</button>
+                      <button type="button" class="slack-erase-opt" data-erase="20">Erase last 20 turns</button>
+                      <button type="button" class="slack-erase-opt danger" data-erase="all">Erase all history</button>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <button type="button" class="tiny ghost" id="btn-chat-clear" title="Clear message feed">✕ Clear</button>
             </div>
           </header>
 
@@ -348,8 +355,8 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           </div>
 
           <div class="slack-composer">
-            <!-- Slack Rich Formatting Bar -->
-            <div class="slack-format-bar">
+            <!-- Slack Rich Formatting Bar (hidden by default to keep chat uncluttered) -->
+            <div class="slack-format-bar" id="slack-format-bar" hidden>
               <button type="button" class="slack-fmt-btn" data-fmt="bold" title="Bold (⌘B)"><b>B</b></button>
               <button type="button" class="slack-fmt-btn" data-fmt="italic" title="Italic (⌘I)"><i>I</i></button>
               <button type="button" class="slack-fmt-btn" data-fmt="strike" title="Strikethrough"><s>S</s></button>
@@ -370,6 +377,7 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <div class="slack-toolbar-left">
                 <button type="button" class="tiny ghost btn-slack-mention" id="btn-composer-mention" title="Mention an agent (@)">@</button>
                 <button type="button" class="tiny ghost" id="btn-composer-code" title="Insert Code Block">`code`</button>
+                <button type="button" class="tiny ghost" id="btn-composer-fmt-toggle" title="Toggle Formatting Bar"><b>T</b></button>
                 <button type="button" class="tiny ghost" id="btn-composer-task" title="Dispatch as Autonomous Background Task">⚡ Task</button>
               </div>
               <div class="slack-toolbar-right">
