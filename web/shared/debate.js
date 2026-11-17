@@ -54,3 +54,15 @@ export function synthesizeDebateConsensus({ topic, turns = [], artifacts = [] })
     `- **Implementation Artifacts:** ${artifactCount} concrete artifact(s) captured in Channel Blackboard.\n\n` +
     `*(Autonomous multi-agent debate concluded successfully. All state preserved in Channel Blackboard.)*`;
 }
+
+export function formatAcpMessageChunk(text, runId = "") {
+  return {
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: String(text || "") },
+      runId,
+    },
+  };
+}

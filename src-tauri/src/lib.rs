@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, Url,
+    WebviewUrl, WebviewWindowBuilder,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
@@ -10,11 +13,20 @@ pub struct AppState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WebviewBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AgentWindowConfig {
     pub id: String,
     pub title: String,
     pub url: String,
     pub visible: Option<bool>,
+    pub bounds: Option<WebviewBounds>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -53,6 +65,10 @@ mod commands {
         let mut wins = state.agent_windows.lock().map_err(|e| e.to_string())?;
 
         if let Some(existing) = app.get_webview_window(&config.id) {
+            if let Some(b) = &config.bounds {
+                let _ = existing.set_position(Position::Logical(LogicalPosition { x: b.x, y: b.y }));
+                let _ = existing.set_size(Size::Logical(LogicalSize { width: b.width, height: b.height }));
+            }
             if config.visible.unwrap_or(true) {
                 existing.show().map_err(|e| e.to_string())?;
                 existing.set_focus().map_err(|e| e.to_string())?;
@@ -67,15 +83,23 @@ mod commands {
         let app_handle = app.clone();
         let agent_id = config.id.clone();
 
-        let builder = WebviewWindowBuilder::new(
+        let mut builder = WebviewWindowBuilder::new(
             &app,
             &config.id,
             WebviewUrl::External(parsed_url),
         )
         .title(&config.title)
-        .inner_size(1024.0, 768.0)
-        .visible(is_vis)
-        .on_navigation(move |nav_url| {
+        .visible(is_vis);
+
+        if let Some(b) = &config.bounds {
+            builder = builder
+                .position(b.x, b.y)
+                .inner_size(b.width, b.height);
+        } else {
+            builder = builder.inner_size(1024.0, 768.0);
+        }
+
+        let builder = builder.on_navigation(move |nav_url| {
             if nav_url.scheme() == "melon-bridge" {
                 let id = nav_url.host_str().unwrap_or(&agent_id).to_string();
                 let query = nav_url.query().unwrap_or("");
@@ -158,6 +182,43 @@ mod commands {
     #[tauri::command]
     pub fn is_agent_window_open(app: AppHandle, id: String) -> bool {
         app.get_webview_window(&id).is_some()
+    }
+
+    #[tauri::command]
+    pub async fn set_agent_webview_bounds(
+        app: AppHandle,
+        id: String,
+        bounds: WebviewBounds,
+    ) -> Result<bool, String> {
+        if let Some(win) = app.get_webview_window(&id) {
+            win.set_position(Position::Logical(LogicalPosition {
+                x: bounds.x,
+                y: bounds.y,
+            }))
+            .map_err(|e| e.to_string())?;
+            win.set_size(Size::Logical(LogicalSize {
+                width: bounds.width,
+                height: bounds.height,
+            }))
+            .map_err(|e| e.to_string())?;
+            Ok(true)
+        } else {
+            Err(format!("Window {} not found", id))
+        }
+    }
+
+    #[tauri::command]
+    pub async fn hide_all_agent_windows(
+        app: AppHandle,
+        state: tauri::State<'_, AppState>,
+    ) -> Result<bool, String> {
+        let wins = state.agent_windows.lock().map_err(|e| e.to_string())?;
+        for (id, _) in wins.iter() {
+            if let Some(win) = app.get_webview_window(id) {
+                let _ = win.hide();
+            }
+        }
+        Ok(true)
     }
 
     #[tauri::command]
@@ -286,6 +347,8 @@ pub fn run() {
             commands::eval_agent_script,
             commands::get_agent_window_title,
             commands::is_agent_window_open,
+            commands::set_agent_webview_bounds,
+            commands::hide_all_agent_windows,
             commands::close_agent_window,
             commands::get_agent_message,
             commands::clear_agent_message,

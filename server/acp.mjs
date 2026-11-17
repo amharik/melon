@@ -125,3 +125,19 @@ export function createAcpClient({
 
   return { run, close, enabled: !!command };
 }
+
+/**
+ * @param {{ name?: string, onPrompt?: (text: string, options?: { onChunk?: (c: string) => void }) => Promise<string> }} [options]
+ */
+export function createVirtualAcpSession({ name = "virtual-agent", onPrompt = null } = {}) {
+  return {
+    name,
+    protocolVersion: acp.PROTOCOL_VERSION,
+    async prompt(text, { onChunk = null } = {}) {
+      if (typeof onPrompt === "function") {
+        return await onPrompt(cleanText(text), { onChunk });
+      }
+      return cleanText(text);
+    },
+  };
+}

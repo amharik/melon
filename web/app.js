@@ -35,6 +35,9 @@ import {
   buildResponseExtractScript,
   WEB_AGENT_DEFAULTS,
   apiUrl,
+  setAgentWebviewBounds,
+  hideAllAgentWindows,
+  getContentBounds,
 } from "./shared/tauri_bridge.js";
 
 export { apiUrl };
@@ -2693,6 +2696,55 @@ function selectSlackTarget(type, id) {
       bbPane.hidden = true;
     }
   }
+
+  // Manage native embedded webview bounds in Tauri
+  if (isTauri()) {
+    if (type === "dm") {
+      const contact = currentChatTarget.contact;
+      const isWeb =
+        contact?.type === "web" ||
+        Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]);
+      if (isWeb) {
+        const agentId = contact?.category || contact?.adapter || contact?.id || "chatgpt";
+        const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
+        const bounds = getContentBounds();
+        hideAllAgentWindows().then(() => {
+          spawnAgentWebview({
+            id: agentId,
+            title: `${contact?.name || defaults.name} · Native Canvas`,
+            url: contact?.url || defaults.url,
+            visible: true,
+            bounds,
+          });
+        });
+      } else {
+        hideAllAgentWindows();
+      }
+    } else {
+      hideAllAgentWindows();
+    }
+  }
+}
+
+if (typeof window !== "undefined") {
+  let boundsResizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (!isTauri()) return;
+    clearTimeout(boundsResizeTimer);
+    boundsResizeTimer = setTimeout(() => {
+      if (currentChatTarget && currentChatTarget.type === "dm") {
+        const contact = currentChatTarget.contact;
+        const isWeb =
+          contact?.type === "web" ||
+          Boolean(WEB_AGENT_DEFAULTS[contact?.category || contact?.adapter]);
+        if (isWeb) {
+          const agentId = contact?.category || contact?.adapter || contact?.id || "chatgpt";
+          const bounds = getContentBounds();
+          setAgentWebviewBounds(agentId, bounds);
+        }
+      }
+    }, 150);
+  });
 }
 
 function selectExperimentsView(subTab = "office") {

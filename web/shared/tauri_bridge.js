@@ -144,6 +144,57 @@ export async function closeAgentWindow(id) {
   }
 }
 
+export async function setAgentWebviewBounds(id, bounds) {
+  if (!isTauri() || !bounds) return false;
+  try {
+    return await tauriInvoke("set_agent_webview_bounds", { id, bounds });
+  } catch (err) {
+    console.debug(`[TauriBridge] failed to set bounds for ${id}:`, err);
+    return false;
+  }
+}
+
+export async function hideAllAgentWindows() {
+  if (!isTauri()) return false;
+  try {
+    return await tauriInvoke("hide_all_agent_windows");
+  } catch {
+    return false;
+  }
+}
+
+export function getContentBounds(element = null) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return { x: 260, y: 50, width: 900, height: 700 };
+  }
+  const el =
+    element ||
+    (typeof document.querySelector === "function"
+      ? document.querySelector("#slack-messages-feed") ||
+        document.querySelector(".slack-main")
+      : null);
+  if (!el || typeof el.getBoundingClientRect !== "function") {
+    const sX = typeof window.screenX === "number" ? window.screenX : 0;
+    const sY = typeof window.screenY === "number" ? window.screenY : 0;
+    return {
+      x: sX + 260,
+      y: sY + 50,
+      width: Math.max(400, (window.innerWidth || 1200) - 260),
+      height: Math.max(300, (window.innerHeight || 800) - 50),
+    };
+  }
+  const rect = el.getBoundingClientRect();
+  const screenX = typeof window.screenX === "number" ? window.screenX : 0;
+  const screenY = typeof window.screenY === "number" ? window.screenY : 0;
+
+  return {
+    x: Math.round(screenX + rect.left),
+    y: Math.round(screenY + rect.top),
+    width: Math.max(320, Math.round(rect.width)),
+    height: Math.max(240, Math.round(rect.height)),
+  };
+}
+
 export async function getAgentMessage(id) {
   if (!isTauri()) return null;
   try {

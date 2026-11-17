@@ -5,12 +5,14 @@ import {
   isDebateTrigger,
   buildDebateTurnPrompt,
   synthesizeDebateConsensus,
+  formatAcpMessageChunk,
 } from "../web/shared/debate.js";
 import {
   getChannelBlackboard,
   updateChannelBlackboard,
   readBlackboard,
 } from "../server/blackboard.mjs";
+import { createVirtualAcpSession } from "../server/acp.mjs";
 
 test("parseDebateMentions extracts unique lowercase handles", () => {
   const text = "@chatgpt propose architecture, @claude review, and @agy implement it with @chatgpt";
@@ -126,4 +128,32 @@ test("DOM markup, CSS, and app.js wire autonomous debates, native canvas arena, 
   assert.ok(appJs.includes("renderChannelBlackboardPane"));
   assert.ok(appJs.includes("renderSlackCanvasArena"));
   assert.ok(appJs.includes("saveChannelBlackboard"));
+});
+
+test("ACP virtual session and message chunk formatting meet protocol standards", async () => {
+  const session = createVirtualAcpSession({
+    name: "chatgpt-virtual-acp",
+    onPrompt: async (text, { onChunk }) => {
+      if (onChunk) onChunk("chunk-1: proposal");
+      return `Processed: ${text}`;
+    },
+  });
+
+  assert.equal(session.name, "chatgpt-virtual-acp");
+  assert.ok(session.protocolVersion);
+
+  const chunks = [];
+  const result = await session.prompt("Design OAuth flow", {
+    onChunk: (c) => chunks.push(c),
+  });
+
+  assert.equal(result, "Processed: Design OAuth flow");
+  assert.deepEqual(chunks, ["chunk-1: proposal"]);
+
+  const chunkRpc = formatAcpMessageChunk("partial token", "run_123");
+  assert.equal(chunkRpc.jsonrpc, "2.0");
+  assert.equal(chunkRpc.method, "session/update");
+  assert.equal(chunkRpc.params.sessionUpdate, "agent_message_chunk");
+  assert.equal(chunkRpc.params.content.text, "partial token");
+  assert.equal(chunkRpc.params.runId, "run_123");
 });

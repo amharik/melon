@@ -20,6 +20,9 @@ import {
   buildResponseExtractScript,
   WEB_AGENT_DEFAULTS,
   apiUrl,
+  setAgentWebviewBounds,
+  hideAllAgentWindows,
+  getContentBounds,
 } from "../web/shared/tauri_bridge.js";
 
 test("Tauri desktop bridge detects non-Tauri browser environments safely", () => {
@@ -344,4 +347,46 @@ test("apiUrl maps relative paths to localhost:4096 in Tauri environment", () => 
   } finally {
     delete globalThis.window;
   }
+});
+
+test("Tauri bridge manages embedded webview bounds and hiding all webviews", async () => {
+  const calls = [];
+  const fakeTauri = {
+    core: {
+      invoke: async (cmd, args) => {
+        calls.push({ cmd, args });
+        if (cmd === "set_agent_webview_bounds") return true;
+        if (cmd === "hide_all_agent_windows") return true;
+        return null;
+      },
+    },
+  };
+
+  globalThis.window = { __TAURI__: fakeTauri };
+  try {
+    const res = await setAgentWebviewBounds("chatgpt", { x: 260, y: 50, width: 800, height: 600 });
+    assert.equal(res, true);
+
+    const hidden = await hideAllAgentWindows();
+    assert.equal(hidden, true);
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].cmd, "set_agent_webview_bounds");
+    assert.equal(calls[0].args.id, "chatgpt");
+    assert.deepEqual(calls[0].args.bounds, { x: 260, y: 50, width: 800, height: 600 });
+    assert.equal(calls[1].cmd, "hide_all_agent_windows");
+
+    const bounds = getContentBounds();
+    assert.equal(typeof bounds.x, "number");
+    assert.equal(typeof bounds.width, "number");
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test("src-tauri exports set_agent_webview_bounds and hide_all_agent_windows", () => {
+  const libRs = fs.readFileSync(path.resolve("src-tauri/src/lib.rs"), "utf8");
+  assert.ok(libRs.includes("set_agent_webview_bounds"));
+  assert.ok(libRs.includes("hide_all_agent_windows"));
+  assert.ok(libRs.includes("WebviewBounds"));
 });
