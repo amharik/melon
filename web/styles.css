@@ -4450,3 +4450,264 @@ details.drawer .drawer-content {
   max-height: 95%;
   height: auto;
 }
+
+/* ==========================================================================
+   Slack Native Canvas Arena & Channel Blackboard Drawer
+   ========================================================================== */
+
+.slack-canvas-arena {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background: var(--bg-main);
+  border-bottom: 1px solid var(--border);
+  min-height: 380px;
+  overflow: hidden;
+}
+
+.canvas-arena-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.canvas-agent-tabs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+}
+
+.canvas-tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.canvas-tab-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.canvas-tab-btn.active {
+  background: var(--bg-active);
+  color: var(--accent);
+  border-color: rgba(99, 102, 241, 0.3);
+  font-weight: 600;
+}
+
+.canvas-arena-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.canvas-arena-display {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.canvas-agent-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.canvas-agent-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.canvas-agent-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.canvas-agent-avatar {
+  font-size: 24px;
+}
+
+.canvas-agent-info h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.canvas-agent-info p {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Channel Blackboard Drawer */
+.channel-blackboard-pane {
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+  width: 360px;
+  max-width: 400px;
+}
+
+.blackboard-section {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.blackboard-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.blackboard-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.blackboard-topic-box {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-main);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.blackboard-roster-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.blackboard-roster-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--text-main);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.blackboard-consensus-box {
+  background: rgba(16, 185, 129, 0.08);
+  border-left: 3px solid #10b981;
+  padding: 10px 12px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.blackboard-artifact-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+/* Autonomous Debate In-Feed Cards */
+.debate-banner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+.debate-banner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.debate-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #a5b4fc;
+}
+
+.debate-turn-card {
+  border-left: 3px solid #6366f1;
+  background: rgba(99, 102, 241, 0.05);
+  border-radius: 0 8px 8px 0;
+  padding: 12px 14px;
+  margin: 8px 0;
+}
+
+.debate-turn-card.critic {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.debate-turn-card.implementer {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.debate-turn-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
+}
+
+.debate-turn-badge.proposer {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+
+.debate-turn-badge.critic {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.debate-turn-badge.implementer {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}

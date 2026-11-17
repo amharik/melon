@@ -14,6 +14,12 @@ import { renderBuiltInSvgDiagram } from "./shared/diagrams.js";
 import { renderMarkdownHtml } from "./shared/markdown.js";
 import { sanitizeSvg } from "./shared/sanitize.js";
 import {
+  parseDebateMentions,
+  isDebateTrigger,
+  buildDebateTurnPrompt,
+  synthesizeDebateConsensus,
+} from "./shared/debate.js";
+import {
   isTauri,
   spawnAgentWebview,
   toggleAgentWebview,
@@ -1868,6 +1874,28 @@ function renderSlackHeader() {
   if (inputEl)
     inputEl.placeholder = `Message ${currentChatTarget.type === "channel" ? "#" : "@"}${currentChatTarget.title}...`;
 
+  const btnDebate = $("#btn-channel-start-debate");
+  if (btnDebate) {
+    btnDebate.hidden = currentChatTarget.type !== "channel";
+    btnDebate.onclick = () => openDebateModal(currentChatTarget.id);
+  }
+
+  const btnBlackboard = $("#btn-toggle-blackboard");
+  if (btnBlackboard) {
+    btnBlackboard.hidden = currentChatTarget.type !== "channel";
+    btnBlackboard.onclick = () => {
+      const pane = $("#channel-blackboard-pane");
+      if (pane) {
+        pane.hidden = !pane.hidden;
+        if (!pane.hidden) {
+          const profile = $("#slack-profile-pane");
+          if (profile) profile.hidden = true;
+          renderChannelBlackboardPane(currentChatTarget.id);
+        }
+      }
+    };
+  }
+
   const btnAuth = $("#btn-chat-authorize");
   if (btnAuth) {
     const contact = currentChatTarget.contact;
@@ -2656,6 +2684,15 @@ function selectSlackTarget(type, id) {
 
   loadSlackMessages(currentChatTarget.type, currentChatTarget.id);
   renderSlackChat();
+
+  const bbPane = $("#channel-blackboard-pane");
+  if (bbPane && !bbPane.hidden) {
+    if (currentChatTarget.type === "channel") {
+      renderChannelBlackboardPane(currentChatTarget.id);
+    } else {
+      bbPane.hidden = true;
+    }
+  }
 }
 
 function selectExperimentsView(subTab = "office") {
@@ -2883,6 +2920,549 @@ function renderSlackProfilePane(agent) {
   pane.hidden = false;
 }
 
+async function saveChannelBlackboard(channelId, data) {
+  try {
+    const res = await fetch("/api/blackboard", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ channel: channelId, ...data }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.debug("saveChannelBlackboard error:", err);
+  }
+  return null;
+}
+
+function openDebateModal(channelId) {
+  const modal = $("#modal-channel-debate");
+  const topicInput = $("#debate-topic-input");
+  if (!modal) return;
+  if (topicInput && !topicInput.value.trim()) {
+    const ch = chatChannels.find((c) => c.id === channelId);
+    topicInput.value = ch ? `Autonomous technical review and implementation for #${ch.id}` : "";
+  }
+  modal.hidden = false;
+}
+
+async function renderChannelBlackboardPane(channelId) {
+  const pane = $("#channel-blackboard-pane");
+  const body = $("#channel-blackboard-body");
+  const titleEl = $("#blackboard-channel-title");
+  const statusBadge = $("#blackboard-status-badge");
+  if (!pane || !body) return;
+
+  if (titleEl) titleEl.textContent = `#${channelId} Blackboard`;
+
+  let board = null;
+  try {
+    const res = await fetch(`/api/blackboard?channel=${encodeURIComponent(channelId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      board = data.blackboard;
+    }
+  } catch (err) {
+    console.debug("Failed to load channel blackboard:", err);
+  }
+
+  if (!board) {
+    board = {
+      channelId,
+      topic: "",
+      status: "idle",
+      round: 0,
+      maxRounds: 3,
+      participants: [],
+      turns: [],
+      consensus: "",
+      artifacts: [],
+    };
+  }
+
+  if (statusBadge) {
+    statusBadge.textContent =
+      board.status === "debating"
+        ? `⚡ Debating (R${board.round})`
+        : board.status === "concluded"
+          ? "✓ Concluded"
+          : "Idle";
+    statusBadge.className = `sheet-badge ${board.status === "debating" ? "badge-warning" : board.status === "concluded" ? "badge-success" : ""}`;
+  }
+
+  body.innerHTML = `
+    <div class="blackboard-section">
+      <div class="blackboard-section-head">
+        <span class="blackboard-section-title">Debate Goal &amp; Topic</span>
+        <span class="sheet-badge">${esc(board.status.toUpperCase())}</span>
+      </div>
+      <div class="blackboard-topic-box">
+        ${esc(board.topic || "No active debate topic. Post @agent mentions in channel or click '⚡ Debate'.")}
+      </div>
+    </div>
+
+    <div class="blackboard-section">
+      <div class="blackboard-section-head">
+        <span class="blackboard-section-title">Debater Roster (${(board.participants || []).length})</span>
+        <span style="font-size:11px; color:var(--text-muted);">Round ${board.round || 0} / ${board.maxRounds || 3}</span>
+      </div>
+      <div class="blackboard-roster-list">
+        ${
+          (board.participants || []).length > 0
+            ? (board.participants || []).map((p) => `<span class="blackboard-roster-chip">${esc(p)}</span>`).join("")
+            : `<span style="font-size:12px; color:var(--text-muted);">No roster selected yet.</span>`
+        }
+      </div>
+    </div>
+
+    ${
+      board.consensus
+        ? `
+    <div class="blackboard-section">
+      <div class="blackboard-section-head">
+        <span class="blackboard-section-title">Consensus &amp; Decisions</span>
+        <span class="sheet-badge badge-success">Verified</span>
+      </div>
+      <div class="blackboard-consensus-box">
+        ${renderMarkdown(board.consensus)}
+      </div>
+    </div>`
+        : ""
+    }
+
+    <div class="blackboard-section">
+      <div class="blackboard-section-head">
+        <span class="blackboard-section-title">Captured Artifacts (${(board.artifacts || []).length})</span>
+      </div>
+      ${
+        (board.artifacts || []).length > 0
+          ? (board.artifacts || [])
+              .map(
+                (art) => `
+          <div class="blackboard-artifact-item">
+            <span>📄 <b>${esc(art.title)}</b> (${esc(art.type)})</span>
+            <button type="button" class="tiny ghost btn-copy-artifact" data-content="${esc(art.content)}">Copy</button>
+          </div>
+        `,
+              )
+              .join("")
+          : `<span style="font-size:12px; color:var(--text-muted); display:block; padding:4px 0;">No artifacts generated yet.</span>`
+      }
+    </div>
+
+    <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+      <button type="button" class="primary tiny btn-bb-start-debate">⚡ Start New Debate</button>
+      <button type="button" class="ghost tiny btn-bb-reset">↺ Reset Channel Blackboard</button>
+    </div>
+  `;
+
+  body.querySelectorAll(".btn-copy-artifact").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      navigator.clipboard.writeText(btn.dataset.content || "");
+      toast("Copied artifact to clipboard!");
+    });
+  });
+
+  body.querySelector(".btn-bb-start-debate")?.addEventListener("click", () => {
+    openDebateModal(channelId);
+  });
+
+  body.querySelector(".btn-bb-reset")?.addEventListener("click", async () => {
+    await saveChannelBlackboard(channelId, {
+      topic: "",
+      status: "idle",
+      round: 0,
+      turns: [],
+      consensus: "",
+      artifacts: [],
+    });
+    renderChannelBlackboardPane(channelId);
+    toast(`Reset blackboard for #${channelId}`);
+  });
+
+  pane.hidden = false;
+}
+
+async function dispatchTurnToAgent(agentTarget, promptText, runId) {
+  if (isTauri()) {
+    // 1. CLI Agent
+    if (
+      agentTarget.type === "cli" ||
+      agentTarget.adapter === "opencode" ||
+      agentTarget.adapter === "agy"
+    ) {
+      return new Promise((resolve) => {
+        let textBuf = "";
+        runCliAgent(
+          {
+            runId,
+            agentName: agentTarget.name,
+            command: agentTarget.adapter === "agy" ? "agy" : "opencode",
+            args: ["run"],
+            prompt: promptText,
+          },
+          {
+            onChunk: (chunk) => {
+              textBuf += chunk;
+            },
+            onDone: () => resolve(textBuf.trim() || "Task completed successfully."),
+            onError: (err) => resolve(`*(CLI execution note: ${err})*`),
+          },
+        ).then((spawned) => {
+          if (!spawned) resolve("Execution dispatched to CLI agent.");
+        });
+      });
+    }
+
+    // 2. Web Agent
+    const isWebAgent = agentTarget.type === "web" && !agentTarget.tabId;
+    if (isWebAgent) {
+      const serviceId = agentTarget.category || agentTarget.adapter || "chatgpt";
+      const defaults = WEB_AGENT_DEFAULTS[serviceId] || WEB_AGENT_DEFAULTS.chatgpt;
+      const targetUrl = agentTarget.url || defaults.url;
+      const agentTitle = `${agentTarget.name || defaults.name} Agent`;
+
+      const isOpen = await isAgentWindowOpen(serviceId);
+      if (!isOpen) {
+        await spawnAgentWebview({
+          id: serviceId,
+          title: agentTitle,
+          url: targetUrl,
+          visible: false,
+        });
+        await new Promise((r) => setTimeout(r, 700));
+      }
+
+      await clearAgentMessage(serviceId);
+      const injectScript = buildPromptInjectionScript(promptText, runId, serviceId);
+      await evalAgentScript(serviceId, injectScript);
+      await new Promise((r) => setTimeout(r, 250));
+
+      let rawMsg = await getAgentMessage(serviceId);
+      let payload = rawMsg && typeof rawMsg === "string" ? JSON.parse(rawMsg) : rawMsg;
+      if (payload && payload.status === "needs_auth") {
+        return `🔒 Authentication required for ${agentTarget.name}. Please sign in to enable autonomous responses.`;
+      }
+
+      return new Promise((resolve) => {
+        let lastText = "";
+        let iterations = 0;
+        const maxIterations = 60;
+        const poll = setInterval(async () => {
+          iterations++;
+          await clearAgentMessage(serviceId);
+          const extractScript = buildResponseExtractScript(runId, serviceId);
+          await evalAgentScript(serviceId, extractScript);
+          await new Promise((r) => setTimeout(r, 100));
+
+          let extRaw = await getAgentMessage(serviceId);
+          let extPayload = extRaw && typeof extRaw === "string" ? JSON.parse(extRaw) : extRaw;
+
+          if (extPayload && extPayload.ok && typeof extPayload.text === "string") {
+            const currentText = extPayload.text.trim();
+            if (currentText) lastText = currentText;
+            if (!extPayload.streaming && currentText.length > 0 && iterations > 2) {
+              clearInterval(poll);
+              resolve(currentText);
+              return;
+            }
+          }
+
+          if (iterations >= maxIterations) {
+            clearInterval(poll);
+            resolve(lastText || "Response extracted from agent.");
+          }
+        }, 500);
+      });
+    }
+  }
+
+  // Fallback for Extension Tabs and Server Runs
+  const runTarget =
+    agentTarget.type === "tab"
+      ? { type: "extension", tabId: agentTarget.tabId, adapter: agentTarget.adapter || "auto" }
+      : { type: agentTarget.type || "web" };
+
+  try {
+    const res = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId,
+        prompt: promptText,
+        target: runTarget,
+      }),
+    });
+    if (res.ok) {
+      return `Turn dispatched to ${agentTarget.name}.`;
+    }
+    return `Dispatched turn to ${agentTarget.name}.`;
+  } catch (err) {
+    return `*(Turn dispatch error: ${err.message})*`;
+  }
+}
+
+async function startChannelAutonomousDebate({
+  channelId,
+  raw = "",
+  mentions = [],
+  topic = "",
+  maxRounds = 2,
+}) {
+  const contacts = getSlackContacts();
+  const debaterContacts = [];
+  for (const m of mentions) {
+    const contact = contacts.find(
+      (c) =>
+        c.handle.toLowerCase() === m ||
+        c.quirky?.toLowerCase() === m ||
+        c.category?.toLowerCase() === m ||
+        c.adapter.toLowerCase().includes(m) ||
+        c.id.toLowerCase() === m,
+    );
+    if (contact && !debaterContacts.some((dc) => dc.id === contact.id)) {
+      debaterContacts.push(contact);
+    }
+  }
+
+  if (debaterContacts.length < 2) {
+    for (const defId of ["chatgpt", "claude", "agy"]) {
+      if (!debaterContacts.some((c) => c.id === defId || c.adapter === defId)) {
+        const found = contacts.find(
+          (c) => c.id === defId || c.category === defId || c.adapter === defId,
+        );
+        if (found) debaterContacts.push(found);
+      }
+    }
+  }
+
+  let cleanTopic = topic;
+  if (!cleanTopic) {
+    cleanTopic = raw
+      .replace(/\/debate\s*/i, "")
+      .replace(/@([a-zA-Z0-9_-]+)/g, "")
+      .trim();
+  }
+  if (!cleanTopic) cleanTopic = "Autonomous multi-agent technical proposal and critique";
+
+  const initBoard = {
+    channel: channelId,
+    topic: cleanTopic,
+    status: "debating",
+    round: 1,
+    maxRounds: Math.min(3, Math.max(2, debaterContacts.length)),
+    participants: debaterContacts.map((c) => `@${c.handle}`),
+    turns: [],
+    consensus: "",
+    artifacts: [],
+  };
+  await saveChannelBlackboard(channelId, initBoard);
+  renderChannelBlackboardPane(channelId);
+
+  const targetKey = `channel_${channelId}`;
+  if (!chatMessages.has(targetKey)) chatMessages.set(targetKey, []);
+  const list = chatMessages.get(targetKey);
+
+  const bannerMsg = {
+    id: `msg_debate_${Date.now()}_init`,
+    author: "Debate Arena",
+    avatar: "⚡",
+    tag: "DEBATE",
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    text: `⚡ **Autonomous Multi-Agent Debate Initialized**\n\n🎯 **Goal:** ${cleanTopic}\n\n👥 **Pipeline:** ${debaterContacts.map((c, i) => `${i + 1}. **@${c.handle}** (${c.tag})`).join(" ➔ ")}\n\n*(Channel Blackboard updated. Turn 1 starting...)*`,
+    isUser: false,
+    isDebateBanner: true,
+  };
+  list.push(bannerMsg);
+  renderSlackMessages();
+  persistSlackMessage(bannerMsg);
+
+  let previousOutput = "";
+  let initialProposal = "";
+  const turns = [];
+
+  for (let idx = 0; idx < debaterContacts.length; idx++) {
+    const currentAgent = debaterContacts[idx];
+    const roundNumber = idx + 1;
+    const role =
+      idx === 0
+        ? "proposer"
+        : idx === debaterContacts.length - 1 && currentAgent.tag === "CLI"
+          ? "implementer"
+          : "critic";
+
+    const turnPrompt = buildDebateTurnPrompt({
+      topic: cleanTopic,
+      role,
+      roundNumber,
+      previousOutput,
+      initialProposal,
+    });
+
+    const typingBar = $("#slack-typing-bar");
+    const typingText = $("#slack-typing-text");
+    if (typingBar) typingBar.hidden = false;
+    if (typingText)
+      typingText.textContent = `Round ${roundNumber}: ${currentAgent.name} (${role}) is reasoning...`;
+
+    let turnResult = "";
+    try {
+      turnResult = await dispatchTurnToAgent(
+        currentAgent,
+        turnPrompt,
+        `debate_${channelId}_r${roundNumber}`,
+      );
+    } catch (err) {
+      turnResult = `*(failed to complete turn: ${err.message})*`;
+    }
+
+    if (typingBar) typingBar.hidden = true;
+    previousOutput = turnResult;
+    if (idx === 0) initialProposal = turnResult;
+
+    const turnRecord = {
+      round: roundNumber,
+      speaker: currentAgent.name,
+      avatar: currentAgent.avatar,
+      tag: currentAgent.tag,
+      role,
+      content: turnResult,
+      timestamp: Date.now(),
+    };
+    turns.push(turnRecord);
+    await saveChannelBlackboard(channelId, { round: roundNumber, turns });
+    renderChannelBlackboardPane(channelId);
+
+    const roleTitle =
+      role === "proposer"
+        ? "Proposal"
+        : role === "critic"
+          ? "Adversarial Critique & Refinement"
+          : "Implementation & Verification";
+
+    const turnMsg = {
+      id: `msg_debate_${Date.now()}_r${roundNumber}`,
+      author: currentAgent.name,
+      avatar: currentAgent.avatar,
+      tag: currentAgent.tag,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      text: `### Round ${roundNumber}: ${roleTitle}\n\n${turnResult}`,
+      isUser: false,
+      debateRole: role,
+    };
+    list.push(turnMsg);
+    renderSlackMessages();
+    persistSlackMessage(turnMsg);
+
+    await new Promise((r) => setTimeout(r, 600));
+  }
+
+  const artifacts = [];
+  for (const t of turns) {
+    if (typeof extractArtifactsFromText === "function") {
+      const harvested = extractArtifactsFromText(t.content);
+      if (Array.isArray(harvested)) {
+        for (const art of harvested) {
+          if (!artifacts.some((a) => a.filename === art.filename && a.content === art.content)) {
+            artifacts.push(art);
+          }
+        }
+      }
+    }
+  }
+
+  const consensusText = synthesizeDebateConsensus({
+    topic: cleanTopic,
+    turns,
+    artifacts,
+  });
+
+  await saveChannelBlackboard(channelId, {
+    status: "concluded",
+    consensus: consensusText,
+    artifacts: artifacts.map((a, i) => ({
+      id: `art_${i}`,
+      title: a.filename || `artifact_${i + 1}`,
+      type: a.language || "text",
+      content: a.content,
+    })),
+  });
+  renderChannelBlackboardPane(channelId);
+
+  const finalMsg = {
+    id: `msg_debate_${Date.now()}_verdict`,
+    author: "Debate Arena",
+    avatar: "🏆",
+    tag: "CONSENSUS",
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    text: `🏆 **Autonomous Debate Concluded · Consensus Reached**\n\n${consensusText}\n\n*(Artifacts are preserved in the Channel Blackboard drawer. Open 📋 Blackboard to review.)*`,
+    isUser: false,
+    isConsensus: true,
+  };
+  list.push(finalMsg);
+  renderSlackMessages();
+  persistSlackMessage(finalMsg);
+}
+
+function renderSlackCanvasArena(activeAgentId = "chatgpt") {
+  const arena = $("#slack-canvas-arena");
+  const display = $("#canvas-arena-display");
+  if (!arena || !display) return;
+
+  const defaults = WEB_AGENT_DEFAULTS[activeAgentId] || WEB_AGENT_DEFAULTS.chatgpt;
+  const isAuthed = agentAuthStates.get(activeAgentId);
+
+  document.querySelectorAll(".canvas-tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.agent === activeAgentId);
+  });
+
+  display.innerHTML = `
+    <div class="canvas-agent-card">
+      <div class="canvas-agent-head">
+        <div class="canvas-agent-title">
+          <span class="canvas-agent-avatar">${defaults.avatar || "🧠"}</span>
+          <div class="canvas-agent-info">
+            <h4>${esc(defaults.name)} Native Desktop Webview</h4>
+            <p>Full WebKit engine active. Supports native Canvas, Artifacts, Thinking blocks, and LaTeX without scraping.</p>
+          </div>
+        </div>
+        <span class="sheet-badge ${isAuthed ? "badge-success" : "badge-warning"}">
+          ${isAuthed ? "✓ Authenticated" : "🔑 Sign In Required"}
+        </span>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted); background:var(--bg-inset); padding:10px; border-radius:6px; border:1px solid var(--border);">
+        <strong>Direct Inter-Agent Relay:</strong> Outputs from this native session are automatically bridged to Channel Blackboard during autonomous debates.
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="primary tiny btn-arena-focus">🚀 Launch / Focus Native Window</button>
+        <button type="button" class="ghost tiny btn-arena-signin">🔑 Manage Sign-In</button>
+      </div>
+    </div>
+  `;
+
+  display.querySelector(".btn-arena-focus")?.addEventListener("click", async () => {
+    toast(`🚀 Launching / focusing native ${defaults.name} window...`);
+    await spawnAgentWebview({
+      id: activeAgentId,
+      title: `${defaults.name} · Native Canvas`,
+      url: defaults.url,
+      visible: true,
+    });
+    toggleAgentWebview(activeAgentId, true);
+  });
+
+  display.querySelector(".btn-arena-signin")?.addEventListener("click", async () => {
+    spawnAgentWebview({
+      id: activeAgentId,
+      title: `${defaults.name} · Session Authentication`,
+      url: defaults.url,
+      visible: true,
+    });
+    toggleAgentWebview(activeAgentId, true);
+  });
+}
+
 async function sendSlackMessage() {
   const input = $("#slack-input");
   if (!input) return;
@@ -2914,6 +3494,19 @@ async function sendSlackMessage() {
     const contacts = getSlackContacts();
     agentTarget = contacts.find((c) => c.id === currentChatTarget.id);
   } else {
+    // Channel-as-unified-message-passing: Autonomous Debate detection
+    const allMentions = parseDebateMentions(raw);
+    const isDebateCmd = isDebateTrigger(raw);
+
+    if (allMentions.length >= 2 || isDebateCmd) {
+      startChannelAutonomousDebate({
+        channelId: currentChatTarget.id,
+        raw,
+        mentions: allMentions,
+      });
+      return;
+    }
+
     const mentionMatch = raw.match(/^@([a-zA-Z0-9_-]+)\s*(.*)/);
     const contacts = getSlackContacts();
     if (mentionMatch) {
@@ -3506,6 +4099,17 @@ function setupSlackChat() {
   });
 
   $("#btn-chat-toggle-webview")?.addEventListener("click", async () => {
+    const arena = $("#slack-canvas-arena");
+    const feed = $("#slack-messages-feed");
+    if (arena && feed && currentChatTarget.type === "channel") {
+      arena.hidden = !arena.hidden;
+      feed.hidden = !arena.hidden;
+      if (!arena.hidden) {
+        renderSlackCanvasArena("chatgpt");
+        return;
+      }
+    }
+
     if (!isTauri()) {
       toast("🖥️ Live WebView window is available in standalone desktop mode (Tauri).");
       return;
@@ -3529,6 +4133,99 @@ function setupSlackChat() {
     const title = `${target?.name || agentId} · Melon Live WebView`;
     toast(`🖥️ Opening live WebView for ${target?.name || agentId}...`);
     await spawnAgentWebview({ id: agentId, title, url: targetUrl, visible: true });
+  });
+
+  document.querySelectorAll(".canvas-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      renderSlackCanvasArena(btn.dataset.agent);
+    });
+  });
+
+  $("#btn-canvas-close")?.addEventListener("click", () => {
+    const arena = $("#slack-canvas-arena");
+    const feed = $("#slack-messages-feed");
+    if (arena) arena.hidden = true;
+    if (feed) feed.hidden = false;
+  });
+
+  $("#btn-canvas-launch-focus")?.addEventListener("click", async () => {
+    const activeBtn = document.querySelector(".canvas-tab-btn.active");
+    const agentId = activeBtn?.dataset.agent || "chatgpt";
+    const defaults = WEB_AGENT_DEFAULTS[agentId] || WEB_AGENT_DEFAULTS.chatgpt;
+    toast(`🚀 Launching native ${defaults.name} window...`);
+    await spawnAgentWebview({
+      id: agentId,
+      title: `${defaults.name} · Native Canvas`,
+      url: defaults.url,
+      visible: true,
+    });
+    toggleAgentWebview(agentId, true);
+  });
+
+  $("#btn-canvas-extract")?.addEventListener("click", async () => {
+    const activeBtn = document.querySelector(".canvas-tab-btn.active");
+    const agentId = activeBtn?.dataset.agent || "chatgpt";
+    toast(`📥 Extracting snapshot from native ${agentId} to Blackboard...`);
+    await clearAgentMessage(agentId);
+    const script = buildResponseExtractScript(`extract_${Date.now()}`, agentId);
+    await evalAgentScript(agentId, script);
+    await new Promise((r) => setTimeout(r, 200));
+    const raw = await getAgentMessage(agentId);
+    const payload = raw && typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (payload && payload.ok && payload.text) {
+      await saveChannelBlackboard(currentChatTarget.id, {
+        artifacts: [
+          {
+            id: `snap_${Date.now()}`,
+            title: `${agentId}_snapshot.md`,
+            type: "markdown",
+            content: payload.text,
+          },
+        ],
+      });
+      renderChannelBlackboardPane(currentChatTarget.id);
+      toast(`✓ Stashed ${agentId} snapshot into Channel Blackboard!`);
+    } else {
+      toast(`No active generation found in ${agentId} window.`);
+    }
+  });
+
+  $("#btn-close-blackboard-pane")?.addEventListener("click", () => {
+    const pane = $("#channel-blackboard-pane");
+    if (pane) pane.hidden = true;
+  });
+
+  $("#btn-close-debate-modal")?.addEventListener("click", () => {
+    const modal = $("#modal-channel-debate");
+    if (modal) modal.hidden = true;
+  });
+
+  $("#btn-cancel-debate")?.addEventListener("click", () => {
+    const modal = $("#modal-channel-debate");
+    if (modal) modal.hidden = true;
+  });
+
+  $("#form-channel-debate")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const topic = $("#debate-topic-input")?.value.trim();
+    const checkedAgents = Array.from(
+      document.querySelectorAll('#debate-roster-select input[name="debate_agent"]:checked'),
+    ).map((el) => el.value);
+    const rounds = Number($("#debate-max-rounds")?.value || 2);
+    const modal = $("#modal-channel-debate");
+    if (modal) modal.hidden = true;
+
+    if (checkedAgents.length < 2) {
+      toast("Please select at least 2 participating agents for the debate.");
+      return;
+    }
+
+    startChannelAutonomousDebate({
+      channelId: currentChatTarget.id,
+      topic,
+      mentions: checkedAgents,
+      maxRounds: rounds,
+    });
   });
 
   $("#btn-chat-toggle-profile")?.addEventListener("click", () => {

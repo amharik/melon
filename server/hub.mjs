@@ -29,7 +29,7 @@ import { createAcpClient } from "./acp.mjs";
 import { createWorktreeManager } from "./worktrees.mjs";
 import { createSandbox } from "./sandbox.mjs";
 import { createTracer } from "./trace.mjs";
-import { readBlackboard } from "./blackboard.mjs";
+import { readBlackboard, getChannelBlackboard, updateChannelBlackboard } from "./blackboard.mjs";
 import { createMessageStore } from "./messages.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1640,7 +1640,21 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === "/api/blackboard" && req.method === "GET") {
-    return json(res, 200, { ok: true, ...readBlackboard({ file: BLACKBOARD_FILE }) });
+    const channel = url.searchParams.get("channel");
+    if (channel) {
+      return json(res, 200, getChannelBlackboard(channel));
+    }
+    return json(res, 200, readBlackboard({ file: BLACKBOARD_FILE }));
+  }
+
+  if (pathname === "/api/blackboard" && req.method === "POST") {
+    const body = await parseJson(req);
+    if (!body || typeof body !== "object") {
+      return json(res, 400, { ok: false, error: "invalid json payload" });
+    }
+    const channel = body.channel || url.searchParams.get("channel") || "general-war-room";
+    const result = updateChannelBlackboard(channel, body);
+    return json(res, 200, result);
   }
 
   const screenshotMatch = pathname.match(/^\/api\/tabs\/([^/]+)\/screenshot$/);

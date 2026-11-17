@@ -303,6 +303,8 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <p id="slack-current-desc">Central company workspace: all tab agents and CLI subprocesses collaborate here.</p>
             </div>
             <div class="slack-header-actions">
+              <button type="button" class="tiny ghost" id="btn-channel-start-debate" title="Launch Autonomous Multi-Agent Debate in this Channel">⚡ Debate</button>
+              <button type="button" class="tiny ghost" id="btn-toggle-blackboard" title="Toggle Channel-Scoped Blackboard & Consensus Drawer">📋 Blackboard</button>
               <button type="button" class="tiny ghost" id="btn-chat-authorize" title="Sign in or authorize web agent session" hidden>🔑 Sign In</button>
               <button type="button" class="tiny ghost" id="btn-chat-toggle-webview" title="Open or toggle live AI agent WebView window">🖥️ Live View</button>
               <button type="button" class="tiny ghost" id="btn-chat-toggle-profile" title="Toggle Agent Persona & Details Inspector">ℹ️ Details</button>
@@ -318,6 +320,23 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
               <button type="button" class="tiny ghost" id="btn-chat-clear" title="Clear message feed">✕ Clear</button>
             </div>
           </header>
+
+          <div class="slack-canvas-arena" id="slack-canvas-arena" hidden>
+            <div class="canvas-arena-bar">
+              <div class="canvas-agent-tabs" id="canvas-agent-tabs">
+                <button type="button" class="canvas-tab-btn active" data-agent="chatgpt">🧠 ChatGPT</button>
+                <button type="button" class="canvas-tab-btn" data-agent="claude">🤖 Claude</button>
+                <button type="button" class="canvas-tab-btn" data-agent="gemini">⚡ Gemini</button>
+                <button type="button" class="canvas-tab-btn" data-agent="agy">💻 Agy (CLI)</button>
+              </div>
+              <div class="canvas-arena-actions">
+                <button type="button" class="tiny primary" id="btn-canvas-launch-focus">🚀 Launch / Focus</button>
+                <button type="button" class="tiny ghost" id="btn-canvas-extract">📥 Extract to Blackboard</button>
+                <button type="button" class="tiny ghost" id="btn-canvas-close">✕ Back to Feed</button>
+              </div>
+            </div>
+            <div class="canvas-arena-display" id="canvas-arena-display"></div>
+          </div>
 
           <div class="slack-messages-feed" id="slack-messages-feed">
             <!-- Messages stream dynamically -->
@@ -438,6 +457,23 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           </div>
           <div class="slack-profile-body" id="slack-profile-body">
             <!-- Populated with active agent profile -->
+          </div>
+        </aside>
+
+        <!-- Channel-Scoped Blackboard & Consensus Drawer (Collapsible) -->
+        <aside class="slack-profile-pane channel-blackboard-pane" id="channel-blackboard-pane" hidden>
+          <div class="slack-profile-head">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:15px;">📋</span>
+              <h4 id="blackboard-channel-title">Channel Blackboard</h4>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span class="sheet-badge" id="blackboard-status-badge">Idle</span>
+              <button type="button" class="tiny ghost" id="btn-close-blackboard-pane">✕</button>
+            </div>
+          </div>
+          <div class="slack-profile-body" id="channel-blackboard-body">
+            <!-- Populated dynamically with channel topic, rounds, debate turns, consensus & artifacts -->
           </div>
         </aside>
 
@@ -925,6 +961,58 @@ We are exploring a lightweight runtime that lets AI agents living in separate br
           <button type="button" class="ghost" id="btn-forward-quote">Quote in Current Composer</button>
           <button type="button" class="ghost" id="btn-cancel-forward">Cancel</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Modal: Start Autonomous Multi-Agent Debate -->
+    <div class="modal-backdrop" id="modal-channel-debate" hidden>
+      <div class="modal-card modal-debate-card" role="dialog" aria-modal="true" aria-labelledby="modal-debate-title">
+        <div class="modal-head">
+          <div>
+            <h3 id="modal-debate-title">⚡ Autonomous Multi-Agent Debate</h3>
+            <p class="modal-sub">Run autonomous turn-taking debate and synthesis between web and CLI agents in this channel.</p>
+          </div>
+          <button type="button" class="ghost tiny btn-close-modal" id="btn-close-debate-modal">✕</button>
+        </div>
+        <form id="form-channel-debate" class="modal-body">
+          <div class="field-row" style="margin-bottom:12px;">
+            <label for="debate-topic-input" style="display:block; font-weight:600; margin-bottom:4px; font-size:12px;">Debate Topic / Problem Statement</label>
+            <textarea id="debate-topic-input" rows="3" style="width:100%; border-radius:6px; padding:8px; font-size:13px; font-family:inherit; background:var(--bg-inset); color:var(--text-main); border:1px solid var(--border);" placeholder="e.g. Propose auth architecture: JWT vs opaque sessions, compare scalability and security..." required></textarea>
+          </div>
+          <div class="field-row" style="margin-bottom:12px;">
+            <label style="display:block; font-weight:600; margin-bottom:4px; font-size:12px;">Participating Debaters (in turn order)</label>
+            <div class="debate-roster-select" id="debate-roster-select" style="display:flex; flex-direction:column; gap:6px; background:var(--bg-inset); padding:8px 12px; border-radius:6px; border:1px solid var(--border);">
+              <label class="debate-agent-checkbox" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12.5px;">
+                <input type="checkbox" name="debate_agent" value="chatgpt" checked />
+                <span>🧠 <b>ChatGPT</b> <span style="color:var(--text-muted); font-size:11px;">(Lead Architect / Proposer)</span></span>
+              </label>
+              <label class="debate-agent-checkbox" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12.5px;">
+                <input type="checkbox" name="debate_agent" value="claude" checked />
+                <span>🤖 <b>Claude</b> <span style="color:var(--text-muted); font-size:11px;">(Adversarial Critic / Reviewer)</span></span>
+              </label>
+              <label class="debate-agent-checkbox" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12.5px;">
+                <input type="checkbox" name="debate_agent" value="gemini" />
+                <span>⚡ <b>Gemini</b> <span style="color:var(--text-muted); font-size:11px;">(Data &amp; Scale Specialist)</span></span>
+              </label>
+              <label class="debate-agent-checkbox" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12.5px;">
+                <input type="checkbox" name="debate_agent" value="agy" checked />
+                <span>💻 <b>Agy / CLI</b> <span style="color:var(--text-muted); font-size:11px;">(Lead Implementer &amp; Verifier)</span></span>
+              </label>
+            </div>
+          </div>
+          <div class="field-row" style="margin-bottom:12px;">
+            <label for="debate-max-rounds" style="display:block; font-weight:600; margin-bottom:4px; font-size:12px;">Rounds of Debate</label>
+            <select id="debate-max-rounds" style="width:100%; border-radius:6px; padding:6px; background:var(--bg-inset); color:var(--text-main); border:1px solid var(--border);">
+              <option value="1">1 Round (Fast Proposal + Implementation)</option>
+              <option value="2" selected>2 Rounds (Proposal ➔ Critique ➔ Implementation)</option>
+              <option value="3">3 Rounds (Deep Adversarial Stress-Test)</option>
+            </select>
+          </div>
+          <div class="modal-foot" style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="ghost" id="btn-cancel-debate">Cancel</button>
+            <button type="submit" class="primary" id="btn-submit-debate">🚀 Start Autonomous Debate</button>
+          </div>
+        </form>
       </div>
     </div>
 
